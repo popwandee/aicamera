@@ -95,48 +95,101 @@ def run_metadata_sender():
             logging.error(f"Error in metadata sender thread: {e}")
             time.sleep(1)
 
-def start_threads():
-    """Starts the background detection and sender threads."""
-    global detection_thread, sender_thread, monitor_thread,metadata_thread
-   
-    # Start Metadata Sender Thread
-    if metadata_thread and metadata_thread.is_alive():
-        logger.info("Metadata sender thread already running.")
-    else:
-        logger.info("Starting metadata sender thread...")
-        metadata_thread = threading.Thread(target=run_metadata_sender, daemon=True)
-        metadata_thread.start()
-        logger.info("Metadata sender thread started.")
-
-    # Start Detection Thread
+def start_detection_thread():
+    """Start detection thread only."""
+    global detection_thread
+    
     if detection_thread and detection_thread.is_alive():
         logger.info("Detection thread already running.")
-    else:
-        logger.info("Starting detection thread...")
-        last_props = camera_handler.get_latest_camera_properties()
+        return True
+    
+    try:
         detection_thread = threading.Thread(target=run_detection_processor, daemon=True)
         detection_thread.start()
-        logger.info("Detection thread started.")
+        # Wait a moment to ensure thread starts properly
+        time.sleep(1)
+        if detection_thread.is_alive():
+            return True
+        else:
+            raise Exception("Detection thread failed to start")
+    except Exception as e:
+        logger.error(f"Failed to start detection thread: {e}")
+        return False
 
-    # Start WebSocket sender Thread
+def start_health_monitor_thread():
+    """Start health monitor thread only."""
+    global monitor_thread
+    
+    if monitor_thread and monitor_thread.is_alive():
+        logger.info("Health monitor thread already running.")
+        return True
+    
+    try:
+        monitor_thread = threading.Thread(target=run_health_monitor, daemon=True)
+        monitor_thread.start()
+        # Wait a moment to ensure thread starts properly
+        time.sleep(1)
+        if monitor_thread.is_alive():
+            return True
+        else:
+            raise Exception("Health monitor thread failed to start")
+    except Exception as e:
+        logger.error(f"Failed to start health monitor thread: {e}")
+        return False
+
+def start_websocket_sender_thread():
+    """Start WebSocket sender thread only."""
+    global sender_thread
+    
     if sender_thread and sender_thread.is_alive():
-        logger.info("Sender thread already running.")
-    else:
-        logger.info("Starting WebSocket sender thread...")
+        logger.info("WebSocket sender thread already running.")
+        return True
+    
+    try:
         # Create a new event loop for the async client in this thread
         new_loop = asyncio.new_event_loop()
         sender_thread = threading.Thread(target=run_websocket_client_async_loop, args=(new_loop,), daemon=True)
         sender_thread.start()
-        logger.info("WebSocket sender thread started.")
+        # Wait a moment to ensure thread starts properly
+        time.sleep(1)
+        if sender_thread.is_alive():
+            return True
+        else:
+            raise Exception("WebSocket sender thread failed to start")
+    except Exception as e:
+        logger.error(f"Failed to start WebSocket sender thread: {e}")
+        return False
 
-    # Start Health Monitor Thread
-    if monitor_thread and monitor_thread.is_alive():
-        logger.info("Health monitor thread already running.")
-    else:
-        logger.info("Starting health monitor thread...")
-        monitor_thread = threading.Thread(target=run_health_monitor, daemon=True)
-        monitor_thread.start()
-        logger.info("Health monitor thread started.")
+def start_metadata_sender_thread():
+    """Start metadata sender thread only."""
+    global metadata_thread
+    
+    if metadata_thread and metadata_thread.is_alive():
+        logger.info("Metadata sender thread already running.")
+        return True
+    
+    try:
+        metadata_thread = threading.Thread(target=run_metadata_sender, daemon=True)
+        metadata_thread.start()
+        # Wait a moment to ensure thread starts properly
+        time.sleep(1)
+        if metadata_thread.is_alive():
+            return True
+        else:
+            raise Exception("Metadata sender thread failed to start")
+    except Exception as e:
+        logger.error(f"Failed to start metadata sender thread: {e}")
+        return False
+
+def start_threads():
+    """Starts all background threads (legacy function for compatibility)."""
+    global detection_thread, sender_thread, monitor_thread, metadata_thread
+    
+    # Start all threads in sequence
+    start_metadata_sender_thread()
+    start_detection_thread()
+    start_websocket_sender_thread()
+    start_health_monitor_thread()
 
 def stop_threads():
     """Signals background threads to stop and waits for them."""
@@ -301,30 +354,63 @@ def shutdown_system():
 # --- Application Startup and Shutdown ---
 
 def startup():
-    """Initialize camera and start threads immediately on app start."""
-    logger.info("Setting up application: Initializing camera and starting background threads.")
-    # 1. Initialize camera with default settings or last saved if any (CameraHandler will manage this)
-    if not camera_handler.is_initialized:
-        camera_handler.initialize_camera(
-            resolution=DEFAULT_RESOLUTION,
-            framerate=DEFAULT_FRAMERATE,
-            brightness=DEFAULT_BRIGHTNESS,
-            contrast=DEFAULT_CONTRAST,
-            saturation=DEFAULT_SATURATION,
-            sharpness=DEFAULT_SHARPNESS,
-            awb_mode=DEFAULT_AWB_MODE
-        )
-    # 2. Run health check
-    health_monitor.run_all_checks()
-    # 3. Start threads 
-    start_threads()
-    # Startup sequence following lines 1233-1228 (reverse order)
-    logger.info("🎉 Application startup complete - Auto-start enabled:")
-    logger.info("   5. ✅ WebSocket sender active")
-    logger.info("   4. ✅ Health monitoring active")
-    logger.info("   3. ✅ Detection active")
-    logger.info("   2. ✅ Camera initialization and streaming")
-    logger.info("   1. ✅ Database initialized")
+    """Initialize application components in correct order."""
+    logger.info("🚀 Starting AI Camera Application - Sequential Initialization")
+    logger.info("=" * 60)
+    
+    # Step 1: Database initialization (already done by Flask/SQLite)
+    logger.info("1. ✅ Database initialized - Ready for operations")
+    
+    # Step 2: Camera initialization and streaming
+    logger.info("2. 🎥 Initializing camera and streaming...")
+    try:
+        if not camera_handler.is_initialized:
+            camera_handler.initialize_camera(
+                resolution=DEFAULT_RESOLUTION,
+                framerate=DEFAULT_FRAMERATE,
+                brightness=DEFAULT_BRIGHTNESS,
+                contrast=DEFAULT_CONTRAST,
+                saturation=DEFAULT_SATURATION,
+                sharpness=DEFAULT_SHARPNESS,
+                awb_mode=DEFAULT_AWB_MODE
+            )
+        logger.info("2. ✅ Camera initialization and streaming - Active")
+    except Exception as e:
+        logger.error(f"2. ❌ Camera initialization failed: {e}")
+        return False
+    
+    # Step 3: Detection thread
+    logger.info("3. 🔍 Starting detection thread...")
+    try:
+        start_detection_thread()
+        logger.info("3. ✅ Detection active - Processing frames")
+    except Exception as e:
+        logger.error(f"3. ❌ Detection thread failed: {e}")
+        return False
+    
+    # Step 4: Health monitoring
+    logger.info("4. 🏥 Starting health monitoring...")
+    try:
+        start_health_monitor_thread()
+        logger.info("4. ✅ Health monitoring active - System monitoring")
+    except Exception as e:
+        logger.error(f"4. ❌ Health monitoring failed: {e}")
+        return False
+    
+    # Step 5: WebSocket sender (last)
+    logger.info("5. 📡 Starting WebSocket sender...")
+    try:
+        start_websocket_sender_thread()
+        start_metadata_sender_thread()
+        logger.info("5. ✅ WebSocket sender active - Data transmission ready")
+    except Exception as e:
+        logger.error(f"5. ❌ WebSocket sender failed: {e}")
+        return False
+    
+    logger.info("=" * 60)
+    logger.info("🎉 Application startup complete - All systems operational!")
+    logger.info("=" * 60)
+    return True
 
 @app.teardown_appcontext
 def shutdown_application(exception=None):
