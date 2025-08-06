@@ -51,6 +51,57 @@
         .health-status-table th {
             background-color: #f2f2f2;
         }
+        
+        /* Shutdown Menu Modal Styles */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.5);
+        }
+        .modal-content {
+            background-color: #fefefe;
+            margin: 15% auto;
+            padding: 20px;
+            border: 1px solid #888;
+            border-radius: 8px;
+            width: 80%;
+            max-width: 600px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+        }
+        .close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .close:hover, .close:focus {
+            color: black;
+            text-decoration: none;
+        }
+        .shutdown-option {
+            display: block;
+            width: 100%;
+            margin: 10px 0;
+            padding: 15px;
+            font-size: 16px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            text-align: left;
+        }
+        .shutdown-option:hover {
+            opacity: 0.8;
+        }
+        .btn-warning { background-color: #ffc107; color: #212529; }
+        .btn-danger { background-color: #dc3545; color: white; }
+        .btn-info { background-color: #17a2b8; color: white; }
         .status-PASS { color: green; font-weight: bold; }
         .status-FAIL { color: red; font-weight: bold; }
         /* CSS เพื่อจัดรูปแบบส่วนแสดงผล Metadata */
@@ -148,9 +199,7 @@
         <div class="button-group">
             <button type="submit">Apply Settings & Restart</button>
             <button type="button" id="close-camera-btn" class="btn btn-danger">Close Camera</button>
-            <button type="button" id="reset-camera-btn" class="btn btn-danger">Reset Camera</button>
-            <button type="button" id="close-app-btn" class="btn btn-danger">Close Application</button>
-            <button type="button" id="shutdown-btn" class="btn btn-danger">Shutdown</button>
+            <button type="button" id="shutdown-menu-btn" class="btn btn-warning">🛑 System Shutdown Menu</button>
         </div>
         </form>
     </div>
@@ -184,6 +233,36 @@
             </tbody>
         </table>
     </div>
+
+    <!-- Shutdown Menu Modal -->
+    <div id="shutdownModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>🛑 System Shutdown Menu</h2>
+            <p>Choose a shutdown option:</p>
+            
+            <button class="shutdown-option btn-info" onclick="closeCamera()">
+                📷 Close Camera Only
+                <br><small>Stops camera and detection but keeps web interface running</small>
+            </button>
+            
+            <button class="shutdown-option btn-warning" onclick="gracefulShutdown()">
+                🔄 Graceful System Shutdown
+                <br><small>Stops all services gracefully and releases resources</small>
+            </button>
+            
+            <button class="shutdown-option btn-danger" onclick="forceShutdown()">
+                ⚡ Force Shutdown
+                <br><small>Immediately terminates all processes (emergency only)</small>
+            </button>
+            
+            <button class="shutdown-option" onclick="closeModal()" style="background-color: #6c757d; color: white;">
+                ❌ Cancel
+                <br><small>Return to main interface</small>
+            </button>
+        </div>
+    </div>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <script>
 
@@ -208,6 +287,81 @@
                     });
             }
         });
+
+        // Shutdown Menu Modal Functions
+        const modal = document.getElementById('shutdownModal');
+        const shutdownBtn = document.getElementById('shutdown-menu-btn');
+        const closeBtn = document.getElementsByClassName('close')[0];
+
+        shutdownBtn.onclick = function() {
+            modal.style.display = 'block';
+        }
+
+        closeBtn.onclick = function() {
+            modal.style.display = 'none';
+        }
+
+        window.onclick = function(event) {
+            if (event.target == modal) {
+                modal.style.display = 'none';
+            }
+        }
+
+        function closeModal() {
+            modal.style.display = 'none';
+        }
+
+        function closeCamera() {
+            if (confirm('Close camera only? This will stop detection and streaming but keep the web interface running.')) {
+                fetch('/close_camera', { method: 'POST' })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            alert('✅ Camera closed successfully!');
+                            document.getElementById('video-feed').src = '';
+                            document.getElementById('video-feed').alt = 'Camera is closed.';
+                        } else {
+                            alert('❌ Error closing camera: ' + data.message);
+                        }
+                        closeModal();
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        alert('❌ An error occurred while trying to close the camera.');
+                        closeModal();
+                    });
+            }
+        }
+
+        function gracefulShutdown() {
+            if (confirm('⚠️ Perform graceful system shutdown? This will stop all services and release all resources.')) {
+                fetch('/shutdown_system', { method: 'POST' })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            alert('✅ System shutdown complete! All services stopped and resources released.');
+                            document.getElementById('video-feed').src = '';
+                            document.getElementById('video-feed').alt = 'System is shutdown.';
+                        } else {
+                            alert('❌ Error during shutdown: ' + data.message);
+                        }
+                        closeModal();
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        alert('❌ An error occurred during system shutdown.');
+                        closeModal();
+                    });
+            }
+        }
+
+        function forceShutdown() {
+            if (confirm('🚨 FORCE SHUTDOWN WARNING! This will immediately terminate all processes. Use only in emergencies. Are you absolutely sure?')) {
+                // This would call the external shutdown script
+                alert('⚡ Force shutdown would be executed via external script. This is a web interface limitation.');
+                closeModal();
+            }
+        }
 
         // เชื่อมต่อ WebSocket และรับข้อมูล Metadata
         var socket = io();
