@@ -98,7 +98,6 @@ def run_metadata_sender():
 def start_threads():
     """Starts the background detection and sender threads."""
     global detection_thread, sender_thread, monitor_thread,metadata_thread
-<<<
    
     # Start Metadata Sender Thread
     if metadata_thread and metadata_thread.is_alive():
@@ -265,6 +264,39 @@ def close_camera():
     except Exception as e:
         logger.error(f"Failed to close camera: {e}")
         return jsonify({'status': 'error', 'message': str(e)})
+
+@app.route('/shutdown_system', methods=['POST'])
+def shutdown_system():
+    """
+    Gracefully shuts down the entire system and stops all services.
+    """
+    try:
+        logger.info("🛑 Received request to shutdown system. Stopping all services...")
+        
+        # Stop all background threads
+        stop_threads()
+        
+        # Close camera
+        camera_handler.close_camera()
+        
+        # Clear queues
+        while not frames_queue.empty():
+            frames_queue.get()
+        while not metadata_queue.empty():
+            metadata_queue.get()
+        
+        # Close database connection
+        db_manager.close_connection()
+        
+        logger.info("✅ System shutdown complete")
+        
+        return jsonify({
+            'status': 'success', 
+            'message': 'System shutdown successfully. All services stopped and resources released.'
+        })
+    except Exception as e:
+        logger.error(f"Failed to shutdown system: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
     
 # --- Application Startup and Shutdown ---
 
@@ -286,7 +318,12 @@ def startup():
     health_monitor.run_all_checks()
     # 3. Start threads 
     start_threads()
-    logger.info("Application setup complete.")
+    logger.info("🎉 Application startup complete - Auto-start enabled:")
+    logger.info("   1. ✅ Database initialized")
+    logger.info("   2. ✅ Camera initialization and streaming")
+    logger.info("   3. ✅ Detection active")
+    logger.info("   4. ✅ Health monitoring active")
+    logger.info("   5. ✅ WebSocket sender active")
 
 @app.teardown_appcontext
 def shutdown_application(exception=None):
