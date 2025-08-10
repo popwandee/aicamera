@@ -97,7 +97,10 @@ class DatabaseManager:
                     vehicle_detections TEXT,
                     plate_detections TEXT,
                     processing_time_ms REAL,
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    sent_to_server BOOLEAN DEFAULT 0,
+                    sent_at DATETIME,
+                    server_response TEXT
                 )
             """)
             
@@ -129,6 +132,24 @@ class DatabaseManager:
                     status TEXT NOT NULL,
                     message TEXT,
                     details TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    sent_to_server BOOLEAN DEFAULT 0,
+                    sent_at DATETIME,
+                    server_response TEXT
+                )
+            """)
+            
+            # WebSocket sender logs table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS websocket_sender_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    message TEXT,
+                    data_type TEXT,
+                    record_count INTEGER DEFAULT 0,
+                    server_response TEXT,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
             """)
@@ -647,6 +668,242 @@ class DatabaseManager:
             
         except Exception as e:
             self.logger.error(f"Error getting latest health checks: {e}")
+            return []
+    
+    def get_unsent_detection_results(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """
+        Get detection results that haven't been sent to server yet.
+        
+        Args:
+            limit: Maximum number of results to retrieve
+            
+        Returns:
+            List[Dict[str, Any]]: List of unsent detection results
+        """
+        try:
+            if not self.connection:
+                return []
+            
+            cursor = self.connection.cursor()
+            cursor.execute("""
+                SELECT id, timestamp, vehicles_count, plates_count, ocr_results,
+                       annotated_image_path, cropped_plates_paths, vehicle_detections,
+                       plate_detections, processing_time_ms, created_at
+                FROM detection_results
+                WHERE sent_to_server = 0
+                ORDER BY created_at ASC
+                LIMIT ?
+            """, (limit,))
+            
+            rows = cursor.fetchall()
+            results = []
+            
+            for row in rows:
+                result = {
+                    'id': row[0],
+                    'timestamp': row[1],
+                    'vehicles_count': row[2],
+                    'plates_count': row[3],
+                    'ocr_results': row[4],
+                    'annotated_image_path': row[5],
+                    'cropped_plates_paths': row[6],
+                    'vehicle_detections': row[7],
+                    'plate_detections': row[8],
+                    'processing_time_ms': row[9],
+                    'created_at': row[10]
+                }
+                results.append(result)
+            
+            return results
+            
+        except Exception as e:
+            self.logger.error(f"Error getting unsent detection results: {e}")
+            return []
+    
+    def get_unsent_health_checks(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """
+        Get health check results that haven't been sent to server yet.
+        
+        Args:
+            limit: Maximum number of results to retrieve
+            
+        Returns:
+            List[Dict[str, Any]]: List of unsent health checks
+        """
+        try:
+            if not self.connection:
+                return []
+            
+            cursor = self.connection.cursor()
+            cursor.execute("""
+                SELECT id, timestamp, component, status, message, details, created_at
+                FROM health_checks
+                WHERE sent_to_server = 0
+                ORDER BY created_at ASC
+                LIMIT ?
+            """, (limit,))
+            
+            rows = cursor.fetchall()
+            results = []
+            
+            for row in rows:
+                result = {
+                    'id': row[0],
+                    'timestamp': row[1],
+                    'component': row[2],
+                    'status': row[3],
+                    'message': row[4],
+                    'details': row[5],
+                    'created_at': row[6]
+                }
+                results.append(result)
+            
+            return results
+            
+        except Exception as e:
+            self.logger.error(f"Error getting unsent health checks: {e}")
+            return []
+    
+    def mark_detection_result_sent(self, record_id: int, server_response: str = None) -> bool:
+        """
+        Mark a detection result as sent to server.
+        
+        Args:
+            record_id: ID of the detection result record
+            server_response: Server response text (optional)
+            
+        Returns:
+            bool: True if update successful, False otherwise
+        """
+        try:
+            if not self.connection:
+                return False
+            
+            cursor = self.connection.cursor()
+            cursor.execute("""
+                UPDATE detection_results
+                SET sent_to_server = 1, sent_at = CURRENT_TIMESTAMP, server_response = ?
+                WHERE id = ?
+            """, (server_response, record_id))
+            
+            self.connection.commit()
+            self.logger.debug(f"Detection result {record_id} marked as sent")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error marking detection result as sent: {e}")
+            return False
+    
+    def mark_health_check_sent(self, record_id: int, server_response: str = None) -> bool:
+        """
+        Mark a health check as sent to server.
+        
+        Args:
+            record_id: ID of the health check record
+            server_response: Server response text (optional)
+            
+        Returns:
+            bool: True if update successful, False otherwise
+        """
+        try:
+            if not self.connection:
+                return False
+            
+            cursor = self.connection.cursor()
+            cursor.execute("""
+                UPDATE health_checks
+                SET sent_to_server = 1, sent_at = CURRENT_TIMESTAMP, server_response = ?
+                WHERE id = ?
+            """, (server_response, record_id))
+            
+            self.connection.commit()
+            self.logger.debug(f"Health check {record_id} marked as sent")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error marking health check as sent: {e}")
+            return False
+    
+    def log_websocket_action(self, action: str, status: str, message: str = None, 
+                           data_type: str = None, record_count: int = 0, 
+                           server_response: str = None) -> Optional[int]:
+        """
+        Log WebSocket sender action to database.
+        
+        Args:
+            action: Action performed ('connect', 'disconnect', 'send_detection', 'send_health')
+            status: Status of action ('success', 'failed', 'no_data')
+            message: Log message
+            data_type: Type of data being processed
+            record_count: Number of records processed
+            server_response: Server response text
+            
+        Returns:
+            Optional[int]: ID of inserted log record, None if failed
+        """
+        try:
+            if not self.connection:
+                return None
+            
+            timestamp = datetime.now().isoformat()
+            cursor = self.connection.cursor()
+            cursor.execute("""
+                INSERT INTO websocket_sender_logs 
+                (timestamp, action, status, message, data_type, record_count, server_response)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (timestamp, action, status, message, data_type, record_count, server_response))
+            
+            self.connection.commit()
+            record_id = cursor.lastrowid
+            
+            self.logger.debug(f"WebSocket action logged: {action} - {status}")
+            return record_id
+            
+        except Exception as e:
+            self.logger.error(f"Error logging WebSocket action: {e}")
+            return None
+    
+    def get_websocket_sender_logs(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """
+        Get WebSocket sender logs.
+        
+        Args:
+            limit: Maximum number of logs to retrieve
+            
+        Returns:
+            List[Dict[str, Any]]: List of WebSocket sender logs
+        """
+        try:
+            if not self.connection:
+                return []
+            
+            cursor = self.connection.cursor()
+            cursor.execute("""
+                SELECT timestamp, action, status, message, data_type, record_count, server_response
+                FROM websocket_sender_logs
+                ORDER BY created_at DESC
+                LIMIT ?
+            """, (limit,))
+            
+            rows = cursor.fetchall()
+            results = []
+            
+            for row in rows:
+                result = {
+                    'timestamp': row[0],
+                    'action': row[1],
+                    'status': row[2],
+                    'message': row[3],
+                    'data_type': row[4],
+                    'record_count': row[5],
+                    'server_response': row[6]
+                }
+                results.append(result)
+            
+            return results
+            
+        except Exception as e:
+            self.logger.error(f"Error getting WebSocket sender logs: {e}")
             return []
     
     def cleanup(self):

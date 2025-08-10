@@ -28,8 +28,8 @@ from v1_3.src.core.utils.logging_config import setup_logging, get_logger
 from v1_3.src.core.dependency_container import get_container, get_service
 from v1_3.src.web.blueprints import register_blueprints
 from v1_3.src.core.config import (
-    AUTO_START_CAMERA, AUTO_START_DETECTION, AUTO_START_HEALTH_MONITOR,
-    STARTUP_DELAY, HEALTH_MONITOR_STARTUP_DELAY
+    AUTO_START_CAMERA, AUTO_START_DETECTION, AUTO_START_HEALTH_MONITOR, AUTO_START_WEBSOCKET_SENDER,
+    STARTUP_DELAY, HEALTH_MONITOR_STARTUP_DELAY, WEBSOCKET_SENDER_STARTUP_DELAY
 )
 
 
@@ -41,6 +41,7 @@ def _initialize_services(logger):
     1. Initialize camera manager (auto-starts camera if enabled)
     2. Initialize detection manager (auto-starts detection if enabled)
     3. Initialize health monitor (auto-starts monitoring when camera and detection are ready)
+    4. Initialize WebSocket sender (auto-starts when health monitor is ready)
     
     Args:
         logger: Logger instance
@@ -121,6 +122,37 @@ def _initialize_services(logger):
             
     except Exception as e:
         logger.warning(f"⚠️  Health services initialization: {e}")
+    
+    # Step 4: Initialize WebSocket Sender (will auto-start when enabled)
+    try:
+        logger.info("📡 Step 4: Initializing WebSocket Sender...")
+        
+        websocket_sender = get_service('websocket_sender')
+        if websocket_sender:
+            logger.info("✅ WebSocket Sender available")
+            if websocket_sender.initialize():
+                logger.info("✅ WebSocket Sender initialized successfully")
+                
+                # Set up auto-start if enabled
+                if AUTO_START_WEBSOCKET_SENDER:
+                    logger.info("📤 WebSocket Sender auto-start enabled - starting service...")
+                    # Add delay before starting WebSocket sender
+                    import time
+                    time.sleep(WEBSOCKET_SENDER_STARTUP_DELAY)
+                    
+                    if websocket_sender.start():
+                        logger.info("✅ WebSocket Sender started successfully")
+                    else:
+                        logger.error("❌ WebSocket Sender failed to start")
+                else:
+                    logger.info("📤 WebSocket Sender auto-start disabled")
+            else:
+                logger.error("❌ WebSocket Sender initialization failed")
+        else:
+            logger.warning("⚠️  WebSocket Sender service not available")
+            
+    except Exception as e:
+        logger.warning(f"⚠️  WebSocket Sender initialization: {e}")
     
     logger.info("🎉 Service initialization sequence completed!")
     return True

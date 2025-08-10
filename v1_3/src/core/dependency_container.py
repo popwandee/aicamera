@@ -145,7 +145,7 @@ class DependencyContainer:
             self.register_service('websocket_sender', WebSocketSender, 
                                 singleton=True,
                                 factory=create_websocket_sender,
-                                dependencies={'logger': 'logger'})
+                                dependencies={'database_manager': 'database_manager', 'logger': 'logger'})
         except ImportError:
             self.logger.warning("WebSocketSender not available")
         

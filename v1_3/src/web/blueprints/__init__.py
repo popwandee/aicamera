@@ -13,6 +13,7 @@ Blueprints:
 - streaming: Video streaming functionality
 - health: System health monitoring
 - websocket: WebSocket communication
+- websocket_sender: WebSocket sender management and server communication
 
 Author: AI Camera Team
 Version: 1.3
@@ -30,6 +31,7 @@ from v1_3.src.web.blueprints.streaming import streaming_bp
 from v1_3.src.web.blueprints.detection import detection_bp, register_detection_events
 from v1_3.src.web.blueprints.detection_results import detection_results_bp
 from v1_3.src.web.blueprints.websocket import websocket_bp
+from v1_3.src.web.blueprints.websocket_sender import websocket_sender_bp, register_websocket_sender_events
 
 
 def register_blueprints(app: Flask, socketio: SocketIO):
@@ -48,12 +50,12 @@ def register_blueprints(app: Flask, socketio: SocketIO):
     app.register_blueprint(detection_bp)
     app.register_blueprint(detection_results_bp)
     app.register_blueprint(websocket_bp)
+    app.register_blueprint(websocket_sender_bp)
     
     # Register WebSocket events
     register_main_events(socketio)
     register_camera_events(socketio)
     register_detection_events(socketio)
-    
-    # Register other WebSocket events here
     register_health_events(socketio)
+    register_websocket_sender_events(socketio)
     # register_streaming_events(socketio)

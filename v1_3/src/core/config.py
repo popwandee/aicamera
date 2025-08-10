@@ -59,17 +59,26 @@ PLATE_CONFIDENCE_THRESHOLD = float( 0.3)
 
 # Threading intervals (in seconds)
 SENDER_INTERVAL = 60.0    # How often the sender thread checks for new detections (1 minute)
+HEALTH_SENDER_INTERVAL = 300.0  # How often health status is sent to server (5 minutes)
 
 # Health monitoring interval (in seconds, 3600 seconds = 1 hour)
 HEALTH_CHECK_INTERVAL = 3600
+
+# WebSocket sender configuration
+WEBSOCKET_SENDER_ENABLED = True  # Enable WebSocket sender
+WEBSOCKET_CONNECTION_TIMEOUT = 30.0  # Connection timeout in seconds
+WEBSOCKET_RETRY_INTERVAL = 60.0  # Retry connection interval in seconds
+WEBSOCKET_MAX_RETRIES = 5  # Maximum connection retries before giving up
 
 # Auto-startup configuration
 AUTO_START_CAMERA = True      # Auto start camera on system startup
 AUTO_START_STREAMING = True   # Auto start streaming when camera starts
 AUTO_START_DETECTION = True   # Auto start detection when streaming starts
 AUTO_START_HEALTH_MONITOR = True  # Auto start health monitoring when detection starts
+AUTO_START_WEBSOCKET_SENDER = True  # Auto start WebSocket sender when health monitor starts
 STARTUP_DELAY = 5.0          # Delay in seconds between startup steps
 HEALTH_MONITOR_STARTUP_DELAY = 30.0  # Delay before starting health monitoring (increased for model loading)
+WEBSOCKET_SENDER_STARTUP_DELAY = 10.0  # Delay before starting WebSocket sender
 
 # Create directories if they don't exist - all in BASE_DIR (aicamera/)
 Path(IMAGE_SAVE_DIR).mkdir(parents=True, exist_ok=True)

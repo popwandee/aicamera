@@ -129,6 +129,9 @@ const DashboardManager = {
                 this.updateSystemHealth({data: {overall_status: 'unknown', components: {}}});
                 AICameraUtils.addLogMessage('main-system-log', 'Failed to get system health: ' + error.message, 'error');
             });
+
+        // Update WebSocket sender status
+        this.updateServerStatus();
     },
 
     /**
@@ -303,6 +306,139 @@ const DashboardManager = {
         } else {
             AICameraUtils.addLogMessage('main-system-log', 'System health: ' + systemStatusText, 'warning');
         }
+    },
+
+    /**
+     * Update server connection status
+     */
+    updateServerStatus: function() {
+        // Get WebSocket sender status
+        AICameraUtils.apiRequest('/websocket-sender/status')
+            .then(data => {
+                if (data && data.success) {
+                    this.updateServerConnectionDisplay(data.status);
+                } else {
+                    this.updateServerConnectionDisplay(null);
+                }
+            })
+            .catch(error => {
+                console.warn('WebSocket sender status not available:', error.message);
+                this.updateServerConnectionDisplay(null);
+            });
+
+        // Get server communication logs
+        AICameraUtils.apiRequest('/websocket-sender/logs?limit=10')
+            .then(data => {
+                if (data && data.success) {
+                    this.updateServerLogs(data.logs);
+                }
+            })
+            .catch(error => {
+                console.warn('WebSocket sender logs not available:', error.message);
+            });
+    },
+
+    /**
+     * Update server connection status display
+     */
+    updateServerConnectionDisplay: function(status) {
+        let connected = false;
+        let connectionText = 'Disconnected';
+        let dataActive = false;
+        let dataText = 'Inactive';
+        let lastSync = 'Never';
+
+        if (status) {
+            // Server connection status
+            if (status.connected) {
+                connected = true;
+                connectionText = 'Connected';
+            }
+
+            // Data sending status
+            if (status.running && (status.detection_thread_alive || status.health_thread_alive)) {
+                dataActive = true;
+                dataText = 'Active';
+            }
+
+            // Last sync time
+            if (status.last_detection_check || status.last_health_check) {
+                const lastDetectionCheck = status.last_detection_check ? new Date(status.last_detection_check) : null;
+                const lastHealthCheck = status.last_health_check ? new Date(status.last_health_check) : null;
+                
+                let latestSync = null;
+                if (lastDetectionCheck && lastHealthCheck) {
+                    latestSync = lastDetectionCheck > lastHealthCheck ? lastDetectionCheck : lastHealthCheck;
+                } else if (lastDetectionCheck) {
+                    latestSync = lastDetectionCheck;
+                } else if (lastHealthCheck) {
+                    latestSync = lastHealthCheck;
+                }
+                
+                if (latestSync) {
+                    lastSync = latestSync.toLocaleString();
+                }
+            }
+        }
+
+        // Update UI elements
+        AICameraUtils.updateStatusIndicator('main-server-connection-status', connected, connectionText);
+        AICameraUtils.updateStatusIndicator('main-data-sending-status', dataActive, dataText);
+        
+        const lastSyncElement = document.getElementById('main-last-sync-time');
+        if (lastSyncElement) {
+            lastSyncElement.textContent = lastSync;
+        }
+    },
+
+    /**
+     * Update server communication logs display
+     */
+    updateServerLogs: function(logs) {
+        const logsContainer = document.getElementById('main-server-logs');
+        if (!logsContainer) return;
+
+        // Clear existing logs
+        logsContainer.innerHTML = '';
+
+        if (!logs || logs.length === 0) {
+            logsContainer.innerHTML = '<div class="text-muted p-3">No server communication logs available</div>';
+            return;
+        }
+
+        // Add logs
+        logs.forEach(log => {
+            const logElement = document.createElement('div');
+            logElement.className = 'log-entry p-2 border-bottom';
+            
+            // Determine log type class
+            let logClass = 'text-muted';
+            if (log.status === 'success') {
+                logClass = 'text-success';
+            } else if (log.status === 'failed') {
+                logClass = 'text-danger';
+            } else if (log.status === 'no_data') {
+                logClass = 'text-info';
+            }
+
+            // Format message
+            let message = '';
+            if (log.status === 'no_data') {
+                message = `${log.timestamp}: no data to send`;
+            } else if (log.status === 'success' && log.action === 'send_detection') {
+                message = `${log.timestamp}: send lpr detection completed (${log.record_count} records)`;
+            } else if (log.status === 'success' && log.action === 'send_health') {
+                message = `${log.timestamp}: send health status completed (${log.record_count} records)`;
+            } else {
+                message = `${log.timestamp}: ${log.message || log.action}`;
+            }
+
+            logElement.innerHTML = `<small class="${logClass}">${message}</small>`;
+            logsContainer.appendChild(logElement);
+        });
+
+        // Auto-scroll to bottom
+        logsContainer.scrollTop = logsContainer.scrollHeight;
     },
 
     /**

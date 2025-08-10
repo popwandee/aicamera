@@ -80,6 +80,40 @@
     </div>
 </div>
 
+<div class="row mb-5">
+    <div class="col-12">
+        <h2 class="mb-4">
+            <i class="fas fa-share-alt"></i> Server Communication
+        </h2>
+    </div>
+
+    <div class="col-md-4">
+        <div class="status-card text-center">
+            <i class="fas fa-globe feature-icon text-info"></i>
+            <h5>Server Connection</h5>
+            <span id="main-server-connection-status" class="status-indicator status-offline"></span>
+            <span id="main-server-connection-text">Disconnected</span>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="status-card text-center">
+            <i class="fas fa-upload feature-icon text-success"></i>
+            <h5>Data Sending</h5>
+            <span id="main-data-sending-status" class="status-indicator status-offline"></span>
+            <span id="main-data-sending-text">Inactive</span>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="status-card text-center">
+            <i class="fas fa-clock feature-icon text-secondary"></i>
+            <h5>Last Sync</h5>
+            <span id="main-last-sync-time">Never</span>
+        </div>
+    </div>
+</div>
+
 <!-- Quick Actions -->
 <div class="row mb-5">
     <div class="col-12">
@@ -146,6 +180,22 @@
             <div class="card-body p-0">
                 <div class="log-container" id="main-system-log" style="height: 200px;">
                     <div class="text-muted p-3">System log will appear here...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Server Communication Logs -->
+<div class="row mb-5">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-exchange-alt"></i> Server Communication Logs</h5>
+            </div>
+            <div class="card-body p-0">
+                <div class="log-container" id="main-server-logs" style="height: 300px;">
+                    <div class="text-muted p-3">Server communication logs will appear here...</div>
                 </div>
             </div>
         </div>
