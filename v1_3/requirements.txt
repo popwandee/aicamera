@@ -22,7 +22,8 @@ numpy==1.24.3
 easyocr==1.7.0
 degirum==1.0.0
 degirum_tools==1.0.0
-degirum_cli==1.0.0# AI/ML
+degirum_cli==1.0.0
+# AI/ML
 hailo-platform==4.20.0
 hailo-model-zoo==2.15.0
 

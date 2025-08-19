@@ -17,12 +17,14 @@ import logging
 from datetime import datetime
 import os
 import queue
-from picamera2 import Picamera2
-from libcamera import controls
-from picamera2.encoders import JpegEncoder
-from picamera2.outputs import FileOutput
 import io
 import json
+
+# Camera imports will be loaded conditionally
+Picamera2 = None
+controls = None
+JpegEncoder = None
+FileOutput = None
 # Default camera settings
 DEFAULT_RESOLUTION = (1280, 720)
 DEFAULT_FRAMERATE = 30
@@ -147,12 +149,39 @@ class ImprovedCameraManager:
         self._initialized = True
         logger.info("ImprovedCameraManager singleton instance created")
     
+    def _load_camera_imports(self):
+        """Conditionally load camera imports to avoid import-time failures."""
+        global Picamera2, controls, JpegEncoder, FileOutput
+        
+        if Picamera2 is not None:
+            return True  # Already loaded
+        
+        try:
+            from picamera2 import Picamera2
+            from libcamera import controls
+            from picamera2.encoders import JpegEncoder
+            from picamera2.outputs import FileOutput
+            globals()['Picamera2'] = Picamera2
+            globals()['controls'] = controls
+            globals()['JpegEncoder'] = JpegEncoder
+            globals()['FileOutput'] = FileOutput
+            logger.info("Camera imports loaded successfully")
+            return True
+        except ImportError as e:
+            logger.warning(f"Camera hardware not available: {e}")
+            return False
+    
     def initialize_camera_once(self, **camera_settings):
         """
         Initialize camera only if not already initialized
         Thread-safe with comprehensive error handling
         """
         with self.camera_lock:
+            # Check camera imports availability first
+            if not self._load_camera_imports():
+                logger.warning("Camera hardware not available, skipping camera initialization")
+                return False
+            
             init_count = self.camera_state.get_state('initialization_count') + 1
             self.camera_state.update_state(initialization_count=init_count)
             
