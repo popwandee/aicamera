@@ -32,7 +32,7 @@ degirum-cli==0.2.0
 # hailo-model-zoo>=2.15.0  # Removed - not available for ARM64/aarch64
 
 # WebSocket
-websockets==11.0.3
+websockets==15.0.1
 
 # Database and Data Processing
 pandas==2.0.3
