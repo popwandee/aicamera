@@ -8,7 +8,7 @@ degirum
 degirum_tools
 degirum_cli
 picamera2
-pillow<11
+pillow<12
 matplotlib
 Flask
 Flask-SocketIO

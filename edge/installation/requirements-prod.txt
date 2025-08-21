@@ -4,7 +4,7 @@ easyocr
 degirum
 degirum_tools
 degirum_cli
-pillow<11
+pillow<12
 Flask
 Flask-SocketIO
 websockets
