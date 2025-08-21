@@ -2,7 +2,7 @@
 
 # Core Framework
 Flask==2.3.3
-Flask-SocketIO==5.3.6
+Flask-SocketIO==5.5.1
 python-socketio==5.9.0
 Werkzeug==2.3.7
 
