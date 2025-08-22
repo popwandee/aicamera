@@ -34,7 +34,7 @@
     "rate-limiter-flexible": "^3.0.8",
     "express-rate-limit": "^7.1.5",
     "socket.io": "^4.7.4",
-    "redis": "^4.6.10",
+    "redis": "^5.8.2",
     "pg": "^8.11.3",
     "sequelize": "^6.35.1",
     "multer": "^1.4.5-lts.1",
