@@ -1,4 +1,4 @@
-numpy<2.0.0
+numpy<3.0.0
 setproctitle
 opencv-python
 easyocr
