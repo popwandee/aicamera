@@ -28,7 +28,7 @@
     "helmet": "^7.1.0",
     "morgan": "^1.10.0",
     "dotenv": "^16.3.1",
-    "joi": "^17.11.0",
+    "joi": "^18.0.1",
     "winston": "^3.11.0",
     "compression": "^1.7.4",
     "rate-limiter-flexible": "^3.0.8",
