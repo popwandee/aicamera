@@ -39,7 +39,7 @@
     "sequelize": "^6.35.1",
     "multer": "^1.4.5-lts.1",
     "sharp": "^0.32.6",
-    "node-cron": "^3.0.3",
+    "node-cron": "^4.2.1",
     "axios": "^1.6.2",
     "jsonwebtoken": "^9.0.2",
     "bcryptjs": "^2.4.3",
