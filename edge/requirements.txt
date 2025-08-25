@@ -9,7 +9,7 @@ Werkzeug==2.3.7
 # Camera and Image Processing
 picamera2==0.3.12
 # Database
-SQLAlchemy==2.0.23
+SQLAlchemy==2.0.43
 alembic==1.12.1
 
 # Image Processing
