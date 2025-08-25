@@ -32,7 +32,7 @@
     "winston": "^3.11.0",
     "compression": "^1.7.4",
     "rate-limiter-flexible": "^3.0.8",
-    "express-rate-limit": "^7.1.5",
+    "express-rate-limit": "^8.0.1",
     "socket.io": "^4.7.4",
     "redis": "^4.6.10",
     "pg": "^8.11.3",
