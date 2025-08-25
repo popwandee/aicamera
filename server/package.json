@@ -42,7 +42,7 @@
     "node-cron": "^3.0.3",
     "axios": "^1.6.2",
     "jsonwebtoken": "^9.0.2",
-    "bcryptjs": "^2.4.3",
+    "bcryptjs": "^3.0.2",
     "uuid": "^9.0.1",
     "moment": "^2.29.4",
     "mqtt": "^5.3.5",
