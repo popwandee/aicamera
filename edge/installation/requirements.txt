@@ -3,7 +3,7 @@
 # Core Framework
 Flask==2.3.3
 Flask-SocketIO==5.3.6
-python-socketio==5.9.0
+python-socketio==5.13.0
 Werkzeug==2.3.7
 
 # Camera and Image Processing
