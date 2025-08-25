@@ -10,7 +10,7 @@ Werkzeug==2.3.7
 picamera2==0.3.12
 # Database
 SQLAlchemy==2.0.23
-alembic==1.12.1
+alembic==1.16.4
 
 # Image Processing
 Pillow==10.0.1
