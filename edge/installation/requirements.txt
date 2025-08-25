@@ -57,4 +57,4 @@ gunicorn
 eventlet
 
 # Experiment Dependencies
-scikit-image==0.21.0  # For image processing and blur detection
+scikit-image==0.25.2  # For image processing and blur detection
