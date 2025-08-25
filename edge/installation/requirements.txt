@@ -33,7 +33,7 @@ degirum-cli==0.2.0
 websockets==11.0.3
 
 # Database and Data Processing
-pandas==2.0.3
+pandas==2.3.2
 
 # HTTP Requests
 requests==2.31.0
