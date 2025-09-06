@@ -1,49 +1,36 @@
 #!/usr/bin/env python3
 """
-Optimized Camera Handler Component for AI Camera v2.0
+Camera Handler Component for AI Camera v1.3
 
-This component provides enhanced camera operations using Picamera2 with:
-- Unified capture methods for frames and metadata
-- Enhanced autofocus and low-light optimization
-- Robust singleton pattern implementation
-- Optimal resource management and reconfiguration flow
-- Advanced camera status and metadata retrieval
+This component provides low-level camera operations using Picamera2
+for Camera Module 3 on Raspberry Pi 5.
 
 Features:
 - Picamera2 integration with fallback support
-- Unified capture_frame method with multiple sources and types
-- Enhanced camera controls (autofocus, low-light adjustment)
-- Thread-safe singleton pattern with proper resource management
-- Optimized stop/release/reconfigure workflow
-- Comprehensive camera status and metadata APIs
+- Camera configuration and control
+- Frame capture and metadata handling
+- Camera status monitoring
+- Error handling and recovery
+- Dynamic camera detection and connection
 
 Author: AI Camera Team
-Version: 2.0 (Optimized)
-Date: December 2025
+Version: 1.3
+Date: August 7, 2025
 """
 
 import threading
 import time
 import multiprocessing
-from typing import Dict, Any, Optional, Tuple, Union, Literal
+from typing import Dict, Any, Optional, Tuple
 from pathlib import Path
 import json
 import queue
+
 import os
 import cv2
 import numpy as np
-from datetime import datetime
-import weakref
-import atexit
-from contextlib import contextmanager
-
 from edge.src.core.utils.logging_config import get_logger
 logger = get_logger(__name__)
-
-# Type definitions for enhanced API
-CaptureSource = Literal["direct", "buffer"]
-StreamType = Literal["main", "lores", "both"]
-QualityMode = Literal["normal", "low_light", "bright", "high_quality"]
 
 
 def make_json_serializable(obj: Any) -> Any:
@@ -78,10 +65,10 @@ def make_json_serializable(obj: Any) -> Any:
 
 def check_camera_availability():
     """
-    Enhanced camera availability check with detailed diagnostics.
+    Check if camera hardware and software are available.
     
     Returns:
-        Dict: Comprehensive availability status with details
+        Dict: Availability status with details
     """
     status = {
         'hardware_available': False,
@@ -89,8 +76,7 @@ def check_camera_availability():
         'picamera2_available': False,
         'libcamera_available': False,
         'camera_ready': False,
-        'details': {},
-        'diagnostics': {}
+        'details': {}
     }
     
     # Check for camera hardware
@@ -131,258 +117,11 @@ def check_camera_availability():
     except Exception as e:
         status['details']['picamera2_error'] = str(e)
     
-    # Overall readiness assessment
+    # Determine if camera is ready
     status['software_available'] = status['libcamera_available'] and status['picamera2_available']
     status['camera_ready'] = status['hardware_available'] and status['software_available']
     
-    # Enhanced diagnostics
-    status['diagnostics'] = {
-        'timestamp': datetime.now().isoformat(),
-        'system_check': {
-            'os_exists': os.path.exists('/dev'),
-            'video4linux_exists': os.path.exists('/sys/class/video4linux'),
-            'media_exists': os.path.exists('/dev/media0')
-        }
-    }
-    
     return status
-
-
-class CameraEnhancementEngine:
-    """
-    Enhanced camera controls for autofocus and environmental adaptation.
-    """
-    
-    def __init__(self, camera_instance):
-        self.camera = camera_instance
-        self.logger = logger
-        
-        # Enhancement state
-        self.autofocus_enabled = True
-        self.auto_exposure_enabled = True
-        self.noise_reduction_enabled = True
-        
-        # Environmental adaptation parameters
-        self.low_light_threshold = 50000  # ExposureTime microseconds
-        self.bright_light_threshold = 1000  # ExposureTime microseconds
-        self.focus_scan_range = (0.0, 10.0)  # Focus range in diopters
-        
-        # Performance tracking
-        self.last_enhancement_time = 0
-        self.enhancement_interval = 1.0  # seconds
-        
-    def enhance_for_conditions(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Apply environmental enhancements based on current conditions.
-        
-        Args:
-            metadata: Current camera metadata
-            
-        Returns:
-            Dict: Applied enhancements and their results
-        """
-        enhancements = {
-            'applied': [],
-            'exposure_assessment': 'unknown',
-            'focus_quality': 'unknown',
-            'lighting_condition': 'unknown'
-        }
-        
-        try:
-            # Assess current conditions
-            exposure_time = metadata.get("ExposureTime", 0)
-            analogue_gain = metadata.get("AnalogueGain", 1.0)
-            focus_fom = metadata.get("FocusFoM", 0)
-            
-            # Classify lighting condition
-            if exposure_time > self.low_light_threshold:
-                lighting_condition = "low_light"
-            elif exposure_time < self.bright_light_threshold:
-                lighting_condition = "bright_light"  
-            else:
-                lighting_condition = "normal"
-                
-            enhancements['lighting_condition'] = lighting_condition
-            
-            # Apply lighting-specific enhancements
-            if lighting_condition == "low_light":
-                self._enhance_for_low_light(enhancements)
-            elif lighting_condition == "bright_light":
-                self._enhance_for_bright_light(enhancements)
-            else:
-                self._enhance_for_normal_light(enhancements)
-            
-            # Apply autofocus if enabled
-            if self.autofocus_enabled:
-                focus_result = self._apply_autofocus(focus_fom)
-                if focus_result:
-                    enhancements['applied'].append(focus_result)
-                    
-            # Assess image quality
-            enhancements['exposure_assessment'] = self._assess_exposure_adequacy(metadata)
-            enhancements['focus_quality'] = self._assess_focus_quality(metadata)
-            
-        except Exception as e:
-            self.logger.warning(f"Enhancement engine error: {e}")
-            enhancements['error'] = str(e)
-            
-        return enhancements
-    
-    def _enhance_for_low_light(self, enhancements: Dict[str, Any]):
-        """Apply low-light specific optimizations."""
-        try:
-            if not self.camera or not self.camera.picam2:
-                return
-                
-            controls = {}
-            
-            # Increase noise reduction
-            if self.noise_reduction_enabled:
-                controls["NoiseReductionMode"] = 2  # High quality
-                enhancements['applied'].append("noise_reduction_high")
-            
-            # Optimize exposure for low light
-            controls["ExposureTime"] = min(33333, 66666)  # Cap at 1/15s to prevent motion blur
-            controls["AnalogueGain"] = min(8.0, 16.0)  # Reasonable gain limit
-            
-            # Apply lens shading correction
-            controls["LensShadingMapMode"] = 1
-            enhancements['applied'].append("lens_shading_correction")
-            
-            if controls:
-                self.camera.picam2.set_controls(controls)
-                enhancements['applied'].append("low_light_optimization")
-                
-        except Exception as e:
-            self.logger.warning(f"Low light enhancement failed: {e}")
-    
-    def _enhance_for_bright_light(self, enhancements: Dict[str, Any]):
-        """Apply bright light specific optimizations."""
-        try:
-            if not self.camera or not self.camera.picam2:
-                return
-                
-            controls = {}
-            
-            # Reduce noise reduction for sharpness
-            controls["NoiseReductionMode"] = 0  # Off
-            enhancements['applied'].append("noise_reduction_off")
-            
-            # Optimize exposure for bright conditions
-            controls["ExposureTime"] = max(100, 1000)  # Fast exposure
-            controls["AnalogueGain"] = 1.0  # Minimum gain
-            
-            # Enable sharpening
-            controls["Sharpness"] = 1.5
-            enhancements['applied'].append("sharpening_enabled")
-            
-            if controls:
-                self.camera.picam2.set_controls(controls)
-                enhancements['applied'].append("bright_light_optimization")
-                
-        except Exception as e:
-            self.logger.warning(f"Bright light enhancement failed: {e}")
-    
-    def _enhance_for_normal_light(self, enhancements: Dict[str, Any]):
-        """Apply normal lighting optimizations."""
-        try:
-            if not self.camera or not self.camera.picam2:
-                return
-                
-            controls = {}
-            
-            # Balanced noise reduction
-            controls["NoiseReductionMode"] = 1  # Normal
-            
-            # Auto exposure with reasonable limits
-            controls["AeEnable"] = True
-            controls["AeConstraintMode"] = 0  # Normal constraint
-            
-            # Balanced sharpness
-            controls["Sharpness"] = 1.0
-            
-            if controls:
-                self.camera.picam2.set_controls(controls)
-                enhancements['applied'].append("normal_light_optimization")
-                
-        except Exception as e:
-            self.logger.warning(f"Normal light enhancement failed: {e}")
-    
-    def _apply_autofocus(self, current_fom: float) -> Optional[str]:
-        """
-        Apply intelligent autofocus based on current focus quality.
-        
-        Args:
-            current_fom: Current focus figure of merit
-            
-        Returns:
-            Optional[str]: Description of applied autofocus action
-        """
-        try:
-            # Skip if too frequent
-            current_time = time.time()
-            if current_time - self.last_enhancement_time < self.enhancement_interval:
-                return None
-                
-            self.last_enhancement_time = current_time
-            
-            if not self.camera or not self.camera.picam2:
-                return None
-            
-            # Assess focus quality
-            if current_fom < 400:  # Poor focus
-                # Trigger autofocus scan
-                try:
-                    from libcamera import controls
-                    
-                    # Set autofocus mode to continuous
-                    self.camera.picam2.set_controls({
-                        "AfMode": controls.AfModeEnum.Continuous,
-                        "AfTrigger": controls.AfTriggerEnum.Start
-                    })
-                    
-                    return "autofocus_triggered_poor_quality"
-                    
-                except ImportError:
-                    # Fallback to lens position adjustment
-                    lens_position = 5.0  # Mid-range focus
-                    self.camera.picam2.set_controls({"LensPosition": lens_position})
-                    return "manual_focus_adjustment"
-                    
-            elif current_fom > 800:  # Excellent focus
-                # Maintain current settings
-                return "focus_maintained_excellent"
-            
-            return None
-            
-        except Exception as e:
-            self.logger.warning(f"Autofocus application failed: {e}")
-            return None
-    
-    def _assess_exposure_adequacy(self, metadata: Dict[str, Any]) -> str:
-        """Assess if exposure is adequate based on metadata."""
-        exposure_time = metadata.get("ExposureTime", 0)
-        analogue_gain = metadata.get("AnalogueGain", 1.0)
-        
-        if exposure_time < 500 and analogue_gain < 2.0:
-            return "overexposed"
-        elif exposure_time > 50000 or analogue_gain > 12.0:
-            return "underexposed"
-        else:
-            return "adequate"
-    
-    def _assess_focus_quality(self, metadata: Dict[str, Any]) -> str:
-        """Assess focus quality based on metadata."""
-        focus_fom = metadata.get("FocusFoM", 0)
-        
-        if focus_fom > 1000:
-            return "excellent"
-        elif focus_fom > 700:
-            return "good"
-        elif focus_fom > 400:
-            return "fair"
-        else:
-            return "poor"
 
 
 class CameraHandler:
@@ -473,10 +212,7 @@ class CameraHandler:
         self.max_retry_attempts = 5
         self.retry_delay = 2.0  # seconds
         
-        # Enhancement engine
-        self.enhancement_engine = CameraEnhancementEngine(self)
-        
-        self.logger.info("CameraHandler Singleton initialized with enhancement engine")
+        self.logger.info("CameraHandler Singleton initialized")
         self.logger.info(f"Camera status: {self.camera_status}")
         
         self._initialized = True
@@ -1809,186 +1545,35 @@ class CameraHandler:
             self.logger.error(f"Failed to perform autofocus cycle: {e}")
             return False
     
-    def capture_frame(self, 
-                     source: CaptureSource = "buffer",
-                     stream_type: StreamType = "main", 
-                     include_metadata: bool = True,
-                     quality_mode: QualityMode = "normal") -> Optional[Union[Dict[str, Any], np.ndarray]]:
+    def capture_frame(self) -> Optional[Dict[str, Any]]:
         """
-        Unified frame capture method supporting multiple sources and stream types.
+        Capture a single frame with metadata using frame buffer.
+        Thread-safe access to main stream for detection processing.
         
-        Args:
-            source: Capture source - "buffer" for thread-safe buffered access, 
-                   "direct" for immediate camera capture
-            stream_type: Stream type - "main", "lores", or "both"
-            include_metadata: Whether to include metadata in response
-            quality_mode: Quality optimization mode
-            
         Returns:
-            Union[Dict[str, Any], np.ndarray]: Frame data, format depends on parameters
+            Optional[Dict[str, Any]]: Frame data with metadata, None if failed
         """
         try:
-            if not self.initialized:
-                self.logger.warning("Camera not initialized")
-                return None
-            
-            if source == "buffer":
-                return self._capture_from_buffer(stream_type, include_metadata)
-            elif source == "direct":
-                return self._capture_direct(stream_type, include_metadata, quality_mode)
-            else:
-                self.logger.error(f"Invalid capture source: {source}")
-                return None
-                
-        except Exception as e:
-            self.logger.error(f"Frame capture failed: {e}")
-            return None
-    
-    def _capture_from_buffer(self, stream_type: StreamType, include_metadata: bool) -> Optional[Union[Dict[str, Any], np.ndarray]]:
-        """Capture frame from thread-safe buffer."""
-        with self._frame_buffer_lock:
-            if stream_type == "main":
-                frame = self._main_frame_buffer.copy() if self._main_frame_buffer is not None else None
-            elif stream_type == "lores":
-                frame = self._lores_frame_buffer.copy() if self._lores_frame_buffer is not None else None
-            elif stream_type == "both":
-                main_frame = self._main_frame_buffer.copy() if self._main_frame_buffer is not None else None
-                lores_frame = self._lores_frame_buffer.copy() if self._lores_frame_buffer is not None else None
-                
-                if include_metadata:
-                    return {
-                        'main_frame': main_frame,
-                        'lores_frame': lores_frame,
-                        'metadata': self._metadata_buffer.copy(),
-                        'timestamp': time.time(),
-                        'source': 'buffer'
-                    }
-                else:
-                    return {
-                        'main_frame': main_frame,
-                        'lores_frame': lores_frame
-                    }
-            else:
-                return None
-            
+            # Get frame from buffer instead of direct camera access
+            frame = self.get_main_frame()
             if frame is None:
+                self.logger.warning("No main frame available in buffer")
                 return None
             
-            if include_metadata:
-                return {
-                    'frame': frame,
-                    'metadata': self._metadata_buffer.copy(),
-                    'timestamp': time.time(),
-                    'stream_type': stream_type,
-                    'source': 'buffer',
-                    'format': 'RGB888',
-                    'size': frame.shape[:2] if hasattr(frame, 'shape') else None
-                }
-            else:
-                return frame
-    
-    def _capture_direct(self, stream_type: StreamType, include_metadata: bool, quality_mode: QualityMode) -> Optional[Dict[str, Any]]:
-        """Capture frame directly from camera with quality optimization."""
-        if not self.streaming or not self.picam2:
-            self.logger.warning("Camera not streaming")
-            return None
-        
-        # Apply quality optimization before capture
-        if quality_mode != "normal":
-            self._apply_quality_mode(quality_mode)
-        
-        request = None
-        try:
-            request = self.picam2.capture_request()
+            # Get metadata from buffer
+            metadata = self.get_cached_metadata()
             
-            if stream_type == "main":
-                frame = request.make_array("main")
-                result = {
-                    'frame': frame,
-                    'timestamp': time.time(),
-                    'stream_type': 'main',
-                    'source': 'direct',
-                    'quality_mode': quality_mode,
-                    'format': 'RGB888',
-                    'size': frame.shape[:2]
-                }
-            elif stream_type == "lores":
-                frame = request.make_array("lores")
-                result = {
-                    'frame': frame,
-                    'timestamp': time.time(),
-                    'stream_type': 'lores',
-                    'source': 'direct',
-                    'quality_mode': quality_mode,
-                    'format': 'RGB888',
-                    'size': frame.shape[:2]
-                }
-            elif stream_type == "both":
-                main_frame = request.make_array("main")
-                lores_frame = request.make_array("lores")
-                result = {
-                    'main_frame': main_frame,
-                    'lores_frame': lores_frame,
-                    'timestamp': time.time(),
-                    'stream_type': 'both',
-                    'source': 'direct',
-                    'quality_mode': quality_mode,
-                    'main_format': 'RGB888',
-                    'lores_format': 'RGB888',
-                    'main_size': main_frame.shape[:2],
-                    'lores_size': lores_frame.shape[:2]
-                }
-            else:
-                return None
-            
-            if include_metadata:
-                metadata = request.get_metadata()
-                result['metadata'] = make_json_serializable(metadata)
-                
-                # Apply enhancements based on current conditions
-                if hasattr(self, 'enhancement_engine'):
-                    enhancements = self.enhancement_engine.enhance_for_conditions(metadata)
-                    result['enhancements'] = enhancements
-            
-            return result
-            
-        finally:
-            if request:
-                request.release()
-    
-    def _apply_quality_mode(self, quality_mode: QualityMode):
-        """Apply quality-specific camera settings."""
-        try:
-            if not self.picam2:
-                return
-                
-            controls = {}
-            
-            if quality_mode == "high_quality":
-                controls.update({
-                    "NoiseReductionMode": 2,  # High quality
-                    "Sharpness": 1.25,
-                    "Contrast": 1.1
-                })
-            elif quality_mode == "low_light":
-                controls.update({
-                    "NoiseReductionMode": 2,
-                    "ExposureTime": min(50000, 100000),
-                    "AnalogueGain": min(8.0, 12.0)
-                })
-            elif quality_mode == "bright":
-                controls.update({
-                    "NoiseReductionMode": 0,
-                    "ExposureTime": max(100, 1000),
-                    "AnalogueGain": 1.0,
-                    "Sharpness": 1.5
-                })
-            
-            if controls:
-                self.picam2.set_controls(controls)
+            return {
+                'frame': frame,
+                'metadata': metadata,
+                'timestamp': time.time(),
+                'format': 'RGB888',
+                'size': frame.shape[:2]
+            }
                 
         except Exception as e:
-            self.logger.warning(f"Quality mode application failed: {e}")
+            self.logger.error(f"Failed to capture frame from buffer: {e}")
+            return None
     
     def capture_lores_frame(self) -> Optional[Dict[str, Any]]:
         """
@@ -2967,7 +2552,7 @@ class CameraHandler:
    
     def update_configuration(self, config: Dict[str, Any]) -> bool:
         """
-        Update camera configuration using safe reconfiguration workflow.
+        Update camera configuration.
         
         Args:
             config: New configuration
@@ -2975,159 +2560,37 @@ class CameraHandler:
         Returns:
             bool: True if successful, False otherwise
         """
-        return self.reconfigure_camera_safely(config)
-    
-    def reconfigure_camera_safely(self, new_config: Dict[str, Any]) -> bool:
-        """
-        Safely reconfigure camera following best practices:
-        1. Stop camera and streaming
-        2. Release resources
-        3. Apply new configuration  
-        4. Reinitialize camera
-        5. Restart streaming
-        
-        Args:
-            new_config: New camera configuration
-            
-        Returns:
-            bool: True if reconfiguration successful
-        """
-        with self._lock:
-            self.logger.info("Starting safe camera reconfiguration...")
-            
-            # Remember streaming state
-            was_streaming = self.streaming
-            
-            try:
-                # Step 1: Stop camera gracefully
-                if not self.stop_camera():
-                    self.logger.error("Failed to stop camera for reconfiguration")
-                    return False
-                
-                # Step 2: Release resources
-                if self.picam2:
-                    try:
-                        self.picam2.close()
-                    except:
-                        pass
-                    self.picam2 = None
-                
-                # Step 3: Apply new configuration
-                self.current_config.update(new_config)
-                self.initialized = False
-                
-                # Brief pause to ensure resources are released
-                time.sleep(0.5)
-                
-                # Step 4: Reinitialize with new configuration
-                if not self.initialize_camera():
-                    self.logger.error("Failed to reinitialize camera after reconfiguration")
-                    return False
-                
-                # Step 5: Restart streaming if it was active
-                if was_streaming:
-                    if not self.start_camera():
-                        self.logger.error("Failed to restart camera after reconfiguration")
-                        return False
-                
-                self.logger.info("Camera reconfiguration completed successfully")
-                return True
-                
-            except Exception as e:
-                self.logger.error(f"Camera reconfiguration failed: {e}")
-                
-                # Attempt recovery
-                try:
-                    self.initialize_camera()
-                    if was_streaming:
-                        self.start_camera()
-                except:
-                    pass
-                
-                return False
-    
-    def close_camera(self) -> bool:
-        """
-        Close camera and release all resources with enhanced cleanup.
-        
-        Returns:
-            bool: True if closed successfully, False otherwise
-        """
         try:
             with self._lock:
-                self.logger.info("Closing camera with full resource cleanup...")
+                if not self.initialized:
+                    self.logger.error("Camera not initialized")
+                    return False
+            
+                # Stop camera if streaming
+                was_streaming = self.streaming
+                if was_streaming:
+                    self.logger.info("Stopping camera for configuration update...")
+                    self.stop_camera()
                 
-                # Stop capture thread first
-                self._stop_frame_capture_thread()
+                # Apply new configuration
+                self.logger.info("Applying new camera configuration...")
+                self.picam2.configure(config)
+                self.current_config = self.picam2.camera_configuration()
                 
-                # Stop recording if active
-                if getattr(self, 'recording', False):
-                    try:
-                        self.stop_recording()
-                    except:
-                        pass
+                # Always restart camera after configuration update
+                self.logger.info("Restarting camera with new configuration...")
+                restart_success = self.start_camera()
                 
-                # Stop camera streaming
-                if self.streaming:
-                    try:
-                        if self.picam2:
-                            self.picam2.stop()
-                    except:
-                        pass
-                    self.streaming = False
-                
-                # Close camera instance
-                if self.picam2:
-                    try:
-                        self.picam2.close()
-                    except:
-                        pass
-                    self.picam2 = None
-                
-                # Clear buffers
-                with self._frame_buffer_lock:
-                    self._main_frame_buffer = None
-                    self._lores_frame_buffer = None
-                    self._metadata_buffer = {}
-                
-                # Reset state
-                self.initialized = False
-                self.current_config = {}
-                
-                self.logger.info("Camera closed and all resources released")
-                return True
+                if restart_success:
+                    self.logger.info("Configuration updated and camera restarted successfully")
+                    return True
+                else:
+                    self.logger.error("Configuration updated but failed to restart camera")
+                    return False
                 
         except Exception as e:
-            self.logger.error(f"Error closing camera: {e}")
+            self.logger.error(f"Failed to update configuration: {e}")
             return False
-    
-    def _release_all_resources(self):
-        """Internal method to release all camera resources completely."""
-        try:
-            self.logger.debug("Releasing all camera resources...")
-            
-            # Stop everything
-            self.close_camera()
-            
-            self.logger.debug("All camera resources released")
-            
-        except Exception as e:
-            self.logger.error(f"Error releasing resources: {e}")
-    
-    @classmethod
-    def cleanup_singleton(cls):
-        """
-        Cleanup singleton instance and release all resources.
-        Useful for testing or complete reset.
-        """
-        with cls._lock:
-            if cls._instance:
-                try:
-                    cls._instance._release_all_resources()
-                    cls._instance = None
-                    logger.info("Camera singleton cleaned up")
-                except Exception as e:
-                    logger.error(f"Error cleaning up singleton: {e}")
      
     def get_cached_metadata(self) -> Dict[str, Any]:
         """
@@ -3209,73 +2672,3 @@ class CameraHandler:
             return {'error': str(e), 'timestamp': time.time()}
     
           
-
-# =============================================================================
-# OPTIMIZATION ENHANCEMENTS v2.0
-# =============================================================================
-"""
-Camera Handler Optimizations Applied:
-
-1. UNIFIED CAPTURE METHOD:
-   - capture_frame() now supports multiple sources ("buffer", "direct")
-   - Supports stream types ("main", "lores", "both") 
-   - Quality modes ("normal", "low_light", "bright", "high_quality")
-   - Backward compatible with existing code
-
-2. CAMERA ENHANCEMENTS:
-   - CameraEnhancementEngine for autofocus and environmental adaptation
-   - Automatic lighting condition detection and optimization
-   - Intelligent autofocus based on focus quality metrics
-   - Noise reduction and exposure optimization
-
-3. IMPROVED SINGLETON PATTERN:
-   - Thread-safe double-checked locking
-   - Proper resource cleanup on exit
-   - Singleton cleanup method for testing
-
-4. ENHANCED STATUS & METADATA:
-   - Comprehensive camera status with diagnostics
-   - Enhanced metadata with quality assessments
-   - Buffer status monitoring
-   - Enhancement status tracking
-
-5. OPTIMIZED RESOURCE MANAGEMENT:
-   - Enhanced close_camera() with complete resource cleanup
-   - Proper stop/release workflow
-   - Thread-safe buffer management
-   - Memory leak prevention
-
-6. RECONFIGURATION BEST PRACTICES:
-   - reconfigure_camera_safely() follows best practices:
-     * Stop camera and streaming
-     * Release resources completely
-     * Apply new configuration
-     * Reinitialize camera
-     * Restart streaming
-   - Automatic recovery on failure
-   - Maintains streaming state
-
-Usage Examples:
-   
-   # Basic usage (backward compatible)
-   frame_data = camera.capture_frame()
-   
-   # Enhanced usage with unified method
-   frame_data = camera.capture_frame(
-       source="direct",
-       stream_type="main", 
-       include_metadata=True,
-       quality_mode="low_light"
-   )
-   
-   # Safe reconfiguration
-   success = camera.reconfigure_camera_safely({
-       "brightness": 0.1,
-       "contrast": 1.2
-   })
-   
-   # Enhanced status
-   status = camera.get_camera_status()
-   # Includes: diagnostics, enhancement_status, buffer_status
-
-"""
