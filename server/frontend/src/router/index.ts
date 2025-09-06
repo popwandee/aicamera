@@ -5,12 +5,14 @@ import DashboardView from '../views/DashboardView.vue';
 import CamerasView from '../views/CamerasView.vue';
 import UserManagementView from '../views/UserManagementView.vue';
 import UserProfileView from '../views/UserProfileView.vue';
+import MapView from '../components/MapView.vue';
 
 const routes: RouteRecordRaw[] = [
   { path: '/', redirect: '/dashboard' },
   { path: '/login', name: 'login', component: LoginView, meta: { public: true } },
   { path: '/dashboard', name: 'dashboard', component: DashboardView },
   { path: '/cameras', name: 'cameras', component: CamerasView },
+  { path: '/map', name: 'map', component: MapView },
   { path: '/users', name: 'users', component: UserManagementView, meta: { requiresAdmin: true } },
   { path: '/profile', name: 'profile', component: UserProfileView },
 ];

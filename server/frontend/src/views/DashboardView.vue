@@ -18,6 +18,11 @@
           <p>Manage camera devices and configurations</p>
         </div>
         
+        <div class="dashboard-card" @click="navigateTo('/map')">
+          <h3>🗺️ Map View</h3>
+          <p>Interactive map with camera locations and detections</p>
+        </div>
+        
         <div class="dashboard-card" @click="navigateTo('/detections')">
           <h3>🚗 Detections</h3>
           <p>View license plate detection results</p>
