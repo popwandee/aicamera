@@ -1,48 +1,36 @@
 {
-  "name": "aicamera-monorepo",
-  "version": "2.1.0",
-  "description": "AI Camera Monorepo - Edge (Python) + Server (Node.js)",
-  "private": true,
-  "workspaces": [
-    "server"
-  ],
+  "name": "analytics-dashboard",
+  "version": "1.0.0",
+  "description": "Frontend dashboard for analytics service with camera edge status, communication network, and detection analysis",
+  "main": "index.js",
   "scripts": {
-    "setup": "bash scripts/setup_monorepo.sh",
-    "install:all": "npm install && cd server && npm install",
-    "start:server": "cd server && npm run start:prod",
-    "dev:server": "cd server && npm run start:dev",
-    "dev:frontend": "cd server/frontend && npm run dev -- --host 0.0.0.0 --port 5173",
-    "build:frontend": "cd server/frontend && npm run build",
-    "build:server": "cd server && npm run build",
-    "dev": "concurrently -n server,frontend -c blue,magenta \"npm:dev:server\" \"npm:dev:frontend\"",
-    "build": "npm run build:server && npm run build:frontend",
-    "test:server": "cd server && npm test",
-    "install:edge": "cd edge && pip install -r requirements.txt",
-    "start:edge": "cd edge && python src/app.py",
-    "test:edge": "cd edge && python -m pytest",
-    "validate": "bash scripts/validate_setup.sh",
-    "docs": "bash scripts/generate_docs.sh",
-    "clean": "rm -rf node_modules server/node_modules"
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "eslint src --ext js,jsx,ts,tsx",
+    "lint:fix": "eslint src --ext js,jsx,ts,tsx --fix"
   },
-  "keywords": [
-    "ai-camera",
-    "lpr-detection",
-    "edge-computing",
-    "nodejs",
-    "python",
-    "monorepo"
-  ],
-  "author": "AI Camera Team",
-  "license": "MIT",
-  "engines": {
-    "node": ">=18.0.0",
-    "npm": ">=8.0.0"
-  },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/popwandee/aicamera.git"
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.8.1",
+    "recharts": "^2.5.0",
+    "lucide-react": "^0.263.1",
+    "date-fns": "^2.30.0",
+    "axios": "^1.3.4",
+    "clsx": "^1.2.1"
   },
   "devDependencies": {
-    "concurrently": "^9.2.1"
+    "@types/react": "^18.0.28",
+    "@types/react-dom": "^18.0.11",
+    "@vitejs/plugin-react": "^3.1.0",
+    "vite": "^4.1.0",
+    "eslint": "^8.35.0",
+    "eslint-plugin-react": "^7.32.2",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "eslint-plugin-react-refresh": "^0.3.4",
+    "autoprefixer": "^10.4.14",
+    "postcss": "^8.4.21",
+    "tailwindcss": "^3.2.7"
   }
 }

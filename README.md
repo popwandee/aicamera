@@ -1,322 +1,260 @@
-# AI Camera System - ระบบกล้องตรวจจับอัจฉริยะ
+# Analytics Dashboard
 
-## 📋 ภาพรวม
+A comprehensive frontend dashboard for analytics service displaying camera edge status analysis, unified communication network analysis, and detection result analysis.
 
-AI Camera System เป็นระบบตรวจจับป้ายทะเบียนรถยนต์แบบอัจฉริยะที่พัฒนาด้วยเทคโนโลยีล่าสุด ประกอบด้วย Edge Device (Raspberry Pi 5 + Hailo AI Accelerator) และ Server System (NestJS + Vue.js) ที่ทำงานร่วมกันเพื่อตรวจจับและวิเคราะห์ข้อมูลการจราจรแบบ Real-time
+## Features
 
-## 🏗️ สถาปัตยกรรมระบบ
+### 🎥 Camera Edge Status Analysis
+- Real-time camera status monitoring
+- Performance metrics (FPS, bandwidth, temperature)
+- Status history tracking
+- Camera configuration management
+- Uptime monitoring
 
-```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Edge Device   │    │   Server API    │    │   Web Frontend  │
-│                 │    │                 │    │                 │
-│ • Raspberry Pi  │◄──►│ • NestJS        │◄──►│ • Vue.js 3      │
-│ • Hailo-8       │    │ • PostgreSQL    │    │ • TypeScript    │
-│ • Camera Module │    │ • Redis         │    │ • Pinia         │
-│ • LPR Detection │    │ • JWT Auth      │    │ • Real-time UI  │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-```
+### 🌐 Unified Communication Network Analysis
+- Network node monitoring
+- Traffic analysis and visualization
+- Protocol distribution
+- Bandwidth utilization tracking
+- Network topology visualization
 
-## ✨ คุณสมบัติหลัก
+### 🔍 Detection Result Analysis
+- **Location-based analysis:** Detections by location with accuracy metrics
+- **Time-based analysis:** Hourly detection patterns and trends
+- **License plate analysis:** Vehicle tracking and authorization status
+- **Detection types:** Person, vehicle, object, and face detection statistics
 
-### 🔐 ระบบความปลอดภัย
-- **JWT Authentication**: ระบบยืนยันตัวตนด้วย Token
-- **Role-Based Access Control**: ระบบสิทธิ์แบบ Admin, Operator, Viewer
-- **Rate Limiting**: จำกัดการเรียก API ป้องกันการใช้งานเกินขีดจำกัด
-- **Input Validation**: ตรวจสอบข้อมูลที่รับเข้ามาอย่างเข้มงวด
+## Technology Stack
 
-### 📡 ระบบการสื่อสาร
-- **REST API**: API หลักสำหรับการทำงาน
-- **WebSocket**: การสื่อสารแบบ Real-time
-- **MQTT**: การสื่อสารแบบ Lightweight สำหรับ IoT
-- **Automatic Fallback**: ระบบสำรองเมื่อการเชื่อมต่อล้มเหลว
+- **Frontend:** React 18, Vite, Tailwind CSS
+- **Charts:** Recharts for data visualization
+- **Icons:** Lucide React
+- **Routing:** React Router DOM
+- **HTTP Client:** Axios
+- **Date Handling:** date-fns
 
-### 🎯 การตรวจจับและวิเคราะห์
-- **License Plate Recognition**: ตรวจจับป้ายทะเบียนรถยนต์
-- **Real-time Processing**: ประมวลผลแบบ Real-time
-- **Image Storage**: เก็บภาพการตรวจจับ
-- **Analytics Dashboard**: แสดงผลการวิเคราะห์
+## Getting Started
 
-### 🖥️ ระบบผู้ใช้
-- **Responsive Design**: ใช้งานได้ทุกอุปกรณ์
-- **Real-time Updates**: อัพเดทข้อมูลแบบ Real-time
-- **Interactive Maps**: แสดงตำแหน่งกล้องและการตรวจจับ
-- **Data Visualization**: แสดงข้อมูลในรูปแบบกราฟและตาราง
+### Prerequisites
 
-## 🚀 การติดตั้งและใช้งาน
+- Node.js 16 or higher
+- npm or yarn package manager
 
-### ความต้องการของระบบ
+### Installation
 
-#### Backend (Server)
-- Node.js 22+
-- PostgreSQL 17+
-- Redis 7+
-- npm หรือ yarn
-
-#### Frontend (Web)
-- Node.js 22+
-- npm หรือ yarn
-- Modern Browser (Chrome, Firefox, Safari, Edge)
-
-#### Edge Device
-- Raspberry Pi 5
-- Hailo-8 AI Accelerator
-- Camera Module 3
-- Python 3.11+
-
-### การติดตั้ง Backend
-
+1. Clone the repository:
 ```bash
-# Clone repository
-git clone https://github.com/your-org/aicamera.git
-cd aicamera/server
-
-# ติดตั้ง dependencies
-npm install
-
-# ตั้งค่าฐานข้อมูล
-cp .env.example .env
-# แก้ไขไฟล์ .env ตามการตั้งค่าของคุณ
-
-# สร้างฐานข้อมูล
-npx prisma migrate dev
-
-# สร้างผู้ดูแลระบบ
-npm run setup:admin
-
-# เริ่มต้นเซิร์ฟเวอร์
-npm run start:dev
+git clone <repository-url>
+cd analytics-dashboard
 ```
 
-### การติดตั้ง Frontend
-
+2. Install dependencies:
 ```bash
-# ไปยังโฟลเดอร์ frontend
-cd server/frontend
-
-# ติดตั้ง dependencies
 npm install
+```
 
-# ตั้งค่า environment
-cp .env.example .env
-# แก้ไขไฟล์ .env ให้ชี้ไปยัง Backend API
-
-# เริ่มต้น development server
+3. Start the development server:
+```bash
 npm run dev
 ```
 
-### การติดตั้ง Edge Device
+4. Open your browser and navigate to `http://localhost:3000`
+
+### Available Scripts
+
+- `npm run dev` - Start development server
+- `npm run build` - Build for production
+- `npm run preview` - Preview production build
+- `npm run lint` - Run ESLint
+- `npm run lint:fix` - Fix ESLint errors
+
+## Project Structure
+
+```
+src/
+├── components/          # Reusable UI components
+│   └── Layout.jsx      # Main layout with navigation
+├── pages/              # Page components
+│   ├── Dashboard.jsx   # Main dashboard overview
+│   ├── CameraStatus.jsx # Camera status analysis
+│   ├── NetworkAnalysis.jsx # Network analysis
+│   └── DetectionAnalysis.jsx # Detection analysis
+├── data/               # Sample data and mock data
+│   └── sampleData.js   # Sample data for all components
+├── services/           # API services and utilities
+│   └── api.js          # API client and endpoints
+├── App.jsx             # Main app component with routing
+├── main.jsx            # Application entry point
+└── index.css           # Global styles and Tailwind imports
+```
+
+## Dashboard Pages
+
+### 1. Dashboard Overview
+- System health summary
+- Key metrics and statistics
+- Quick action buttons
+- Recent alerts
+- System health indicator
+
+### 2. Camera Status
+- Camera list with real-time status
+- Status history charts
+- Camera performance metrics
+- Filter and search functionality
+- Camera detail modals
+
+### 3. Network Analysis
+- Network node monitoring
+- Traffic analysis charts
+- Protocol distribution
+- Bandwidth utilization
+- Node configuration
+
+### 4. Detection Analysis
+- Tabbed interface for different analysis types
+- Location-based detection statistics
+- Time-based detection patterns
+- License plate tracking
+- Detection type distribution
+
+## Sample Data
+
+The dashboard includes comprehensive sample data for demonstration:
+
+- **156 cameras** with various statuses (online, offline, warning)
+- **45 network nodes** with different types (switches, routers, hubs, servers)
+- **1,247 total detections** across multiple locations
+- **Realistic performance metrics** and historical data
+
+## API Integration
+
+The dashboard is designed to work with a backend API. See `API_REFERENCE.md` for complete API documentation.
+
+### Key API Endpoints:
+- Camera Status: `/api/camera-status/*`
+- Network Analysis: `/api/network-analysis/*`
+- Detection Analysis: `/api/detection-analysis/*`
+- Dashboard: `/api/dashboard/*`
+
+### WebSocket Support:
+Real-time updates via WebSocket connection for:
+- Camera status changes
+- Network node updates
+- New detections
+- System alerts
+
+## Responsive Design
+
+The dashboard is fully responsive and optimized for:
+- **Desktop:** Full feature set with side navigation
+- **Tablet:** Collapsible navigation with touch-friendly interface
+- **Mobile:** Mobile-first design with hamburger menu
+
+## Customization
+
+### Styling
+- Uses Tailwind CSS for consistent styling
+- Custom color palette defined in `tailwind.config.js`
+- Responsive breakpoints and utilities
+
+### Components
+- Modular component structure for easy customization
+- Reusable UI components
+- Consistent design patterns
+
+### Data
+- Easy to replace sample data with real API calls
+- Configurable data refresh intervals
+- Support for different data formats
+
+## Development
+
+### Adding New Features
+
+1. Create new components in `src/components/`
+2. Add new pages in `src/pages/`
+3. Update routing in `src/App.jsx`
+4. Add navigation items in `src/components/Layout.jsx`
+
+### API Integration
+
+1. Add new API endpoints in `src/services/api.js`
+2. Update sample data in `src/data/sampleData.js`
+3. Implement API calls in components
+4. Handle loading states and errors
+
+### Styling
+
+1. Use Tailwind CSS classes for styling
+2. Add custom styles in `src/index.css`
+3. Update color palette in `tailwind.config.js`
+4. Maintain consistent design patterns
+
+## Production Deployment
+
+### Build for Production
 
 ```bash
-# Clone repository
-git clone https://github.com/your-org/aicamera.git
-cd aicamera/edge
-
-# สร้าง virtual environment
-python -m venv venv_hailo
-source venv_hailo/bin/activate
-
-# ติดตั้ง dependencies
-pip install -r requirements.txt
-
-# ตั้งค่า environment
-cp .env.example .env
-# แก้ไขไฟล์ .env ตามการตั้งค่าของคุณ
-
-# เริ่มต้นระบบ
-python -m edge.src.app
-```
-
-## 📚 เอกสารประกอบ
-
-### สำหรับผู้ใช้
-- [คู่มือผู้ใช้ (User Manual)](docs/user-manual.md)
-- [คู่มือการใช้งาน API](docs/api-reference.md)
-- [คู่มือการติดตั้ง](docs/installation-guide.md)
-
-### สำหรับนักพัฒนา
-- [คู่มือนักพัฒนา (Developer Handbook)](docs/developer-handbook.md)
-- [API Documentation](docs/api-reference.md)
-- [สถาปัตยกรรมระบบ](docs/architecture.md)
-- [คู่มือการ Deploy](docs/deployment-guide.md)
-- [License Analysis Report](docs/edge/license-analysis-report.md)
-- [License Compliance Summary](docs/edge/license-compliance-summary.md)
-
-## 🔧 การพัฒนา
-
-### โครงสร้างโปรเจค
-
-```
-aicamera/
-├── edge/                    # Edge Device Application
-│   ├── src/                # Source code
-│   ├── requirements.txt    # Python dependencies
-│   └── tests/             # Python tests
-├── server/                 # Backend Server
-│   ├── src/               # NestJS source code
-│   ├── prisma/            # Database schema
-│   ├── frontend/          # Vue.js frontend
-│   └── docs/              # Documentation
-├── docs/                   # Project documentation
-└── scripts/               # Build and deployment scripts
-```
-
-### การรัน Tests
-
-```bash
-# Backend tests
-cd server
-npm run test
-
-# Frontend tests
-cd server/frontend
-npm run test
-
-# Edge tests
-cd edge
-python -m pytest
-```
-
-### การ Build
-
-```bash
-# Build Backend
-cd server
 npm run build
-
-# Build Frontend
-cd server/frontend
-npm run build
-
-# Build Edge
-cd edge
-python setup.py build
 ```
 
-### การตรวจสอบ License
+### Environment Variables
 
-```bash
-# ตรวจสอบ license แบบเร็ว
-./scripts/check_licenses.sh --quick
+Create a `.env` file for production:
 
-# ตรวจสอบ license แบบเต็ม
-./scripts/check_licenses.sh --full
-
-# ดูรายงาน license
-cat docs/edge/license-reports/compatibility_report_*.md
+```env
+REACT_APP_API_BASE_URL=https://your-api-domain.com/api
+REACT_APP_WS_URL=wss://your-api-domain.com/ws
 ```
 
-## 🤝 การมีส่วนร่วม
+### Docker Deployment
 
-เรายินดีรับการมีส่วนร่วมจากชุมชน! กรุณาอ่าน [คู่มือการมีส่วนร่วม](CONTRIBUTING.md) สำหรับรายละเอียด
-
-### Git Workflow
-
-#### การ Clone และ Setup
-```bash
-# Clone repository
-git clone https://github.com/your-org/aicamera.git
-cd aicamera
-
-# สร้าง branch ใหม่สำหรับการพัฒนา
-git checkout -b feature/your-feature-name
+```dockerfile
+FROM node:16-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+RUN npm run build
+FROM nginx:alpine
+COPY --from=0 /app/dist /usr/share/nginx/html
 ```
 
-#### การ Commit และ Push
-```bash
-# เพิ่มไฟล์ที่เปลี่ยนแปลง
-git add .
+## Browser Support
 
-# Commit ด้วยข้อความที่ชัดเจน
-git commit -m "feat: เพิ่มฟีเจอร์ใหม่
-- อธิบายการเปลี่ยนแปลง
-- อ้างอิง issue ถ้ามี"
+- Chrome 90+
+- Firefox 88+
+- Safari 14+
+- Edge 90+
 
-# Push ไปยัง remote
-git push origin feature/your-feature-name
-```
+## Contributing
 
-#### การ Merge
-```bash
-# Pull latest changes จาก main
-git checkout main
-git pull origin main
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests if applicable
+5. Submit a pull request
 
-# Merge feature branch
-git merge feature/your-feature-name
+## License
 
-# Push ไปยัง main
-git push origin main
-```
+This project is licensed under the MIT License.
 
-### การรายงานปัญหา
-- ใช้ [GitHub Issues](https://github.com/your-org/aicamera/issues) สำหรับรายงานปัญหา
-- กรุณาระบุรายละเอียดของปัญหาและขั้นตอนการทำซ้ำ
-- ใช้ template ที่กำหนดไว้สำหรับรายงานปัญหา
+## Support
 
-### การเสนอแนะฟีเจอร์
-- ใช้ [GitHub Discussions](https://github.com/your-org/aicamera/discussions) สำหรับการเสนอแนะ
-- อธิบายประโยชน์และกรณีการใช้งานของฟีเจอร์ที่เสนอ
-- ระบุความสำคัญและผลกระทบต่อผู้ใช้
+For support and questions:
+- Check the API documentation in `API_REFERENCE.md`
+- Review the sample data structure
+- Test with the provided sample data
+- Contact the development team
 
-## 📄 License & Copyright
+## Future Enhancements
 
-### License
-โปรเจคนี้อยู่ภายใต้ [MIT License](LICENSE) ซึ่งเป็นไลเซนส์แบบ Permissive ที่อนุญาตให้:
-- ✅ ใช้งานเชิงพาณิชย์ได้โดยไม่มีข้อจำกัด
-- ✅ แก้ไขและปรับแต่งโค้ดได้
-- ✅ แจกจ่ายและเผยแพร่ได้
-- ✅ ใช้งานส่วนตัวได้
-- ✅ รวมเข้ากับโปรเจคอื่นได้
-
-### Copyright
-**Copyright (c) 2024 Hailo** - สงวนลิขสิทธิ์
-
-### Third-Party Licenses
-โปรเจคนี้ใช้ไลบรารีจากบุคคลที่สามหลายตัว ดูรายละเอียดได้ที่ [LICENSE_ATTRIBUTION.md](LICENSE_ATTRIBUTION.md)
-
-### License Compliance
-- **Compatibility Rate**: 85% ของ dependencies เข้ากันได้กับ MIT License
-- **Risk Level**: ต่ำ - ไม่มีข้อขัดแย้งทางไลเซนส์ที่สำคัญ
-- **Automated Checking**: ใช้ `scripts/check_licenses.sh` สำหรับตรวจสอบไลเซนส์
-
-## 👥 ทีมพัฒนา
-
-- **Project Lead**: Surasak Popwandee
-- **Backend Developer**: Surasak Popwandee
-- **Frontend Developer**: Surasak Popwandee
-- **AI/ML Engineer**: Surasak Popwandee
-- **DevOps Engineer**: Surasak Popwandee
-
-## 📞 การสนับสนุน
-
-### ช่องทางการติดต่อ
-
-- **Email**: popwandee@gmail.com
-- **Website**: https://github.com/popwandee/aicamera
-- **Documentation**: https://github.com/popwandee/aicamera
-- **GitHub**: https://github.com/popwandee/aicamera
-
-## 🙏 การขอบคุณ
-
-ขอบคุณชุมชน Open Source และผู้มีส่วนร่วมทุกท่านที่ทำให้โปรเจคนี้เป็นไปได้
-
-### Open Source Dependencies
-โปรเจคนี้ใช้ไลบรารี Open Source มากกว่า 200+ packages ที่มีไลเซนส์ที่เข้ากันได้กับ MIT License:
-- **Web Framework**: Flask, Jinja2, Werkzeug
-- **AI/ML Libraries**: numpy, scipy, matplotlib, opencv-python
-- **Image Processing**: Pillow, scikit-image
-- **Web Technologies**: aiohttp, gunicorn, Socket.IO
-- **Development Tools**: rich, loguru, attrs
-
-### License Compliance
-- **Total Dependencies**: 200+ packages
-- **Compatible Licenses**: 85% (MIT, BSD, Apache 2.0, PSF)
-- **Risk Assessment**: Low - No major license conflicts
-- **Automated Monitoring**: Available via `scripts/check_licenses.sh`
-
----
-
-*AI Camera System - ระบบกล้องตรวจจับอัจฉริยะสำหรับอนาคต* 🚗📹🤖
-
-**License**: [MIT License](LICENSE) | **Copyright**: © 2024 Hailo | **Compliance**: ✅ Excellent
+- Real-time data streaming
+- Advanced filtering and search
+- Export functionality
+- User authentication
+- Role-based access control
+- Advanced analytics and reporting
+- Mobile app version
+- Offline support
