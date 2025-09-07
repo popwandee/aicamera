@@ -156,8 +156,8 @@ const formData = ref({
   deviceType: 'camera',
   ipAddress: '',
   macAddress: '',
-  locationLat: null as number | null,
-  locationLng: null as number | null,
+  locationLat: undefined as number | undefined,
+  locationLng: undefined as number | undefined,
   locationAddress: '',
 })
 

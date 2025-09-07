@@ -158,7 +158,7 @@
     <!-- Device Details Modal -->
     <DeviceDetailsModal 
       v-if="selectedDevice"
-      :device="selectedDevice"
+      :device="(selectedDevice as any)"
       @close="selectedDevice = null"
       @updated="refreshDevices"
     />
@@ -189,7 +189,7 @@ import DeviceDetailsModal from './DeviceDetailsModal.vue'
 import ApproveDeviceModal from './ApproveDeviceModal.vue'
 import RejectDeviceModal from './RejectDeviceModal.vue'
 
-interface Device {
+interface RegisteredDevice {
   id: string
   serialNumber: string
   deviceModel: string
@@ -212,6 +212,7 @@ interface Device {
     id: string
     name: string
     cameraId: string
+    status?: string
   }
   approvedByUser?: {
     id: string
@@ -219,10 +220,11 @@ interface Device {
     firstName?: string
     lastName?: string
   }
+  metadata?: Record<string, any>
 }
 
-const devices = ref<Device[]>([])
-const filteredDevices = ref<Device[]>([])
+const devices = ref<RegisteredDevice[]>([])
+const filteredDevices = ref<RegisteredDevice[]>([])
 const loading = ref(false)
 const totalDevices = ref(0)
 const limit = ref(20)
@@ -234,9 +236,9 @@ const filters = ref({
 })
 
 const showPreProvisionModal = ref(false)
-const selectedDevice = ref<Device | null>(null)
-const deviceToApprove = ref<Device | null>(null)
-const deviceToReject = ref<Device | null>(null)
+const selectedDevice = ref<RegisteredDevice | null>(null)
+const deviceToApprove = ref<RegisteredDevice | null>(null)
+const deviceToReject = ref<RegisteredDevice | null>(null)
 
 const pendingCount = computed(() => {
   return devices.value.filter(d => d.registrationStatus === 'pending_approval').length
@@ -280,15 +282,15 @@ const nextPage = () => {
   }
 }
 
-const approveDevice = (device: Device) => {
+const approveDevice = (device: RegisteredDevice) => {
   deviceToApprove.value = device
 }
 
-const rejectDevice = (device: Device) => {
+const rejectDevice = (device: RegisteredDevice) => {
   deviceToReject.value = device
 }
 
-const viewDeviceDetails = (device: Device) => {
+const viewDeviceDetails = (device: RegisteredDevice) => {
   selectedDevice.value = device
 }
 
@@ -307,7 +309,7 @@ const onRejectionSuccess = () => {
   refreshDevices()
 }
 
-const getDeviceRowClass = (device: Device) => {
+const getDeviceRowClass = (device: RegisteredDevice) => {
   return {
     'device-row': true,
     'device-pending': device.registrationStatus === 'pending_approval',
@@ -360,7 +362,7 @@ const getHeartbeatStatusClass = (lastHeartbeat: string) => {
   }
 }
 
-const isDeviceOffline = (device: Device) => {
+const isDeviceOffline = (device: RegisteredDevice) => {
   if (!device.lastHeartbeat) return true
   return getHeartbeatStatus(device.lastHeartbeat) === 'Offline'
 }

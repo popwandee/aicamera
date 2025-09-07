@@ -206,7 +206,7 @@ interface Camera {
   id: string
   name: string
   cameraId: string
-  status: string
+  status?: string
 }
 
 interface Device {
@@ -224,7 +224,7 @@ interface Device {
   apiKey?: string
   jwtSecret?: string
   sharedSecret?: string
-  metadata: Record<string, any>
+  metadata?: Record<string, any>
   lastHeartbeat?: string
   createdAt: string
   updatedAt: string
@@ -260,17 +260,19 @@ const getStatusClass = (status: string) => {
   return `status-badge ${classes[status as keyof typeof classes] || 'status-unknown'}`
 }
 
-const getCameraStatusClass = (status: string) => {
+const getCameraStatusClass = (status?: string) => {
   const classes = {
     'active': 'status-active',
     'inactive': 'status-inactive',
     'maintenance': 'status-maintenance'
   }
-  return `status-badge ${classes[status as keyof typeof classes] || 'status-unknown'}`
+  const key = (status || 'inactive') as keyof typeof classes
+  return `status-badge ${classes[key] || 'status-unknown'}`
 }
 
-const formatStatus = (status: string) => {
-  return status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+const formatStatus = (status: string | undefined) => {
+  const s = status || 'unknown'
+  return s.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
 }
 
 const formatRegistrationType = (type: string) => {

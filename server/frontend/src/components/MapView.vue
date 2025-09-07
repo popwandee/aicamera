@@ -47,7 +47,7 @@ import { communicationService } from '../services';
 import type { Camera, Detection } from '../services';
 
 const mapContainer = ref<HTMLElement>();
-const map = ref<L.Map | null>(null);
+const map = ref<any>(null);
 const loading = ref(false);
 const error = ref('');
 
@@ -62,10 +62,10 @@ const showCameras = ref(true);
 const showDetections = ref(false);
 
 // Layers
-let baseSatellite: L.TileLayer | null = null;
-let baseStreets: L.TileLayer | null = null;
-const cameraLayer = L.layerGroup();
-const detectionLayer = L.layerGroup();
+let baseSatellite: any = null;
+let baseStreets: any = null;
+const cameraLayer: any = L.layerGroup();
+const detectionLayer: any = L.layerGroup();
 
 function initMap() {
   if (!mapContainer.value) return;
@@ -84,7 +84,7 @@ function initMap() {
       attribution: 'Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics',
       maxZoom: 19,
     }
-  ).addTo(map.value);
+  ).addTo(map.value!);
 
   baseStreets = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '&copy; OpenStreetMap contributors',
@@ -92,14 +92,11 @@ function initMap() {
   });
 
   // Overlay layers
-  cameraLayer.addTo(map.value);
-  detectionLayer.addTo(map.value);
+  cameraLayer.addTo(map.value!);
+  detectionLayer.addTo(map.value!);
 }
 
-function clearLayers() {
-  cameraLayer.clearLayers();
-  detectionLayer.clearLayers();
-}
+// layers are cleared within render functions
 
 function getTimeWindow() {
   const end = new Date();
@@ -174,17 +171,17 @@ function renderDetections() {
 function applyBase() {
   if (!map.value || !baseSatellite || !baseStreets) return;
   if (selectedBase.value === 'satellite') {
-    map.value.addLayer(baseSatellite);
-    map.value.removeLayer(baseStreets);
+    map.value!.addLayer(baseSatellite);
+    map.value!.removeLayer(baseStreets);
   } else {
-    map.value.addLayer(baseStreets);
-    map.value.removeLayer(baseSatellite);
+    map.value!.addLayer(baseStreets);
+    map.value!.removeLayer(baseSatellite);
   }
 }
 
 function fitToData() {
   if (!map.value) return;
-  const group = new L.FeatureGroup();
+  const group: any = new (L as any).FeatureGroup();
   if (showCameras.value) group.addLayer(cameraLayer);
   if (showDetections.value) group.addLayer(detectionLayer);
   try {

@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { ServeStaticModule } from '@nestjs/serve-static';
+import { join } from 'path';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { ConfigModule } from '@nestjs/config';
@@ -14,6 +16,7 @@ import { DetectionModule } from './modules/detection/detection.module';
 import { CameraModule } from './modules/camera/camera.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { rateLimitConfig } from './config/rate-limit.config';
+import { SpaController } from './controllers/spa.controller';
 
 const GlobalConfigModule = ConfigModule.forRoot({ isGlobal: true }) as unknown as import('@nestjs/common').DynamicModule;
 
@@ -22,13 +25,17 @@ const GlobalConfigModule = ConfigModule.forRoot({ isGlobal: true }) as unknown a
     GlobalConfigModule,
     // Temporarily disable ThrottlerModule root to avoid duplicate nest type issues
     // ThrottlerModule.forRoot(rateLimitConfig),
+    ServeStaticModule.forRoot({
+      rootPath: join(process.cwd(), 'frontend', 'dist'),
+      exclude: ['/api*'],
+    }),
     DatabaseModule,
     HealthModule,
     DetectionModule,
     CameraModule,
     AnalyticsModule,
   ],
-  controllers: [],
+  controllers: [SpaController],
   providers: [
     DeviceService,
     SftpService,
