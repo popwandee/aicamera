@@ -1,0 +1,46 @@
+{
+  "name": "@aicamera/api-gateway",
+  "version": "1.0.0",
+  "description": "API Gateway for AI Camera microservices",
+  "author": "AI Camera Team",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "prebuild": "rimraf dist",
+    "build": "nest build",
+    "start": "nest start",
+    "start:dev": "nest start --watch",
+    "start:prod": "node dist/main"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.0.0",
+    "@nestjs/core": "^11.0.0",
+    "@nestjs/platform-express": "^11.0.0",
+    "@nestjs/config": "^3.1.1",
+    "@nestjs/swagger": "^7.1.16",
+    "@nestjs/jwt": "^10.2.0",
+    "@nestjs/passport": "^10.0.2",
+    "@nestjs/microservices": "^11.0.0",
+    "@nestjs/axios": "^3.0.1",
+    "@prisma/client": "^5.3.1",
+    "passport": "^0.7.0",
+    "passport-jwt": "^4.0.1",
+    "passport-local": "^1.0.0",
+    "bcrypt": "^5.1.1",
+    "axios": "^1.6.2",
+    "class-validator": "^0.14.0",
+    "class-transformer": "^0.5.1",
+    "redis": "^4.6.10",
+    "rxjs": "^7.8.1",
+    "@aicamera/shared": "file:../shared"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^11.0.0",
+    "@types/passport-jwt": "^3.0.13",
+    "@types/passport-local": "^1.0.38",
+    "@types/bcrypt": "^5.0.2",
+    "@types/node": "^20.8.0",
+    "typescript": "^5.3.3",
+    "rimraf": "^5.0.5"
+  }
+}

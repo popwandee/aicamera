@@ -1,0 +1,42 @@
+{
+  "name": "@aicamera/websocket-service",
+  "version": "1.0.0",
+  "description": "WebSocket Microservice for AI Camera real-time detection data",
+  "author": "AI Camera Team",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "prebuild": "rimraf dist",
+    "build": "nest build",
+    "start": "nest start",
+    "start:dev": "nest start --watch",
+    "start:debug": "nest start --debug --watch",
+    "start:prod": "node dist/main"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.0.0",
+    "@nestjs/core": "^11.0.0",
+    "@nestjs/platform-express": "^11.0.0",
+    "@nestjs/platform-socket.io": "^11.0.0",
+    "@nestjs/websockets": "^11.0.0",
+    "@nestjs/config": "^3.1.1",
+    "@nestjs/swagger": "^7.1.16",
+    "@nestjs/throttler": "^5.0.1",
+    "@prisma/client": "^5.3.1",
+    "socket.io": "^4.7.4",
+    "socket.io-redis": "^6.1.1",
+    "class-validator": "^0.14.0",
+    "class-transformer": "^0.5.1",
+    "redis": "^4.6.10",
+    "rxjs": "^7.8.1",
+    "uuid": "^9.0.1",
+    "@aicamera/shared": "file:../shared"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^11.0.0",
+    "@nestjs/testing": "^11.0.0",
+    "@types/node": "^20.8.0",
+    "typescript": "^5.3.3",
+    "rimraf": "^5.0.5"
+  }
+}

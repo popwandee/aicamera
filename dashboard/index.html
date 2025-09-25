@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="AI Camera Dashboard - Monitor and manage your AI-powered camera network" />
+    <meta name="keywords" content="AI Camera, Computer Vision, Dashboard, Detection, Monitoring" />
+    <meta name="author" content="AI Camera Team" />
+    
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="AI Camera Dashboard" />
+    <meta property="og:description" content="Monitor and manage your AI-powered camera network" />
+    
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image" />
+    <meta property="twitter:title" content="AI Camera Dashboard" />
+    <meta property="twitter:description" content="Monitor and manage your AI-powered camera network" />
+    
+    <!-- Preload critical fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    
+    <title>AI Camera Dashboard</title>
+    
+    <!-- Environment variables for client-side -->
+    <script>
+      window.ENV = {
+        API_URL: '%VITE_API_URL%',
+        WS_URL: '%VITE_WS_URL%',
+        NODE_ENV: '%NODE_ENV%'
+      };
+    </script>
+  </head>
+  <body class="bg-gray-50">
+    <div id="app">
+      <!-- Loading screen -->
+      <div id="initial-loading" class="fixed inset-0 flex items-center justify-center bg-white z-50">
+        <div class="text-center">
+          <div class="w-16 h-16 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mx-auto mb-4"></div>
+          <h2 class="text-xl font-semibold text-gray-700 mb-2">AI Camera Dashboard</h2>
+          <p class="text-gray-500">Loading...</p>
+        </div>
+      </div>
+    </div>
+    
+    <script type="module" src="/src/main.ts"></script>
+    
+    <!-- Remove loading screen after app loads -->
+    <script>
+      window.addEventListener('load', function() {
+        setTimeout(function() {
+          const loadingElement = document.getElementById('initial-loading');
+          if (loadingElement) {
+            loadingElement.style.opacity = '0';
+            loadingElement.style.transition = 'opacity 0.3s ease-out';
+            setTimeout(() => {
+              loadingElement.remove();
+            }, 300);
+          }
+        }, 500);
+      });
+    </script>
+  </body>
+</html>

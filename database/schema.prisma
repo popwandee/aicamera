@@ -1,0 +1,266 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "./generated/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User Management
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  username  String   @unique
+  password  String
+  firstName String?
+  lastName  String?
+  role      UserRole @default(USER)
+  isActive  Boolean  @default(true)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Relations
+  sessions Session[]
+  
+  @@map("users")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  
+  createdAt DateTime @default(now())
+  
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@map("sessions")
+}
+
+// Edge Device Management
+model EdgeDevice {
+  id          String           @id @default(cuid())
+  deviceId    String           @unique // Unique identifier from edge device
+  name        String
+  type        EdgeDeviceType
+  status      DeviceStatus     @default(OFFLINE)
+  
+  // Connection info
+  ipAddress   String?
+  macAddress  String?
+  version     String?
+  
+  // Capabilities
+  capabilities Json?
+  
+  // Location info
+  location    String?
+  latitude    Float?
+  longitude   Float?
+  
+  // Last communication
+  lastSeen    DateTime?
+  lastHeartbeat DateTime?
+  
+  // Metadata
+  metadata    Json?
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Relations
+  detections  Detection[]
+  deviceLogs  DeviceLog[]
+  images      ImageFile[]
+  
+  @@map("edge_devices")
+}
+
+model DeviceLog {
+  id        String    @id @default(cuid())
+  deviceId  String
+  level     LogLevel
+  message   String
+  data      Json?
+  
+  createdAt DateTime @default(now())
+  
+  // Relations
+  device EdgeDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  
+  @@index([deviceId, createdAt])
+  @@map("device_logs")
+}
+
+// Detection Management
+model Detection {
+  id          String         @id @default(cuid())
+  deviceId    String
+  
+  // Detection data
+  type        DetectionType
+  confidence  Float
+  
+  // Bounding box coordinates (normalized 0-1)
+  x           Float?
+  y           Float?
+  width       Float?
+  height      Float?
+  
+  // Classification results
+  label       String?
+  classes     Json?           // Array of detected classes with confidence scores
+  
+  // Original detection data from edge
+  rawData     Json?
+  
+  // Associated image
+  imageId     String?
+  
+  // Tracking info
+  trackingId  String?
+  
+  createdAt   DateTime @default(now())
+  
+  // Relations
+  device EdgeDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  image  ImageFile? @relation(fields: [imageId], references: [id])
+  
+  @@index([deviceId, createdAt])
+  @@index([type, createdAt])
+  @@map("detections")
+}
+
+// File Management
+model ImageFile {
+  id          String     @id @default(cuid())
+  deviceId    String
+  
+  // File info
+  filename    String
+  originalName String?
+  path        String
+  size        Int
+  mimeType    String
+  
+  // Image metadata
+  width       Int?
+  height      Int?
+  format      String?
+  
+  // Processing status
+  status      FileStatus @default(UPLOADING)
+  
+  // Thumbnails
+  thumbnailPath String?
+  previewPath   String?
+  
+  // File transfer info
+  transferMethod String? // sftp, rsync, http
+  checksum      String?
+  
+  // Metadata
+  metadata    Json?
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Relations
+  device      EdgeDevice  @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  detections  Detection[]
+  
+  @@index([deviceId, createdAt])
+  @@index([status])
+  @@map("image_files")
+}
+
+// System Configuration
+model SystemConfig {
+  id          String @id @default(cuid())
+  key         String @unique
+  value       String
+  description String?
+  category    String?
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@map("system_config")
+}
+
+// Event Log for audit trail
+model EventLog {
+  id        String    @id @default(cuid())
+  eventType String
+  entityType String?
+  entityId  String?
+  userId    String?
+  
+  // Event data
+  action    String
+  data      Json?
+  
+  // Context
+  ipAddress String?
+  userAgent String?
+  
+  createdAt DateTime @default(now())
+  
+  @@index([eventType, createdAt])
+  @@index([entityType, entityId])
+  @@map("event_logs")
+}
+
+// Enums
+enum UserRole {
+  ADMIN
+  OPERATOR
+  USER
+}
+
+enum EdgeDeviceType {
+  CAMERA
+  SENSOR
+  GATEWAY
+  OTHER
+}
+
+enum DeviceStatus {
+  ONLINE
+  OFFLINE
+  CONNECTING
+  ERROR
+  MAINTENANCE
+}
+
+enum DetectionType {
+  OBJECT
+  FACE
+  PERSON
+  VEHICLE
+  ANIMAL
+  OTHER
+}
+
+enum LogLevel {
+  ERROR
+  WARN
+  INFO
+  DEBUG
+}
+
+enum FileStatus {
+  UPLOADING
+  PROCESSING
+  COMPLETED
+  ERROR
+  ARCHIVED
+}

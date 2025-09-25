@@ -1,0 +1,156 @@
+version: '3.8'
+
+services:
+  # Database
+  postgres:
+    image: postgres:15-alpine
+    restart: always
+    environment:
+      POSTGRES_DB: aicamera
+      POSTGRES_USER: aicamera
+      POSTGRES_PASSWORD: aicamera123
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - aicamera-network
+
+  # MQTT Broker
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    restart: always
+    ports:
+      - '1883:1883'
+      - '9001:9001'
+    volumes:
+      - ./config/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_logs:/mosquitto/log
+    networks:
+      - aicamera-network
+
+  # Redis for caching and session management
+  redis:
+    image: redis:7-alpine
+    restart: always
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    networks:
+      - aicamera-network
+
+  # API Gateway Service
+  api-gateway:
+    build:
+      context: ./services/api-gateway
+      dockerfile: Dockerfile
+    restart: always
+    ports:
+      - '3000:3000'
+    environment:
+      DATABASE_URL: postgresql://aicamera:aicamera123@postgres:5432/aicamera
+      REDIS_URL: redis://redis:6379
+      MQTT_URL: mqtt://mosquitto:1883
+      WEBSOCKET_SERVICE_URL: http://websocket-service:3002
+      FILE_SERVICE_URL: http://file-service:3003
+      JWT_SECRET: your-jwt-secret-key-here
+      NODE_ENV: production
+    depends_on:
+      - postgres
+      - redis
+      - mosquitto
+    volumes:
+      - ./storage:/app/storage
+    networks:
+      - aicamera-network
+
+  # MQTT Service
+  mqtt-service:
+    build:
+      context: ./services/mqtt-service
+      dockerfile: Dockerfile
+    restart: always
+    ports:
+      - '3001:3001'
+    environment:
+      DATABASE_URL: postgresql://aicamera:aicamera123@postgres:5432/aicamera
+      MQTT_URL: mqtt://mosquitto:1883
+      REDIS_URL: redis://redis:6379
+      NODE_ENV: production
+    depends_on:
+      - postgres
+      - mosquitto
+      - redis
+    networks:
+      - aicamera-network
+
+  # WebSocket Service
+  websocket-service:
+    build:
+      context: ./services/websocket-service
+      dockerfile: Dockerfile
+    restart: always
+    ports:
+      - '3002:3002'
+    environment:
+      DATABASE_URL: postgresql://aicamera:aicamera123@postgres:5432/aicamera
+      REDIS_URL: redis://redis:6379
+      NODE_ENV: production
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - aicamera-network
+
+  # File Service (SFTP + rsync)
+  file-service:
+    build:
+      context: ./services/file-service
+      dockerfile: Dockerfile
+    restart: always
+    ports:
+      - '3003:3003'
+      - '2222:22'  # SFTP port
+    environment:
+      DATABASE_URL: postgresql://aicamera:aicamera123@postgres:5432/aicamera
+      REDIS_URL: redis://redis:6379
+      STORAGE_PATH: /app/storage
+      NODE_ENV: production
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ./storage:/app/storage
+      - openssh_keys:/etc/ssh
+    networks:
+      - aicamera-network
+
+  # Dashboard (Vue.js)
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    restart: always
+    ports:
+      - '8080:80'
+    environment:
+      VITE_API_URL: http://localhost:3000
+      VITE_WS_URL: ws://localhost:3002
+    depends_on:
+      - api-gateway
+    networks:
+      - aicamera-network
+
+volumes:
+  postgres_data:
+  mosquitto_data:
+  mosquitto_logs:
+  redis_data:
+  openssh_keys:
+
+networks:
+  aicamera-network:
+    driver: bridge

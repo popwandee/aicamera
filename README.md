@@ -1,322 +1,361 @@
-# AI Camera System - ระบบกล้องตรวจจับอัจฉริยะ
+# AI Camera Microservices Application
 
-## 📋 ภาพรวม
+A comprehensive AI camera management system built with modern microservices architecture, featuring NestJS backend services, Vue.js dashboard, and real-time communication capabilities.
 
-AI Camera System เป็นระบบตรวจจับป้ายทะเบียนรถยนต์แบบอัจฉริยะที่พัฒนาด้วยเทคโนโลยีล่าสุด ประกอบด้วย Edge Device (Raspberry Pi 5 + Hailo AI Accelerator) และ Server System (NestJS + Vue.js) ที่ทำงานร่วมกันเพื่อตรวจจับและวิเคราะห์ข้อมูลการจราจรแบบ Real-time
+## 🏗️ Architecture
 
-## 🏗️ สถาปัตยกรรมระบบ
+This project implements a microservices architecture with the following components:
 
-```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Edge Device   │    │   Server API    │    │   Web Frontend  │
-│                 │    │                 │    │                 │
-│ • Raspberry Pi  │◄──►│ • NestJS        │◄──►│ • Vue.js 3      │
-│ • Hailo-8       │    │ • PostgreSQL    │    │ • TypeScript    │
-│ • Camera Module │    │ • Redis         │    │ • Pinia         │
-│ • LPR Detection │    │ • JWT Auth      │    │ • Real-time UI  │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-```
+### Backend Services (NestJS)
+- **API Gateway** (Port 3000) - Main entry point and service orchestration
+- **MQTT Service** (Port 3001) - Edge device communication and management
+- **WebSocket Service** (Port 3002) - Real-time detection data handling
+- **File Service** (Port 3003) - SFTP + rsync for image file management
 
-## ✨ คุณสมบัติหลัก
+### Frontend
+- **Vue.js Dashboard** (Port 5173) - Modern web interface with real-time updates
 
-### 🔐 ระบบความปลอดภัย
-- **JWT Authentication**: ระบบยืนยันตัวตนด้วย Token
-- **Role-Based Access Control**: ระบบสิทธิ์แบบ Admin, Operator, Viewer
-- **Rate Limiting**: จำกัดการเรียก API ป้องกันการใช้งานเกินขีดจำกัด
-- **Input Validation**: ตรวจสอบข้อมูลที่รับเข้ามาอย่างเข้มงวด
+### Infrastructure
+- **PostgreSQL** (Port 5432) - Main database
+- **Redis** (Port 6379) - Caching and session management
+- **MQTT Broker** (Mosquitto, Port 1883) - Device communication
+- **SFTP Server** (Port 2222) - File transfers
 
-### 📡 ระบบการสื่อสาร
-- **REST API**: API หลักสำหรับการทำงาน
-- **WebSocket**: การสื่อสารแบบ Real-time
-- **MQTT**: การสื่อสารแบบ Lightweight สำหรับ IoT
-- **Automatic Fallback**: ระบบสำรองเมื่อการเชื่อมต่อล้มเหลว
+## 🚀 Features
 
-### 🎯 การตรวจจับและวิเคราะห์
-- **License Plate Recognition**: ตรวจจับป้ายทะเบียนรถยนต์
-- **Real-time Processing**: ประมวลผลแบบ Real-time
-- **Image Storage**: เก็บภาพการตรวจจับ
-- **Analytics Dashboard**: แสดงผลการวิเคราะห์
+### Device Management
+- ✅ Real-time device registration via MQTT
+- ✅ Device status monitoring and heartbeat tracking
+- ✅ Device configuration management
+- ✅ Location-based device organization
 
-### 🖥️ ระบบผู้ใช้
-- **Responsive Design**: ใช้งานได้ทุกอุปกรณ์
-- **Real-time Updates**: อัพเดทข้อมูลแบบ Real-time
-- **Interactive Maps**: แสดงตำแหน่งกล้องและการตรวจจับ
-- **Data Visualization**: แสดงข้อมูลในรูปแบบกราฟและตาราง
+### Detection Processing
+- ✅ Real-time detection data via WebSocket
+- ✅ Bulk detection processing
+- ✅ Detection statistics and analytics
+- ✅ Confidence-based filtering
 
-## 🚀 การติดตั้งและใช้งาน
+### File Management
+- ✅ SFTP-based image uploads from edge devices
+- ✅ Automatic thumbnail and preview generation
+- ✅ File status tracking and metadata
+- ✅ Storage management and cleanup
 
-### ความต้องการของระบบ
+### Dashboard Features
+- ✅ Real-time device status monitoring
+- ✅ Detection visualization and filtering
+- ✅ Image preview and management
+- ✅ Interactive charts and statistics
+- ✅ Responsive design with dark mode support
 
-#### Backend (Server)
-- Node.js 22+
-- PostgreSQL 17+
-- Redis 7+
-- npm หรือ yarn
+## 📋 Prerequisites
 
-#### Frontend (Web)
-- Node.js 22+
-- npm หรือ yarn
-- Modern Browser (Chrome, Firefox, Safari, Edge)
+- **Node.js** >= 20.x LTS
+- **PostgreSQL** >= 15
+- **Redis** >= 7
+- **Docker & Docker Compose** (recommended)
 
-#### Edge Device
-- Raspberry Pi 5
-- Hailo-8 AI Accelerator
-- Camera Module 3
-- Python 3.11+
+## 🛠️ Development Setup
 
-### การติดตั้ง Backend
+### 1. Clone and Install Dependencies
 
 ```bash
-# Clone repository
-git clone https://github.com/your-org/aicamera.git
-cd aicamera/server
-
-# ติดตั้ง dependencies
+# Install workspace dependencies
 npm install
 
-# ตั้งค่าฐานข้อมูล
-cp .env.example .env
-# แก้ไขไฟล์ .env ตามการตั้งค่าของคุณ
-
-# สร้างฐานข้อมูล
-npx prisma migrate dev
-
-# สร้างผู้ดูแลระบบ
-npm run setup:admin
-
-# เริ่มต้นเซิร์ฟเวอร์
-npm run start:dev
+# Install dependencies for all services
+npm run install:all
 ```
 
-### การติดตั้ง Frontend
+### 2. Environment Configuration
+
+Copy the example environment file:
 
 ```bash
-# ไปยังโฟลเดอร์ frontend
-cd server/frontend
+cp .env.example .env
+```
 
-# ติดตั้ง dependencies
+Update the `.env` file with your configuration:
+
+```env
+# Database
+DATABASE_URL="postgresql://aicamera:aicamera123@localhost:5432/aicamera"
+
+# Redis
+REDIS_URL="redis://localhost:6379"
+
+# MQTT
+MQTT_URL="mqtt://localhost:1883"
+
+# JWT
+JWT_SECRET="your-super-secure-jwt-secret"
+
+# Service URLs
+API_GATEWAY_URL="http://localhost:3000"
+MQTT_SERVICE_URL="http://localhost:3001"
+WEBSOCKET_SERVICE_URL="http://localhost:3002"
+FILE_SERVICE_URL="http://localhost:3003"
+
+# Dashboard
+VITE_API_URL="http://localhost:3000/api"
+VITE_WS_URL="ws://localhost:3002"
+```
+
+### 3. Database Setup
+
+```bash
+# Navigate to database directory
+cd database
+
+# Install dependencies
 npm install
 
-# ตั้งค่า environment
-cp .env.example .env
-# แก้ไขไฟล์ .env ให้ชี้ไปยัง Backend API
+# Generate Prisma client
+npm run generate
 
-# เริ่มต้น development server
-npm run dev
+# Run migrations
+npm run migrate
+
+# Seed the database
+npm run seed
 ```
 
-### การติดตั้ง Edge Device
+### 4. Start Services
+
+#### Option A: Development Mode (Individual Services)
 
 ```bash
-# Clone repository
-git clone https://github.com/your-org/aicamera.git
-cd aicamera/edge
+# Terminal 1: Start infrastructure services
+docker-compose up postgres redis mosquitto
 
-# สร้าง virtual environment
-python -m venv venv_hailo
-source venv_hailo/bin/activate
+# Terminal 2: API Gateway
+cd services/api-gateway && npm run start:dev
 
-# ติดตั้ง dependencies
-pip install -r requirements.txt
+# Terminal 3: MQTT Service
+cd services/mqtt-service && npm run start:dev
 
-# ตั้งค่า environment
-cp .env.example .env
-# แก้ไขไฟล์ .env ตามการตั้งค่าของคุณ
+# Terminal 4: WebSocket Service
+cd services/websocket-service && npm run start:dev
 
-# เริ่มต้นระบบ
-python -m edge.src.app
+# Terminal 5: File Service
+cd services/file-service && npm run start:dev
+
+# Terminal 6: Dashboard
+cd dashboard && npm run dev
 ```
 
-## 📚 เอกสารประกอบ
-
-### สำหรับผู้ใช้
-- [คู่มือผู้ใช้ (User Manual)](docs/user-manual.md)
-- [คู่มือการใช้งาน API](docs/api-reference.md)
-- [คู่มือการติดตั้ง](docs/installation-guide.md)
-
-### สำหรับนักพัฒนา
-- [คู่มือนักพัฒนา (Developer Handbook)](docs/developer-handbook.md)
-- [API Documentation](docs/api-reference.md)
-- [สถาปัตยกรรมระบบ](docs/architecture.md)
-- [คู่มือการ Deploy](docs/deployment-guide.md)
-- [License Analysis Report](docs/edge/license-analysis-report.md)
-- [License Compliance Summary](docs/edge/license-compliance-summary.md)
-
-## 🔧 การพัฒนา
-
-### โครงสร้างโปรเจค
-
-```
-aicamera/
-├── edge/                    # Edge Device Application
-│   ├── src/                # Source code
-│   ├── requirements.txt    # Python dependencies
-│   └── tests/             # Python tests
-├── server/                 # Backend Server
-│   ├── src/               # NestJS source code
-│   ├── prisma/            # Database schema
-│   ├── frontend/          # Vue.js frontend
-│   └── docs/              # Documentation
-├── docs/                   # Project documentation
-└── scripts/               # Build and deployment scripts
-```
-
-### การรัน Tests
+#### Option B: Docker Compose (Recommended)
 
 ```bash
-# Backend tests
-cd server
-npm run test
+# Start all services
+docker-compose up -d
 
-# Frontend tests
-cd server/frontend
-npm run test
+# View logs
+docker-compose logs -f
 
-# Edge tests
-cd edge
-python -m pytest
+# Stop services
+docker-compose down
 ```
 
-### การ Build
+## 📁 Project Structure
+
+```
+/workspace/
+├── services/                    # Backend microservices
+│   ├── shared/                 # Shared types, interfaces, utilities
+│   ├── api-gateway/           # Main API Gateway (Port 3000)
+│   ├── mqtt-service/          # MQTT device communication (Port 3001)
+│   ├── websocket-service/     # Real-time detection data (Port 3002)
+│   └── file-service/          # File management with SFTP (Port 3003)
+├── dashboard/                  # Vue.js frontend application
+├── database/                   # Prisma schema and migrations
+├── storage/                    # File storage directory
+├── docker-compose.yml         # Docker orchestration
+├── package.json              # Workspace configuration
+└── README.md                 # This file
+```
+
+## 🔧 API Documentation
+
+### API Gateway (Port 3000)
+- **Swagger UI**: http://localhost:3000/docs
+- **Health Check**: http://localhost:3000/health
+
+### MQTT Service (Port 3001)
+- **Swagger UI**: http://localhost:3001/docs
+- **Device API**: http://localhost:3001/devices
+
+### WebSocket Service (Port 3002)
+- **Swagger UI**: http://localhost:3002/docs
+- **Detection API**: http://localhost:3002/detections
+- **WebSocket**: ws://localhost:3002/detection
+
+### File Service (Port 3003)
+- **Swagger UI**: http://localhost:3003/docs
+- **File API**: http://localhost:3003/files
+- **SFTP**: sftp://localhost:2222
+
+## 📊 Default Credentials
+
+### Database Seeding
+The system is seeded with these default users:
+
+- **Admin**: admin@aicamera.com / admin123
+- **Operator**: operator@aicamera.com / operator123  
+- **Demo**: demo@aicamera.com / demo123
+
+### Sample Devices
+- **cam-001**: Entrance Camera (Main Entrance)
+- **cam-002**: Parking Lot Camera (Parking Area)
+- **sensor-001**: Motion Sensor (Corridor)
+
+## 🧪 Testing
+
+### Edge Device Simulation
+
+Test MQTT communication:
 
 ```bash
-# Build Backend
-cd server
-npm run build
+# Subscribe to device registrations
+mosquitto_sub -h localhost -t "aicamera/device/+/register"
 
-# Build Frontend
-cd server/frontend
-npm run build
+# Publish device registration
+mosquitto_pub -h localhost -t "aicamera/device/test-cam-001/register" \
+  -m '{"name":"Test Camera","type":"CAMERA","capabilities":{"video":true}}'
 
-# Build Edge
-cd edge
-python setup.py build
+# Publish device heartbeat
+mosquitto_pub -h localhost -t "aicamera/device/test-cam-001/heartbeat" \
+  -m '{"status":"ONLINE","timestamp":"2024-01-01T12:00:00Z"}'
 ```
 
-### การตรวจสอบ License
+### WebSocket Testing
+
+Test real-time detection:
 
 ```bash
-# ตรวจสอบ license แบบเร็ว
-./scripts/check_licenses.sh --quick
+# Install wscat globally
+npm install -g wscat
 
-# ตรวจสอบ license แบบเต็ม
-./scripts/check_licenses.sh --full
+# Connect to WebSocket
+wscat -c ws://localhost:3002/detection
 
-# ดูรายงาน license
-cat docs/edge/license-reports/compatibility_report_*.md
+# Send device registration
+{"event": "device_register", "data": {"deviceId": "test-device", "type": "camera"}}
+
+# Send detection
+{"event": "detection_new", "data": {"deviceId": "test-device", "type": "PERSON", "confidence": 0.95}}
 ```
 
-## 🤝 การมีส่วนร่วม
+### API Testing
 
-เรายินดีรับการมีส่วนร่วมจากชุมชน! กรุณาอ่าน [คู่มือการมีส่วนร่วม](CONTRIBUTING.md) สำหรับรายละเอียด
-
-### Git Workflow
-
-#### การ Clone และ Setup
 ```bash
-# Clone repository
-git clone https://github.com/your-org/aicamera.git
-cd aicamera
+# Health checks
+curl http://localhost:3000/health
+curl http://localhost:3001/health  
+curl http://localhost:3002/health
+curl http://localhost:3003/health
 
-# สร้าง branch ใหม่สำหรับการพัฒนา
-git checkout -b feature/your-feature-name
+# Get devices
+curl http://localhost:3001/devices
+
+# Get detections
+curl http://localhost:3002/detections/recent
 ```
 
-#### การ Commit และ Push
+## 📈 Monitoring
+
+### Service Health
+- **API Gateway**: http://localhost:3000/health
+- **Services**: Each service exposes `/health`, `/ready`, `/live` endpoints
+
+### Database
+- **Prisma Studio**: `cd database && npm run studio`
+- **Direct Connection**: Use your preferred PostgreSQL client
+
+### Logs
 ```bash
-# เพิ่มไฟล์ที่เปลี่ยนแปลง
-git add .
+# Docker logs
+docker-compose logs -f [service-name]
 
-# Commit ด้วยข้อความที่ชัดเจน
-git commit -m "feat: เพิ่มฟีเจอร์ใหม่
-- อธิบายการเปลี่ยนแปลง
-- อ้างอิง issue ถ้ามี"
-
-# Push ไปยัง remote
-git push origin feature/your-feature-name
+# Individual service logs
+cd services/[service-name] && npm run start:dev
 ```
 
-#### การ Merge
+## 🔒 Security
+
+### Authentication
+- JWT-based authentication
+- Role-based access control (Admin, Operator, User)
+- Session management with Redis
+
+### Communication Security
+- HTTPS/TLS for production deployments
+- WebSocket over WSS in production
+- MQTT with authentication (configurable)
+
+## 🚀 Production Deployment
+
+### Docker Production Build
+
 ```bash
-# Pull latest changes จาก main
-git checkout main
-git pull origin main
+# Build all services
+docker-compose -f docker-compose.prod.yml build
 
-# Merge feature branch
-git merge feature/your-feature-name
-
-# Push ไปยัง main
-git push origin main
+# Deploy
+docker-compose -f docker-compose.prod.yml up -d
 ```
 
-### การรายงานปัญหา
-- ใช้ [GitHub Issues](https://github.com/your-org/aicamera/issues) สำหรับรายงานปัญหา
-- กรุณาระบุรายละเอียดของปัญหาและขั้นตอนการทำซ้ำ
-- ใช้ template ที่กำหนดไว้สำหรับรายงานปัญหา
+### Environment Variables for Production
 
-### การเสนอแนะฟีเจอร์
-- ใช้ [GitHub Discussions](https://github.com/your-org/aicamera/discussions) สำหรับการเสนอแนะ
-- อธิบายประโยชน์และกรณีการใช้งานของฟีเจอร์ที่เสนอ
-- ระบุความสำคัญและผลกระทบต่อผู้ใช้
+Ensure these are properly set:
 
-## 📄 License & Copyright
+```env
+NODE_ENV=production
+JWT_SECRET=<strong-random-secret>
+DATABASE_URL=<production-db-url>
+REDIS_URL=<production-redis-url>
+```
 
-### License
-โปรเจคนี้อยู่ภายใต้ [MIT License](LICENSE) ซึ่งเป็นไลเซนส์แบบ Permissive ที่อนุญาตให้:
-- ✅ ใช้งานเชิงพาณิชย์ได้โดยไม่มีข้อจำกัด
-- ✅ แก้ไขและปรับแต่งโค้ดได้
-- ✅ แจกจ่ายและเผยแพร่ได้
-- ✅ ใช้งานส่วนตัวได้
-- ✅ รวมเข้ากับโปรเจคอื่นได้
+## 🤝 Contributing
 
-### Copyright
-**Copyright (c) 2024 Hailo** - สงวนลิขสิทธิ์
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
 
-### Third-Party Licenses
-โปรเจคนี้ใช้ไลบรารีจากบุคคลที่สามหลายตัว ดูรายละเอียดได้ที่ [LICENSE_ATTRIBUTION.md](LICENSE_ATTRIBUTION.md)
+## 📝 License
 
-### License Compliance
-- **Compatibility Rate**: 85% ของ dependencies เข้ากันได้กับ MIT License
-- **Risk Level**: ต่ำ - ไม่มีข้อขัดแย้งทางไลเซนส์ที่สำคัญ
-- **Automated Checking**: ใช้ `scripts/check_licenses.sh` สำหรับตรวจสอบไลเซนส์
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 👥 ทีมพัฒนา
+## 🆘 Troubleshooting
 
-- **Project Lead**: Surasak Popwandee
-- **Backend Developer**: Surasak Popwandee
-- **Frontend Developer**: Surasak Popwandee
-- **AI/ML Engineer**: Surasak Popwandee
-- **DevOps Engineer**: Surasak Popwandee
+### Common Issues
 
-## 📞 การสนับสนุน
+1. **Port Conflicts**: Ensure ports 3000-3003, 5173, 5432, 6379, 1883 are available
+2. **Database Connection**: Verify PostgreSQL is running and credentials are correct
+3. **MQTT Connection**: Check Mosquitto broker is running on port 1883
+4. **WebSocket Connection**: Ensure CORS settings allow your frontend domain
 
-### ช่องทางการติดต่อ
+### Getting Help
 
-- **Email**: popwandee@gmail.com
-- **Website**: https://github.com/popwandee/aicamera
-- **Documentation**: https://github.com/popwandee/aicamera
-- **GitHub**: https://github.com/popwandee/aicamera
+- Check service logs: `docker-compose logs [service-name]`
+- Verify service health: `curl http://localhost:[port]/health`
+- Check database connectivity: Use Prisma Studio
+- Test MQTT: Use mosquitto clients for pub/sub testing
 
-## 🙏 การขอบคุณ
+## 🎯 Roadmap
 
-ขอบคุณชุมชน Open Source และผู้มีส่วนร่วมทุกท่านที่ทำให้โปรเจคนี้เป็นไปได้
-
-### Open Source Dependencies
-โปรเจคนี้ใช้ไลบรารี Open Source มากกว่า 200+ packages ที่มีไลเซนส์ที่เข้ากันได้กับ MIT License:
-- **Web Framework**: Flask, Jinja2, Werkzeug
-- **AI/ML Libraries**: numpy, scipy, matplotlib, opencv-python
-- **Image Processing**: Pillow, scikit-image
-- **Web Technologies**: aiohttp, gunicorn, Socket.IO
-- **Development Tools**: rich, loguru, attrs
-
-### License Compliance
-- **Total Dependencies**: 200+ packages
-- **Compatible Licenses**: 85% (MIT, BSD, Apache 2.0, PSF)
-- **Risk Assessment**: Low - No major license conflicts
-- **Automated Monitoring**: Available via `scripts/check_licenses.sh`
+- [ ] Enhanced authentication with OAuth2/OIDC
+- [ ] Advanced analytics and reporting
+- [ ] Mobile application support
+- [ ] Edge AI model deployment
+- [ ] Multi-tenant support
+- [ ] Kubernetes deployment manifests
+- [ ] Enhanced security features
+- [ ] Performance optimization
+- [ ] Automated testing suite
 
 ---
 
-*AI Camera System - ระบบกล้องตรวจจับอัจฉริยะสำหรับอนาคต* 🚗📹🤖
-
-**License**: [MIT License](LICENSE) | **Copyright**: © 2024 Hailo | **Compliance**: ✅ Excellent
+Built with ❤️ using NestJS, Vue.js, and modern microservices architecture.
