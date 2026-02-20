@@ -1445,6 +1445,13 @@ p {
     opacity: 1;
 }
 
+/* Fix: Allow card-body containing results table to expand fully */
+.card-body:has(#results-table-container),
+.card-body.p-0:has(#results-table-container) {
+    max-height: none !important;
+    overflow: visible !important;
+}
+
 /* Chevron icon animations */
 .fa-chevron-up,
 .fa-chevron-down {

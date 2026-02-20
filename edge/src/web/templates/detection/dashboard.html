@@ -91,7 +91,8 @@
             display: table-cell;
         }
 
-        #results-table .selection-cell .form-check-input {
+        #results-table .selection-cell .form-check-input,
+        #results-table .selection-column .form-check-input {
             cursor: pointer;
         }
 
@@ -102,6 +103,44 @@
         .selection-controls .btn {
             font-size: 0.9rem;
             white-space: nowrap;
+        }
+
+        /* Fix: Remove max-height and overflow hidden from card-body containing results table */
+        /* Override base.css card-body max-height for results table container */
+        .card-body.p-0:has(#results-table-container),
+        .card-body:has(#results-table-container) {
+            max-height: none !important;
+            overflow: visible !important;
+        }
+        
+        /* Fallback for browsers that don't support :has() */
+        .card-body.p-0 {
+            max-height: none !important;
+            overflow: visible !important;
+        }
+
+        /* Ensure all table rows are visible - fix for 13 rows limit issue */
+        #results-table-container .table-responsive {
+            max-height: none !important;
+            overflow: visible !important;
+        }
+
+        #results-table tbody tr {
+            display: table-row !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            height: auto !important;
+            max-height: none !important;
+        }
+
+        #results-table tbody tr:nth-child(n) {
+            display: table-row !important;
+        }
+
+        /* Ensure table container doesn't limit height */
+        #results-table-container {
+            max-height: none !important;
+            overflow: visible !important;
         }
     </style>
 {% endblock %}
@@ -308,7 +347,11 @@
                             <thead class="table-light">
                                 <tr>
                                     <th class="selection-column text-center">
-                                        <span class="visually-hidden">Select</span>
+                                        <input type="checkbox"
+                                               id="select-all-checkbox"
+                                               class="form-check-input select-all-checkbox"
+                                               title="Select all results on this page"
+                                               aria-label="Select all results on this page">
                                     </th>
                                     <th class="sortable" data-sort="id">
                                         ID <i class="fas fa-sort sort-icon"></i>
