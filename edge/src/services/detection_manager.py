@@ -24,7 +24,7 @@ from typing import Dict, Any, Optional, List
 import numpy as np
 
 from edge.src.core.utils.logging_config import get_logger
-from edge.src.core.config import DETECTION_INTERVAL, AUTO_START_DETECTION, STARTUP_DELAY, IMAGE_SAVE_DIR
+from edge.src.core.config import DETECTION_INTERVAL, AUTO_START_DETECTION, STARTUP_DELAY, IMAGE_SAVE_DIR, TRACKING_ENABLED, REENTRY_TIME_THRESHOLD, IOU_THRESHOLD
 from edge.src.core.dependency_container import get_service
 
 logger = get_logger(__name__)
@@ -84,7 +84,18 @@ class DetectionManager:
         # Configuration
         self.detection_interval = DETECTION_INTERVAL
         self.auto_start_enabled = AUTO_START_DETECTION  # Auto-start detection from config
-        self.logger.info("DetectionManager initialized")
+        
+        # Tracking configuration
+        self.tracking_enabled = TRACKING_ENABLED
+        self.reentry_time_threshold = REENTRY_TIME_THRESHOLD
+        self.iou_threshold = IOU_THRESHOLD
+        
+        # Track storage for deduplication
+        self.recent_tracks = {}  # track_id -> {'last_saved': timestamp, 'bbox': bbox, 'plate_text': text}
+        self.track_cleanup_interval = 300.0  # Clean up old tracks every 5 minutes
+        self.last_track_cleanup = time.time()
+        
+        self.logger.info(f"DetectionManager initialized (tracking: {self.tracking_enabled})")
     
     def initialize(self) -> bool:
         """
@@ -312,7 +323,7 @@ class DetectionManager:
     
     def process_frame(self, frame) -> Optional[Dict[str, Any]]:
         """
-        Process a single frame through the complete detection pipeline.
+        Process a single frame through the complete detection pipeline with tracking and deduplication.
         
         Args:
             frame: Image frame as numpy array
@@ -348,6 +359,38 @@ class DetectionManager:
             
             self.detection_stats['total_vehicles_detected'] += len(vehicle_boxes)
             
+            # Step 2.5: Vehicle tracking and deduplication (if enabled)
+            tracks_to_save = []
+            if self.tracking_enabled and hasattr(self.detection_processor, 'update_vehicle_tracks'):
+                self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: Step 2.5 - updating vehicle tracks")
+                try:
+                    # Convert vehicle_boxes to detection format for tracking
+                    vehicle_detections = [{'bbox': vb['bbox'], 'score': vb.get('score', 0.0)} for vb in vehicle_boxes]
+                    
+                    # Update tracks
+                    tracks = self.detection_processor.update_vehicle_tracks(vehicle_detections, frame)
+                    
+                    # Apply deduplication rules
+                    filtered_tracks = self.detection_processor.apply_deduplication_rules(tracks)
+                    
+                    # Check which tracks should be saved (not duplicates)
+                    for track in filtered_tracks:
+                        if self._should_save_detection(track):
+                            tracks_to_save.append(track)
+                            # Mark track as saved
+                            self._mark_track_saved(track)
+                    
+                    self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: Step 2.5 completed - {len(tracks_to_save)} tracks to save after deduplication")
+                    
+                    # If no tracks to save, skip processing
+                    if not tracks_to_save:
+                        self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: all vehicles are duplicates - skipping save")
+                        return None
+                    
+                except Exception as e:
+                    self.logger.warning(f"🔧 [DETECTION_MANAGER] Tracking error, falling back to non-tracking mode: {e}")
+                    tracks_to_save = None  # Fall back to non-tracking mode
+            
             # Step 3: License plate detection (ส่ง mapping_info ไปด้วย)
             self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: Step 3 - calling detection_processor.detect_license_plates()")
             plate_boxes = self.detection_processor.detect_license_plates(frame, vehicle_boxes, mapping_info)
@@ -368,12 +411,22 @@ class DetectionManager:
                 if ocr_results:
                     self.detection_stats['successful_ocr'] += len(ocr_results)
             
-            # Step 5: Save only original image (optimized for disk space)
-            self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: Step 5 - calling detection_processor.save_detection_results()")
+            # Step 5: Determine which frame to save (best frame from track if available)
+            frame_to_save = frame
+            if self.tracking_enabled and tracks_to_save:
+                # Use best frame from the first track (or combine best frames from multiple tracks)
+                # For simplicity, use best frame from the track with highest score
+                best_track = max(tracks_to_save, key=lambda t: t.best_frame_score)
+                if best_track.best_frame_data is not None:
+                    frame_to_save = best_track.best_frame_data
+                    self.logger.debug(f"🔧 [DETECTION_MANAGER] Using best frame from track {best_track.track_id} (score: {best_track.best_frame_score:.3f})")
+            
+            # Step 6: Save only original image (optimized for disk space)
+            self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: Step 6 - calling detection_processor.save_detection_results()")
             original_path, _, _, _ = self.detection_processor.save_detection_results(
-                frame, vehicle_boxes, plate_boxes, ocr_results
+                frame_to_save, vehicle_boxes, plate_boxes, ocr_results
             )
-            self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: Step 5 completed - original_path: {original_path}")
+            self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: Step 6 completed - original_path: {original_path}")
             
             # Calculate processing time
             processing_time = time.time() - start_time
@@ -519,6 +572,83 @@ class DetectionManager:
                 time.sleep(1.0)  # Wait before retry
         
         self.logger.info("Detection loop stopped")
+    
+    def _should_save_detection(self, track) -> bool:
+        """
+        Check if a track should be saved (not a duplicate).
+        
+        Args:
+            track: VehicleTrack object
+            
+        Returns:
+            bool: True if should save, False if duplicate
+        """
+        if not self.tracking_enabled:
+            return True
+        
+        try:
+            current_time = time.time()
+            
+            # Clean up old tracks periodically
+            if current_time - self.last_track_cleanup > self.track_cleanup_interval:
+                self._cleanup_old_tracks(current_time)
+                self.last_track_cleanup = current_time
+            
+            # Check if this track was recently saved
+            track_id = track.track_id
+            if track_id in self.recent_tracks:
+                track_info = self.recent_tracks[track_id]
+                time_since_saved = current_time - track_info['last_saved']
+                
+                # Check time threshold
+                if time_since_saved < self.reentry_time_threshold:
+                    # Check IoU similarity
+                    if hasattr(self.detection_processor, '_calculate_iou'):
+                        iou = self.detection_processor._calculate_iou(track.bbox, track_info['bbox'])
+                        if iou > self.iou_threshold:
+                            self.logger.debug(f"🔧 [DEDUPLICATION] Track {track_id} is duplicate (IoU: {iou:.3f}, time: {time_since_saved:.1f}s)")
+                            return False
+            
+            return True
+            
+        except Exception as e:
+            self.logger.warning(f"Error checking if should save detection: {e}")
+            return True  # Default to saving if check fails
+    
+    def _mark_track_saved(self, track):
+        """
+        Mark a track as saved to prevent duplicate saves.
+        
+        Args:
+            track: VehicleTrack object
+        """
+        try:
+            track_id = track.track_id
+            self.recent_tracks[track_id] = {
+                'last_saved': time.time(),
+                'bbox': track.bbox.copy() if isinstance(track.bbox, list) else track.bbox,
+                'plate_text': ''  # Will be updated if OCR results available
+            }
+        except Exception as e:
+            self.logger.warning(f"Error marking track as saved: {e}")
+    
+    def _cleanup_old_tracks(self, current_time: float):
+        """Clean up old tracks from recent_tracks dictionary."""
+        try:
+            tracks_to_remove = []
+            for track_id, track_info in self.recent_tracks.items():
+                time_since_saved = current_time - track_info['last_saved']
+                # Remove tracks older than reentry threshold * 2
+                if time_since_saved > (self.reentry_time_threshold * 2):
+                    tracks_to_remove.append(track_id)
+            
+            for track_id in tracks_to_remove:
+                del self.recent_tracks[track_id]
+            
+            if tracks_to_remove:
+                self.logger.debug(f"🔧 [DEDUPLICATION] Cleaned up {len(tracks_to_remove)} old tracks")
+        except Exception as e:
+            self.logger.warning(f"Error cleaning up old tracks: {e}")
     
     def _update_processing_stats(self, processing_time: float):
         """Update processing time statistics."""
