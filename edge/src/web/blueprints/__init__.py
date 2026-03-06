@@ -74,6 +74,14 @@ except ImportError:
     websocket_bp = None
     register_websocket_events = None
 
+# MQTT Service blueprint (dashboard and status API)
+try:
+    from edge.src.web.blueprints.mqtt_service import mqtt_service_bp
+    logger.info("MQTT Service blueprint imported")
+except ImportError:
+    logger.warning("MQTT Service blueprint not available")
+    mqtt_service_bp = None
+
 
 def register_blueprints(app: Flask, socketio: SocketIO):
     """
@@ -123,6 +131,13 @@ def register_blueprints(app: Flask, socketio: SocketIO):
         logger.info("   ✅ WebSocket blueprint registered")
     else:
         logger.warning("   ⚠️ WebSocket blueprint not available")
+
+    # MQTT Service blueprint (dashboard + status)
+    if mqtt_service_bp:
+        app.register_blueprint(mqtt_service_bp)
+        logger.info("   ✅ MQTT Service blueprint registered")
+    else:
+        logger.info("   ℹ️ MQTT Service blueprint not registered (not available)")
     
     # === OPTIONAL BLUEPRINTS (Conditionally Registered) ===
     logger.info("🔌 Registering optional blueprints...")
@@ -216,6 +231,10 @@ def get_available_blueprints():
                 'enabled': STORAGE_MONITOR_ENABLED,
                 'available': storage_bp is not None,
                 'registered': STORAGE_MONITOR_ENABLED and storage_bp is not None
+            },
+            'mqtt_service': {
+                'available': mqtt_service_bp is not None,
+                'registered': mqtt_service_bp is not None
             }
         }
     }

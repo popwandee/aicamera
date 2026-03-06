@@ -5,7 +5,7 @@ Main Blueprint for AI Camera v2.0.0
 This blueprint handles the main dashboard and system overview.
 """
 
-from flask import Blueprint, render_template, current_app
+from flask import Blueprint, render_template, redirect
 from flask_socketio import emit
 import time
 from edge.src.core.dependency_container import get_service
@@ -44,6 +44,18 @@ def index():
                              use_socketio=True,
                              timestamp=int(time.time()))
         return response
+
+
+@main_bp.route('/websocket_sender')
+def redirect_websocket_sender():
+    """Redirect to WebSocket Sender dashboard (path /websocket-sender/)."""
+    return redirect('/websocket-sender/')
+
+
+@main_bp.route('/mqtt_service')
+def redirect_mqtt_service():
+    """Redirect to MQTT Service dashboard (path /mqtt-service/)."""
+    return redirect('/mqtt-service/')
 
 
 def register_main_events(socketio):

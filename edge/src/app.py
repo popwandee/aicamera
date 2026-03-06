@@ -382,7 +382,30 @@ def _initialize_services(logger):
     except Exception as e:
         logger.info(f"ℹ️ WebSocket Sender error (optional): {e}")
         init_results['optional_modules']['websocket_sender'] = False
-    
+
+    # MQTT Health Sender (Optional - health status via MQTT)
+    try:
+        from edge.src.core.dependency_container import get_container
+        container = get_container()
+        mqtt_health_sender = container.get_service('mqtt_health_sender') if container.has_service('mqtt_health_sender') else None
+        if mqtt_health_sender:
+            success = mqtt_health_sender.initialize()
+            if success:
+                logger.info("✅ MQTT Health Sender initialized successfully")
+                init_results['optional_modules']['mqtt_health_sender'] = True
+                if mqtt_health_sender.start():
+                    logger.info("✅ MQTT Health Sender started successfully")
+                else:
+                    logger.warning("⚠️ MQTT Health Sender failed to start")
+            else:
+                init_results['optional_modules']['mqtt_health_sender'] = False
+        else:
+            logger.info("ℹ️ MQTT Health Sender not available (optional)")
+            init_results['optional_modules']['mqtt_health_sender'] = False
+    except Exception as e:
+        logger.info("ℹ️ MQTT Health Sender error (optional): %s", e)
+        init_results['optional_modules']['mqtt_health_sender'] = False
+
     # Storage Service (Optional)
     try:
         storage_service = get_service('storage_service')

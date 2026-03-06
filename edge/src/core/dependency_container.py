@@ -32,6 +32,7 @@ from edge.src.core.config import (
     WEBSOCKET_SENDER_ENABLED, STORAGE_MONITOR_ENABLED,
     EXPERIMENT_ENABLED
 )
+from edge.src.core.config_communication import MQTT_ENABLED
 
 T = TypeVar('T')
 
@@ -200,6 +201,20 @@ class DependencyContainer:
                 self.logger.warning("WebSocketSender not available")
         else:
             self.logger.info("WebSocket Sender not registered (disabled in config)")
+
+        # MQTT Health Sender (Optional - sends health status via MQTT)
+        if MQTT_ENABLED:
+            try:
+                from edge.src.services.mqtt_health_sender import MqttHealthSender, create_mqtt_health_sender
+                self.register_service('mqtt_health_sender', MqttHealthSender,
+                                    singleton=True,
+                                    factory=create_mqtt_health_sender,
+                                    dependencies={'database_manager': 'database_manager', 'logger': 'logger'})
+                self.logger.info("MQTT Health Sender registered (enabled in config)")
+            except ImportError as e:
+                self.logger.warning("MqttHealthSender not available: %s", e)
+        else:
+            self.logger.info("MQTT Health Sender not registered (MQTT disabled)")
         
         # Storage Management (Optional)
         if STORAGE_MONITOR_ENABLED:

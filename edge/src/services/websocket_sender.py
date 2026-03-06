@@ -31,7 +31,7 @@ from pathlib import Path
 from edge.src.core.dependency_container import get_service
 from edge.src.core.utils.logging_config import get_logger
 from edge.src.core.config import (
-    WEBSOCKET_SERVER_URL, SENDER_INTERVAL, HEALTH_SENDER_INTERVAL,
+    WEBSOCKET_SERVER_URL, SENDER_INTERVAL,
     WEBSOCKET_SENDER_ENABLED, WEBSOCKET_CONNECTION_TIMEOUT, 
     WEBSOCKET_RETRY_INTERVAL, WEBSOCKET_MAX_RETRIES,
     AICAMERA_ID, CHECKPOINT_ID
@@ -72,16 +72,13 @@ class WebSocketSender:
         
         # Threading
         self.detection_thread = None
-        self.health_thread = None
         self.running = False
         self.stop_event = threading.Event()
         
         # Status tracking
         self.last_detection_check = None
-        self.last_health_check = None
         self.retry_count = 0
         self.total_detections_sent = 0
-        self.total_health_sent = 0
         
         # Configuration
         self.enabled = WEBSOCKET_SENDER_ENABLED
@@ -193,18 +190,23 @@ class WebSocketSender:
             # Create a temporary Socket.IO client for testing
             import socketio
             test_sio = socketio.Client()
-            
-            # Try to connect with a short timeout
-            test_sio.connect(test_url, timeout=5)
-            
-            if test_sio.connected:
+            use_ws_path = "/ws" in (test_url or "")
+            # Use wait_timeout (python-socketio); use socketio_path when server uses /ws/
+            probe_connect_url = test_url
+            probe_path = "socket.io"
+            if use_ws_path and test_url:
+                probe_connect_url = test_url.split("/ws")[0].rstrip("/") or test_url
+                probe_path = "/ws/"
+            kwargs = {"wait_timeout": 5}
+            if probe_path:
+                kwargs["socketio_path"] = probe_path
+            test_sio.connect(probe_connect_url, **kwargs)
+            ok = test_sio.connected
+            if ok:
                 test_sio.disconnect()
-                return True
-            else:
-                return False
+            return ok
             
         except Exception as e:
-            # self.logger.debug(f"Socket.IO test failed: {e}")  # DEBUG: ปิดรายละเอียด
             return False
 
     def _test_rest_connection(self, test_url: str = None) -> bool:
@@ -293,10 +295,17 @@ class WebSocketSender:
             self.sio.on('disconnect', self._on_disconnect)
             self.sio.on('lpr_response', self._on_lpr_response)
             self.sio.on('error', self._on_error)
+            self.sio.on('message_saved', self._on_message_saved)
+            self.sio.on('image_saved', self._on_image_saved)
+            self.sio.on('message_error', self._on_message_error)
+            self.sio.on('image_error', self._on_image_error)
             
-            # Connect to server
-            self.sio.connect(self.server_url, timeout=self.connection_timeout)
-            
+            connect_url = self.server_url
+            socketio_path = 'socket.io'
+            if self.server_url and '/ws' in self.server_url:
+                connect_url = self.server_url.split('/ws')[0].rstrip('/') or self.server_url
+                socketio_path = '/ws/'
+            self.sio.connect(connect_url, socketio_path=socketio_path, wait_timeout=self.connection_timeout)
             # Wait for connection
             if self.sio.connected:
                 self.connected = True
@@ -352,6 +361,27 @@ class WebSocketSender:
         """Handle error from server"""
         self.logger.error(f"Server error: {data}")
 
+    def _on_message_saved(self, data):
+        """Handle message_saved response from server (ws-service). Optionally mark detection as sent if server echoes record id."""
+        if isinstance(data, dict) and data.get('record_id') is not None and self.database_manager:
+            try:
+                self.database_manager.mark_detection_result_sent(int(data['record_id']), data.get('message', 'message_saved'))
+            except Exception as e:
+                self.logger.debug(f"mark_detection from message_saved: {e}")
+        self.logger.debug("message_saved received")
+
+    def _on_image_saved(self, data):
+        """Handle image_saved response from server (ws-service)."""
+        self.logger.debug("image_saved received")
+
+    def _on_message_error(self, data):
+        """Handle message_error from server; log and allow retry."""
+        self.logger.error(f"Server message_error: {data}")
+
+    def _on_image_error(self, data):
+        """Handle image_error from server; log and allow retry."""
+        self.logger.error(f"Server image_error: {data}")
+
     def _send_pending_data(self):
         """
         Send any pending data after successful connection.
@@ -363,18 +393,10 @@ class WebSocketSender:
             
             self.logger.info("Sending pending data after reconnection...")
             
-            # Send pending detection data
+            # Send pending detection data (health is sent via MQTT)
             detection_count = self._send_detection_data()
             if detection_count > 0:
                 self.logger.info("Sent pending detection records")
-            
-            # Send pending health data
-            health_count = self._send_health_data()
-            if health_count > 0:
-                self.logger.info("Sent pending health records")
-            
-            if detection_count > 0 or health_count > 0:
-                self.logger.info("Successfully sent all pending data")
             else:
                 self.logger.info("No pending data to send")
                 
@@ -518,9 +540,27 @@ class WebSocketSender:
             
             # Send data via Socket.IO based on data type
             if data.get('type') == 'detection_result':
-                self.sio.emit('lpr_data', data)
-            elif data.get('type') == 'health_check':
-                self.sio.emit('health_status', data)
+                message_data = {
+                    'content': {
+                        'type': 'detection_result',
+                        'aicamera_id': data.get('aicamera_id', self.aicamera_id),
+                        'checkpoint_id': data.get('checkpoint_id', self.checkpoint_id),
+                        'timestamp': data.get('timestamp'),
+                        'vehicles_count': data.get('vehicles_count'),
+                        'plates_count': data.get('plates_count'),
+                        'ocr_results': data.get('ocr_results'),
+                        'vehicle_detections': data.get('vehicle_detections'),
+                        'plate_detections': data.get('plate_detections'),
+                        'processing_time_ms': data.get('processing_time_ms'),
+                        'created_at': data.get('created_at'),
+                    },
+                    'camera_id': self.aicamera_id,
+                }
+                self.sio.emit('message', message_data)
+                if data.get('original_image'):
+                    fn = f"detection_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
+                    image_data = {'data': data['original_image'], 'filename': fn, 'camera_id': self.aicamera_id}
+                    self.sio.emit('image', image_data)
             elif data.get('type') == 'test':
                 self.sio.emit('ping', data)
             else:
@@ -552,9 +592,6 @@ class WebSocketSender:
             # Determine endpoint and method based on data type
             if data.get('type') == 'detection_result':
                 endpoint = '/api/statistics'  # Use statistics endpoint for detection data
-                method = 'POST'
-            elif data.get('type') == 'health_check':
-                endpoint = '/api/statistics'  # Use statistics endpoint for health data
                 method = 'POST'
             elif data.get('type') == 'test':
                 endpoint = '/api/statistics'  # Use statistics endpoint for test
@@ -606,22 +643,15 @@ class WebSocketSender:
             self.running = True
             self.stop_event.clear()
             
-            # Start detection sender thread
+            # Start detection sender thread (health is sent via MQTT)
             self.detection_thread = threading.Thread(
                 target=self._detection_sender_loop,
                 name="WebSocket-Detection-Sender",
                 daemon=True
             )
             self.detection_thread.start()
-            
-            # Start health sender thread
-            self.health_thread = threading.Thread(
-                target=self._health_sender_loop,
-                name="WebSocket-Health-Sender",
-                daemon=True
-            )
-            self.health_thread.start()
-            
+            if self.server_url:
+                self.connect()
             if self.server_url:
                 self.logger.info("WebSocket sender service started (online mode)")
             else:
@@ -649,12 +679,9 @@ class WebSocketSender:
                 except Exception as e:
                     self.logger.error(f"Error during Socket.IO disconnection: {e}")
             
-            # Wait for threads to finish
+            # Wait for detection thread to finish
             if self.detection_thread and self.detection_thread.is_alive():
                 self.detection_thread.join(timeout=5.0)
-            
-            if self.health_thread and self.health_thread.is_alive():
-                self.health_thread.join(timeout=5.0)
             
             self.logger.info("WebSocket sender service stopped")
             
@@ -685,31 +712,6 @@ class WebSocketSender:
                     break
         
         self.logger.info("Detection sender thread stopped")
-    
-    def _health_sender_loop(self):
-        """Main loop for health status sender thread - OPTIMIZED for reduced resource usage."""
-        self.logger.info(f"Health sender thread started with {HEALTH_SENDER_INTERVAL}s interval (optimized)")
-        
-        while self.running and not self.stop_event.is_set():
-            try:
-                self.last_health_check = datetime.now()
-                sent_count = self._send_health_data()
-                
-                if sent_count > 0:
-                    self.total_health_sent += sent_count
-                    self.logger.info(f"Sent {sent_count} health records to server")
-                
-                # Wait for next interval or stop event (longer interval to reduce resource usage)
-                if self.stop_event.wait(HEALTH_SENDER_INTERVAL):
-                    break
-                    
-            except Exception as e:
-                self.logger.error(f"Error in health sender loop: {e}")
-                # Wait before retrying (longer interval to reduce resource usage)
-                if self.stop_event.wait(HEALTH_SENDER_INTERVAL):
-                    break
-        
-        self.logger.info("Health sender thread stopped")
     
     def _send_detection_data(self) -> int:
         """
@@ -819,128 +821,13 @@ class WebSocketSender:
                 except Exception as db_exc:
                     self.logger.warning(f"Skipped DB log (send_detection error): {db_exc}")
             return 0
-
-    def _send_health_data(self) -> int:
-        """
-        Send unsent health check data to server.
-        
-        Returns:
-            int: Number of records sent successfully
-        """
-        if not self.database_manager:
-            return 0
-        
-        try:
-            # Get unsent health checks
-            unsent_health = self.database_manager.get_unsent_health_checks()
-            
-            if not unsent_health:
-                # Log no data to send
-                try:
-                    self.database_manager.log_websocket_action(
-                        action='send_health',
-                        status='no_data',
-                        message='No health data to send',
-                        data_type='health_checks',
-                        record_count=0,
-                        aicamera_id=self.aicamera_id,
-                        checkpoint_id=self.checkpoint_id
-                    )
-                except Exception as db_exc:
-                    self.logger.info(f"Skipped DB log (no health data): {db_exc}")
-                return 0
-            
-            # Check if in offline mode
-            if not self.server_url:
-                # In offline mode, just log that we're processing locally
-                try:
-                    self.database_manager.log_websocket_action(
-                        action='send_health',
-                        status='offline',
-                        message=f'Processing {len(unsent_health)} health check records locally (offline mode)',
-                        data_type='health_checks',
-                        record_count=len(unsent_health),
-                        aicamera_id=self.aicamera_id,
-                        checkpoint_id=self.checkpoint_id
-                    )
-                except Exception as db_exc:
-                    self.logger.info(f"Skipped DB log (offline health): {db_exc}")
-                return len(unsent_health)
-            
-            sent_count = 0
-            
-            for health_check in unsent_health:
-                # Use synchronous send method instead of asyncio.run()
-                success = self._send_single_health_check_sync(health_check)
-                
-                if success:
-                    # Mark as sent in database
-                    self.database_manager.mark_health_check_sent(
-                        health_check['id'], 
-                        'Successfully sent to server'
-                    )
-                    sent_count += 1
-                else:
-                    # Log send failure
-                    try:
-                        self.database_manager.log_websocket_action(
-                            action='send_health',
-                            status='failed',
-                            message=f'Failed to send health check ID {health_check["id"]}',
-                            data_type='health_checks',
-                            record_count=1,
-                            aicamera_id=self.aicamera_id,
-                            checkpoint_id=self.checkpoint_id
-                        )
-                    except Exception as db_exc:
-                        self.logger.warning(f"Skipped DB log (send_health failed): {db_exc}")
-            
-            if sent_count > 0:
-                # Log successful sends
-                try:
-                    self.database_manager.log_websocket_action(
-                        action='send_health',
-                        status='success',
-                        message=f'Successfully sent {sent_count} health check records',
-                        data_type='health_checks',
-                        record_count=sent_count,
-                        aicamera_id=self.aicamera_id,
-                        checkpoint_id=self.checkpoint_id
-                    )
-                except Exception as db_exc:
-                    self.logger.info(f"Skipped DB log (send_health success): {db_exc}")
-            
-            return sent_count
-            
-        except Exception as e:
-            self.logger.error(f"Error sending health data: {e}")
-            # Log error
-            if self.database_manager:
-                try:
-                    self.database_manager.log_websocket_action(
-                        action='send_health',
-                        status='failed',
-                        message=f'Error sending health data: {str(e)}',
-                        data_type='health_checks',
-                        aicamera_id=self.aicamera_id,
-                        checkpoint_id=self.checkpoint_id
-                    )
-                except Exception as db_exc:
-                    self.logger.warning(f"Skipped DB log (send_health error): {db_exc}")
-            return 0
     
     def _send_single_detection_sync(self, detection: Dict[str, Any]) -> bool:
         """
         Send single detection result to server (synchronous version).
-        
-        Args:
-            detection: Detection result data
-            
-        Returns:
-            bool: True if send successful, False otherwise
+        For Socket.IO: sends event 'message' (metadata) then event 'image' (base64) if image present.
         """
         try:
-            # Prepare data for sending
             data = {
                 'type': 'detection_result',
                 'aicamera_id': self.aicamera_id,
@@ -948,72 +835,47 @@ class WebSocketSender:
                 'timestamp': detection['timestamp'],
                 'vehicles_count': detection['vehicles_count'],
                 'plates_count': detection['plates_count'],
-                'ocr_results': detection['ocr_results'],
-                'vehicle_detections': detection['vehicle_detections'],
-                'plate_detections': detection['plate_detections'],
-                'processing_time_ms': detection['processing_time_ms'],
-                'created_at': detection['created_at']
+                'ocr_results': detection.get('ocr_results'),
+                'vehicle_detections': detection.get('vehicle_detections'),
+                'plate_detections': detection.get('plate_detections'),
+                'processing_time_ms': detection.get('processing_time_ms'),
+                'created_at': detection.get('created_at'),
             }
-            
-            # Add image data if available (use original_image_path)
             if detection.get('original_image_path'):
                 image_path = Path(detection['original_image_path'])
                 if image_path.exists():
                     with open(image_path, 'rb') as f:
-                        image_data = base64.b64encode(f.read()).decode('utf-8')
-                        data['original_image'] = image_data
-            
-            # Note: cropped_plates_paths column removed to save disk space
-            # Only original image is stored and sent
-            
-            # Send to server using synchronous method
+                        data['original_image'] = base64.b64encode(f.read()).decode('utf-8')
             if self.server_type == 'rest':
                 return self._send_data_rest(data)
-            else:
-                return self._send_data_socketio(data)
-            
+            if not self.sio or not self.sio.connected:
+                return False
+            message_data = {
+                'content': {
+                    'type': 'detection_result',
+                    'aicamera_id': self.aicamera_id,
+                    'checkpoint_id': self.checkpoint_id,
+                    'timestamp': data['timestamp'],
+                    'vehicles_count': data['vehicles_count'],
+                    'plates_count': data['plates_count'],
+                    'ocr_results': data.get('ocr_results'),
+                    'vehicle_detections': data.get('vehicle_detections'),
+                    'plate_detections': data.get('plate_detections'),
+                    'processing_time_ms': data.get('processing_time_ms'),
+                    'created_at': data.get('created_at'),
+                },
+                'camera_id': self.aicamera_id,
+            }
+            self.sio.emit('message', message_data)
+            if data.get('original_image'):
+                fn = f"detection_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
+                image_payload = {'data': data['original_image'], 'filename': fn, 'camera_id': self.aicamera_id}
+                self.sio.emit('image', image_payload)
+            return True
         except Exception as e:
             self.logger.error(f"Error preparing detection data for sending: {e}")
             return False
 
-    def _send_single_health_check_sync(self, health_check: Dict[str, Any]) -> bool:
-        """
-        Send single health check result to server (synchronous version).
-        
-        Args:
-            health_check: Health check data
-            
-        Returns:
-            bool: True if send successful, False otherwise
-        """
-        try:
-            # Prepare data for sending
-            data = {
-                'type': 'health_check',
-                'aicamera_id': self.aicamera_id,
-                'checkpoint_id': self.checkpoint_id,
-                'timestamp': health_check['timestamp'],
-                'component': health_check['component'],
-                'status': health_check['status'],
-                'message': health_check['message'],
-                'details': health_check['details'],
-                'created_at': health_check['created_at']
-            }
-            
-            # Send to server using synchronous method
-            if self.server_type == 'rest':
-                return self._send_data_rest(data)
-            else:
-                return self._send_data_socketio(data)
-            
-        except Exception as e:
-            self.logger.error(f"Error preparing health check data for sending: {e}")
-            return False
-
-
-
-
-    
     def get_status(self) -> Dict[str, Any]:
         """
         Get WebSocket sender status.
@@ -1032,11 +894,8 @@ class WebSocketSender:
             'checkpoint_id': self.checkpoint_id,
             'retry_count': self.retry_count,
             'total_detections_sent': self.total_detections_sent,
-            'total_health_sent': self.total_health_sent,
             'last_detection_check': self.last_detection_check.isoformat() if self.last_detection_check else None,
-            'last_health_check': self.last_health_check.isoformat() if self.last_health_check else None,
             'detection_thread_alive': self.detection_thread.is_alive() if self.detection_thread else False,
-            'health_thread_alive': self.health_thread.is_alive() if self.health_thread else False
         }
     
     def switch_to_rest_api(self) -> bool:

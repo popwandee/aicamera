@@ -79,3 +79,13 @@ class MQTTClient:
         })
         result = self.client.publish(topic, message, qos=0)
         return result.is_published()
+
+    def publish_health(self, device_id: str, payload: dict) -> bool:
+        """Publish health status to topic aicamera/device/{device_id}/health (QoS 1)."""
+        if not self.connected:
+            logging.error("Not connected to MQTT broker")
+            return False
+        topic = f"{self.topic_prefix}/device/{device_id}/health"
+        message = json.dumps(payload)
+        result = self.client.publish(topic, message, qos=1)
+        return result.is_published()
