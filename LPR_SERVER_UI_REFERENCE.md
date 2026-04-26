@@ -4,7 +4,7 @@
 **Server**: lprserver — Tailscale `100.95.46.128`  
 **Live URL**: `http://100.95.46.128/server/`  
 **Last updated**: 2026-04-26  
-**Phases complete**: A (Foundation) · B (Dashboard + Chart) · C (Camera Management)
+**Phases complete**: A (Foundation) · B (Dashboard + Chart) · C (Camera Management) · D (Detection Management)
 
 ---
 
@@ -67,8 +67,9 @@ Client Browser
 
 ### ESLint rules that bite
 
-- `vue/multi-word-component-names` — all `name:` values must be two+ words (`MainDashboard`, not `Dashboard`)
+- `vue/multi-word-component-names` — component `name:` must be ≥ 2 words (`MainDashboard`, not `Dashboard`)
 - `vue/no-reserved-keys` — `data()` keys must not start with `_` or `$`
+- `no-unused-vars` — Pinia getter arguments must actually be used; drop `state` param if only `this` is needed
 
 ---
 
@@ -94,14 +95,18 @@ server/frontend-app/src/
 │
 ├── stores/
 │   ├── cameras.store.js             Pinia: cameras, edgeStatus, currentCamera — full CRUD
-│   └── detections.store.js          Pinia: recent detections + hourly buckets
+│   └── detections.store.js          Pinia: filters, fetchFiltered, pagination getters, CSV-ready
 │
 ├── components/
 │   ├── layout/
 │   │   └── Sidebar.vue              Fixed 220px left nav (component name: AppSidebar)
 │   ├── shared/
 │   │   ├── MetricCard.vue           KPI card with icon + value + label
-│   │   └── StatusDot.vue            Colored pulsing dot (online/offline/warning/unknown)
+│   │   ├── StatusDot.vue            Colored pulsing dot (online/offline/warning/unknown)
+│   │   ├── PlateTag.vue             Styled license plate badge — sm/md/lg (Phase D)
+│   │   ├── ConfidenceBar.vue        Horizontal fill bar green/amber/red (Phase D)
+│   │   ├── ImageViewer.vue          Full-screen image modal, ESC/click-outside (Phase D)
+│   │   └── FilterBar.vue            Filter strip: plate/camera/date/confidence/archived (Phase D)
 │   ├── charts/
 │   │   └── HourlyChart.vue          24-bucket bar chart (vue-chartjs Bar)
 │   └── cameras/
@@ -111,8 +116,8 @@ server/frontend-app/src/
     ├── MainDashboard.vue            ✅ Phase B — KPI + camera grid + hourly chart + feed
     ├── CameraList.vue               ✅ Phase C — filterable DataTable + register/delete
     ├── CameraDetail.vue             ✅ Phase C — 4-tab detail + health line chart
-    ├── DetectionList.vue            🔲 Phase D — stub
-    ├── DetectionDetail.vue          🔲 Phase D — stub
+    ├── DetectionList.vue            ✅ Phase D — FilterBar + DataTable + pagination + CSV
+    ├── DetectionDetail.vue          ✅ Phase D — full record, image viewer, archive toggle
     ├── AnalyticsDashboard.vue       🔲 Phase E — stub
     ├── RouteAnalysis.vue            🔲 Phase F — stub
     ├── RouteDetail.vue              🔲 Phase F — stub
@@ -124,6 +129,24 @@ server/frontend-app/src/
     ├── ServerHome.vue               legacy (not routed in new SPA)
     ├── Network.vue                  legacy (not routed)
     └── Developer.vue                legacy (not routed)
+```
+
+### Backend API source
+
+```
+server/backend-api/src/
+├── device/
+│   ├── device.controller.ts   All REST routes (single controller)
+│   └── device.service.ts      All DB queries (TypeORM repositories + DataSource)
+├── entities/
+│   ├── camera.entity.ts
+│   ├── detection.entity.ts
+│   ├── camera-health.entity.ts
+│   ├── analytics.entity.ts
+│   ├── analytics-event.entity.ts
+│   ├── system-event.entity.ts
+│   └── visualization.entity.ts
+└── main.ts                    Global prefix: server/api, port 3000
 ```
 
 ---
@@ -163,23 +186,11 @@ server/frontend-app/src/
 
 All four loaded from Google Fonts in `public/index.html`.
 
-### Spacing and shape
-
-| Variable | Value |
-|----------|-------|
-| `--sidebar-w` | `220px` |
-| `--radius-sm` | `4px` |
-| `--radius-md` | `8px` |
-| `--radius-lg` | `12px` |
-| `--transition` | `0.18s ease` |
-
 ### Global utility classes
 
 | Class | Effect |
 |-------|--------|
-| `.font-data` | Apply JetBrains Mono |
-| `.font-display` | Apply Rajdhani |
-| `.font-thai` | Apply Sarabun |
+| `.font-data/display/thai` | Apply named font families |
 | `.text-cyan/green/amber/red/muted` | Color shortcuts |
 | `.panel` | Dark card: `bg-panel` + `border-card` + `radius-md` + `shadow-card` |
 | `.badge` | Inline pill, monospace font |
@@ -196,8 +207,8 @@ All four loaded from Google Fonts in `public/index.html`.
 | `/` | Dashboard | `MainDashboard` | ✅ Live |
 | `/cameras` | Cameras | `CameraList` | ✅ Live (Phase C) |
 | `/cameras/:id` | CameraDetail | `CameraDetail` | ✅ Live (Phase C, props: true) |
-| `/detections` | Detections | `DetectionList` | 🔲 Phase D |
-| `/detections/:id` | DetectionDetail | `DetectionDetail` | 🔲 Phase D |
+| `/detections` | Detections | `DetectionList` | ✅ Live (Phase D) |
+| `/detections/:id` | DetectionDetail | `DetectionDetail` | ✅ Live (Phase D, props: true) |
 | `/analytics` | Analytics | `AnalyticsDashboard` | 🔲 Phase E |
 | `/routes` | Routes | `RouteAnalysis` | 🔲 Phase F |
 | `/routes/:routeKey` | RouteDetail | `RouteDetail` | 🔲 Phase F |
@@ -220,34 +231,25 @@ const base = window.location.pathname.startsWith('/server') ? '/server/' : '/';
 
 ### `App.vue`
 Root shell. Flex row: `Sidebar` (fixed 220px) + `<router-view>` (flex-1, scrollable).  
-Imports `design-tokens.css` globally — all pages inherit CSS variables.
+Imports `design-tokens.css` globally.
 
 ---
 
-### `Sidebar.vue` (component name: `AppSidebar`)
+### `Sidebar.vue` (name: `AppSidebar`)
 
-Sections:
-1. **Brand** — `⬡ AICAM | Control Center` in Rajdhani, cyan glow
-2. **Connection status** — `StatusDot` driven by `useSocket().connected`
-3. **Nav — Monitor**: Dashboard `/`, Cameras `/cameras`, Detections `/detections`
-4. **Nav — Analyse**: Analytics `/analytics`, Routes `/routes`, Convoy `/convoy`
-5. **Nav — System**: Edge Control `/edge_control`, System Events `/system`, Settings `/settings`
-6. **Footer** — "PWD Vision Works"
-
-Active link: cyan left border + tinted background. `exact-active-class` on Dashboard route only.
+1. Brand — `⬡ AICAM | Control Center`
+2. Connection status — `StatusDot` from `useSocket().connected`
+3. Nav Monitor: Dashboard · Cameras · Detections
+4. Nav Analyse: Analytics · Routes · Convoy
+5. Nav System: Edge Control · System Events · Settings
+6. Footer — "PWD Vision Works"
 
 ---
 
 ### `MetricCard.vue`
 
 ```
-Props:
-  icon    String          default '◈'   Unicode symbol
-  label   String          required      Uppercase label
-  value   Number|String   null          ≥1000 gets toLocaleString()
-  sub     String          ''            Secondary line
-  loading Boolean         false         Shows blinking shimmer
-  accent  String          'cyan'        'cyan'|'green'|'amber'|'red'
+Props: icon, label (required), value, sub, loading, accent ('cyan'|'green'|'amber'|'red')
 ```
 
 ---
@@ -255,111 +257,145 @@ Props:
 ### `StatusDot.vue`
 
 ```
-Props:
-  status  String  'unknown'   'online'|'offline'|'warning'|'unknown'
-  title   String  ''          Tooltip text
+Props: status ('online'|'offline'|'warning'|'unknown'), title
 ```
-
-| Status | Color | Animation |
-|--------|-------|-----------|
-| `online` | `--green` | Pulsing ring, 2s |
-| `warning` | `--amber` | Pulsing ring, 2s |
-| `offline` | `--red` | Static |
-| `unknown` | `--text-muted` | Static |
+`online` → green pulse · `warning` → amber pulse · `offline` → red static · `unknown` → muted static
 
 ---
 
 ### `HourlyChart.vue`
 
 ```
+Props: hourlyData  Array  [{ label: 'HH', count: N }, …]  24 items oldest-first
+```
+Registers `CategoryScale`, `LinearScale`, `BarElement`, `Tooltip`. Fixed height 180px. Cyan bars, tick every 4 h.
+
+---
+
+### `PlateTag.vue` *(Phase D)*
+
+```
 Props:
-  hourlyData  Array  []  [{ label: '07', count: 42 }, …]  24 items, oldest first
+  plate  String  ''    License plate text (Thai or other)
+  size   String  'md'  'sm' | 'md' | 'lg'
 ```
 
-- Registers chart.js: `CategoryScale`, `LinearScale`, `BarElement`, `Tooltip`
-- Bars: cyan `#00c8ff`, 18% opacity; X-axis tick every 4th label
-- Fixed container height: 180px
+Renders a styled badge with `font-thai`, cyan border `rgba(0,200,255,0.28)`, background `rgba(0,200,255,0.06)`.  
+`lg` size used in `DetectionDetail`; `sm` used in table rows.
+
+---
+
+### `ConfidenceBar.vue` *(Phase D)*
+
+```
+Props:
+  value      Number|String   0    Raw decimal confidence (0–1), parseFloat() applied internally
+  showLabel  Boolean         true Show percentage text beside the bar
+```
+
+Bar fill: green `--green` ≥ 90% · amber `--amber` ≥ 70% · red `--red` < 70%.
+
+---
+
+### `ImageViewer.vue` *(Phase D)*
+
+```
+Props:
+  src      String  required  Image URL
+  caption  Object  {}        { plate, confidence, camera, timestamp }
+
+Emits: close
+```
+
+Full-screen backdrop modal. Close via: ESC key, click-outside, ✕ button.  
+Image fades in on load (`opacity: 0 → 1`). Shows "Image not available" on `@error`.  
+Registers `keydown` listener on `document` in `mounted`, removes in `beforeUnmount`.
+
+---
+
+### `FilterBar.vue` *(Phase D)*
+
+```
+Props:
+  modelValue  Object  Filters object (v-model)
+  cameras     Array   [{ id, cameraId, name }] for camera dropdown
+  count       Number  Result count shown as "N results"
+
+Emits: update:modelValue, clear
+```
+
+Fields:
+- **Plate search** — text input, 320 ms debounce before emitting
+- **Camera** — select from `cameras` prop; value is camera UUID
+- **Date From / To** — `<input type="date">`, styled with calendar icon filter
+- **Min Confidence** — select: Any / ≥70% / ≥80% / ≥90% / ≥95%
+- **Archived** — checkbox toggle
+- **Clear** — emits `clear`, parent resets all filters + re-fetches
 
 ---
 
 ### `RegisterCameraModal.vue` *(Phase C)*
 
-**File**: `src/components/cameras/RegisterCameraModal.vue`
-
-```
-Emits:
-  close     — user cancelled or form submitted successfully
-  created   — (camera) new camera object returned from backend
-
-Fields:
-  cameraId  String  required  Must match the edge device config
-  name      String  optional  Display name
-  location  String  optional  Physical location text
-  ip        String  optional  Edge device IP
-```
-
-Calls `useCamerasStore().registerCamera(data)` → `POST /server/api/cameras`.  
-Closes and emits `created` on success; shows inline error on failure.
+Fields: `cameraId` (required), `name`, `location`, `ip`.  
+Calls `useCamerasStore().registerCamera(data)` → `POST /cameras`.
 
 ---
 
 ### `CameraList.vue` *(Phase C)*
 
-**Route**: `/cameras`
-
-Features:
-- Loads `edgeStatus[]` from `useCamerasStore().fetchEdgeStatus()`
-- Live text filter across `cameraId + name + location`
-- Count badges: Online (green) + Total (cyan)
-- DataTable columns: Status · Camera ID · Name · Location · IP · Temp · CPU · Mem · Last Seen · Delete
-- Row click → `/cameras/:id`
-- Delete button opens inline confirm modal → `store.removeCamera(id)`
-- "Register Camera" button → opens `RegisterCameraModal`
-
-**Camera status logic** (shared with MainDashboard):
-```javascript
-latestHealth.status: 'online'|'healthy'|'pass' → 'online'
-                     'degraded'|'warning'       → 'warning'
-                     anything else              → 'offline'
-!latestHealth                                   → 'unknown'
-```
-
-**Last Seen** format: relative (`just now`, `5m ago`, `2h ago`, `3d ago`)
+Filterable DataTable from `useCamerasStore().fetchEdgeStatus()`.  
+Columns: Status · Camera ID · Name · Location · IP · Temp · CPU · Mem · Last Seen · Delete.  
+Row click → `/cameras/:id`. Register button → `RegisterCameraModal`.
 
 ---
 
 ### `CameraDetail.vue` *(Phase C)*
 
-**Route**: `/cameras/:id` (prop `id` = camera UUID)
+`/cameras/:id` — 4 tabs: Overview (metric tiles) · Detections (table) · Health Log (dual-axis line chart + table) · Images (thumbnail grid).  
+Health chart: amber temp left axis, cyan CPU right axis (0–100). Uses vue-chartjs `Line`.
 
-**Header card**: StatusDot + camera title + meta row (location, IP, status, temp, CPU)  
-**Breadcrumb**: ◈ Cameras › {cameraId} — back-navigates to `/cameras`
+---
 
-**Tabs**:
+### `DetectionList.vue` *(Phase D)*
 
-| Tab | Content | Data source |
-|-----|---------|-------------|
-| Overview | 4 metric tiles: Temp, CPU, Memory, Detection count | `healthRecords[0]` + `detections.length` |
-| Detections | Scrollable table: plate, confidence %, timestamp, image indicator | `api.getCameraDetections(id, 200)` |
-| Health Log | Dual-axis line chart + health records table | `api.getCameraHealth({ cameraId: id, limit: 100 })` |
-| Images | Thumbnail grid of detections that have `imagePath` | filtered from detections array |
+**Route**: `/detections`
 
-**Health line chart** (vue-chartjs `Line`, inline in CameraDetail):
-- Registers: `LineElement`, `PointElement`, `Filler` (in addition to globally registered scales)
-- Left Y-axis `yTemp`: temperature in °C, amber line `#ffab40`
-- Right Y-axis `yCpu`: CPU %, cyan fill `rgba(0,200,255,0.08)`, 0–100 range
-- X-axis ticks: `HH:MM` (th-TH locale), max 8 ticks shown
-- Data order: oldest-first (healthRecords reversed)
+- **Store**: `useDetectionsStore().fetchFiltered()` on mount and on any server-side filter change
+- **FilterBar**: v-model on `store.filters`; filter changes trigger `fetchFiltered()` (server side) or just re-slice (client side for date/confidence)
+- **Live badge**: green ● LIVE from `useSocket().connected`
+- **New-detection banner**: amber "+N new — click to refresh" counter, increments on `message_saved` socket event, click re-fetches
+- **Table columns**: PlateTag · Camera ID · ConfidenceBar · Timestamp · Image indicator (●) · Archived (⊘)
+- **Pagination**: prev/next over `store.currentPage`, shows `page+1 / pageCount`
+- **CSV Export**: fetches `store.filtered` (already loaded), builds BOM-prefixed CSV with columns Date, Time, Plate, Camera, Confidence%, Archived, Has Image; triggers browser download `detections-YYYY-MM-DD.csv`
 
-**Image thumbnails**: `api.getDetectionImageUrl(detectionId)` → `GET /server/api/detections/:id/image`  
-Broken images hidden via `@error` handler.
+**Filter strategy**:
+
+| Filter field | Where applied |
+|-------------|--------------|
+| `cameraId` | Server (query param) |
+| `plateSearch` | Server (`search` param, ILIKE) |
+| `archived` | Server (query param) |
+| `dateFrom` / `dateTo` | Client-side on `store.filtered` getter |
+| `minConfidence` | Client-side on `store.filtered` getter |
+
+---
+
+### `DetectionDetail.vue` *(Phase D)*
+
+**Route**: `/detections/:id` (prop `id` = detection UUID)
+
+- **Breadcrumb**: ◎ Detections › {plate}
+- **Image panel**: 320×220 px thumbnail; hover shows "🔍 View full" overlay; click opens `ImageViewer`
+- **Right panel**: `PlateTag` (lg) + `ConfidenceBar` + meta grid (camera, timestamp, ID, status badge)
+- **Archive / Restore**: `PATCH /detections/:id` with `{ archived: true/false }`; optimistic local update
+- **Image URL**: `api.getDetectionImageUrl(id)` → `GET /server/api/detections/:id/image`
 
 ---
 
 ## 7. API Layer (`src/api/index.js`)
 
 Base URL: `window.location.origin + '/server/api'` — never hardcoded.  
-All calls use `fetch`. Non-2xx responses throw `Error("METHOD /path → STATUS")`.
+Non-2xx → throws `Error("METHOD /path → STATUS")`.
 
 ### Cameras
 
@@ -372,30 +408,16 @@ All calls use `fetch`. Non-2xx responses throw `Error("METHOD /path → STATUS")
 | POST | `api.createCamera(data)` | `/cameras` |
 | PUT | `api.updateCamera(id, d)` | `/cameras/:id` |
 | DELETE | `api.deleteCamera(id)` | `/cameras/:id` |
-| POST | `api.registerCamera(data)` | `/cameras/register` (edge self-registration) |
+| POST | `api.registerCamera(data)` | `/cameras/register` |
 | GET | `api.getCameraDetections(id, limit)` | `/cameras/:id/detections?limit=N` |
-| GET | `api.runAnalytics()` | `/cameras/analytics/run` |
 
 #### `EdgeStatus` object shape
 ```json
 {
-  "camera": {
-    "id": "uuid",
-    "cameraId": "aicamera2",
-    "name": "Camera 2",
-    "location": "Building A",
-    "status": "active"
-  },
+  "camera": { "id": "uuid", "cameraId": "aicamera2", "name": "...", "location": "...", "status": "active" },
   "latestHealth": {
-    "id": "uuid",
-    "cameraId": "uuid",
-    "timestamp": "2026-04-25T12:00:00.000Z",
-    "status": "online",
-    "cpuUsage": 12.5,
-    "memoryUsage": 45.2,
-    "temperature": 58.2,
-    "diskUsage": 65.0,
-    "uptimeSeconds": 86400
+    "status": "online", "cpuUsage": 12.5, "memoryUsage": 45.2,
+    "temperature": 58.2, "diskUsage": 65.0, "timestamp": "2026-04-25T12:00:00.000Z"
   }
 }
 ```
@@ -404,23 +426,11 @@ All calls use `fetch`. Non-2xx responses throw `Error("METHOD /path → STATUS")
 
 | Method | Call | Endpoint |
 |--------|------|----------|
-| GET | `api.getDetections(params)` | `/detections?...` |
-| GET | `api.getDetection(id)` | `/detections/:id` |
-| PATCH | `api.archiveDetection(id)` | `/detections/:id` `{archived:true}` |
-| PATCH | `api.unarchiveDetection(id)` | `/detections/:id` `{archived:false}` |
-| GET | `api.getDetectionImageUrl(id)` | returns URL string (not a fetch call) |
-
-**`getDetections` query params** (all optional):
-
-| Param | Notes |
-|-------|-------|
-| `cameraId` | filter by camera UUID |
-| `search` | plate number search |
-| `limit` | max records (dashboard uses 500) |
-| `offset` | pagination |
-| `sortBy` | field name, e.g. `timestamp` |
-| `sortOrder` | `ASC` or `DESC` |
-| `archived` | boolean |
+| GET | `api.getDetections(params)` | `/detections?cameraId=&search=&limit=&offset=&sortBy=&sortOrder=&archived=` |
+| GET | `api.getDetection(id)` | `/detections/:id` — returns Detection with camera relation |
+| PATCH | `api.archiveDetection(id)` | `/detections/:id` body `{archived:true}` |
+| PATCH | `api.unarchiveDetection(id)` | `/detections/:id` body `{archived:false}` |
+| GET | `api.getDetectionImageUrl(id)` | Returns URL string only — `GET /detections/:id/image` served as stream |
 
 #### `Detection` object shape
 ```json
@@ -428,25 +438,26 @@ All calls use `fetch`. Non-2xx responses throw `Error("METHOD /path → STATUS")
   "id": "uuid",
   "licensePlate": "กข 1234",
   "confidence": "0.9245",
-  "imagePath": "/storage/aicamera2/2026-04-25/...",
+  "imagePath": "/home/devuser/aicamera/server/storage/aicamera2/2026-04-25/....jpg",
   "timestamp": "2026-04-25T12:05:00.000Z",
   "archived": false,
-  "camera": { "id": "uuid", "cameraId": "aicamera2" }
+  "camera": { "id": "uuid", "cameraId": "aicamera2", "name": "Camera 2" }
 }
 ```
 
-**Important**: `confidence` is a decimal string (e.g. `"0.9245"`), not a number. Always `parseFloat()`.
+**`confidence` is a decimal string** — always `parseFloat(d.confidence)`.  
+**`imagePath` is an absolute server filesystem path** — use `getDetectionImageUrl(id)` to serve it, never expose the path directly to the browser.
 
 ### Camera Health
 
-| Method | Call | Endpoint |
-|--------|------|----------|
-| GET | `api.getCameraHealth(params)` | `/camera-health?cameraId=&limit=&from=&to=` |
+`api.getCameraHealth({ cameraId, limit, from, to })` → `GET /camera-health?...`
+
+`from` / `to` are ISO date strings; backend filters on `h.timestamp`.
 
 ### Analytics & Events
 
-| Method | Endpoint |
-|--------|----------|
+| Call | Endpoint |
+|------|----------|
 | `api.getAnalytics()` | `/analytics` |
 | `api.getSystemEvents(limit)` | `/system-events?limit=N` |
 | `api.getVisualizations()` | `/visualizations` |
@@ -460,19 +471,17 @@ Singleton — one connection shared across all components.
 
 ```javascript
 const { socket, connected } = useSocket();
-// connected: Vue ref<boolean>
-// socket: raw Socket.IO instance
 ```
 
-**Connection config**: URL = `window.location.origin`, path = `/ws/`, transports = `['websocket', 'polling']`
-
-**Events from server**:
+**Config**: URL = `window.location.origin`, path = `/ws/`, transports `['websocket', 'polling']`
 
 | Event | When |
 |-------|------|
 | `message_saved` | Detection written to DB |
 | `camera_registered` | New camera registered |
-| `connect` / `disconnect` | Socket state change |
+| `connect` / `disconnect` | Connection state change |
+
+`DetectionList` uses `message_saved` to increment a "N new" counter without auto-refreshing.
 
 ---
 
@@ -481,86 +490,95 @@ const { socket, connected } = useSocket();
 ### `cameras.store.js` — `useCamerasStore`
 
 ```
-State:
-  cameras[]       Camera[] — from GET /cameras
-  edgeStatus[]    EdgeStatus[] — from GET /cameras/edge-status
-  currentCamera   Camera|null — single camera from GET /cameras/:id
-  loading         Boolean
-  error           String|null
-
-Getters:
-  onlineCount     cameras with status online/healthy/pass
-
+State:   cameras[], edgeStatus[], currentCamera, loading, error
+Getter:  onlineCount  (status: online|healthy|pass)
 Actions:
-  fetchCameras()          → populates cameras[]
-  fetchEdgeStatus()       → populates edgeStatus[]  ← used by CameraList
-  fetchCamera(id)         → populates currentCamera
-  registerCamera(data)    → POST /cameras, prepends to cameras[]
-  removeCamera(id)        → DELETE /cameras/:id, filters from cameras[] + edgeStatus[]
+  fetchCameras()       → cameras[]
+  fetchEdgeStatus()    → edgeStatus[]
+  fetchCamera(id)      → currentCamera
+  registerCamera(data) → POST /cameras, prepends result
+  removeCamera(id)     → DELETE /cameras/:id, filters both arrays
 ```
 
 ### `detections.store.js` — `useDetectionsStore`
 
 ```
 State:
-  recent[]      Detection[]
-  hourly[]      { label: 'HH', count: N }[]  — 24 buckets
-  total         Number
-  todayCount    Number
-  loading       Boolean
-  error         String|null
+  items[]      Raw server results (up to 500) from latest fetchFiltered call
+  recent[]     For MainDashboard feed (last N)
+  hourly[]     For MainDashboard chart (24 buckets)
+  total        Number — length of last hourly fetch
+  todayCount   Number
+  page         Current page index (0-based)
+  loading, error
+  filters: { cameraId, plateSearch, dateFrom, dateTo, minConfidence, archived }
+
+Getters (all computed from items[]):
+  filtered       Apply client-side dateFrom/dateTo/minConfidence on items[]
+  currentPage    filtered.slice(page * 50, (page+1) * 50)
+  pageCount      ceil(filtered.length / 50)
+  hasNext        page < pageCount - 1
+  hasPrev        page > 0
 
 Actions:
-  fetchRecent(limit=20)   → recent[], todayCount
-  fetchHourly()           → hourly[], total  (fetches 500 records)
+  fetchFiltered()          Server fetch with cameraId/search/archived; resets page to 0
+  nextPage() / prevPage()  Increment/decrement page
+  setFilter(key, value)    Update one filter key, reset page
+  resetFilters()           Clear all filters, reset page
+  fetchRecent(limit=20)    → recent[], todayCount  (MainDashboard)
+  fetchHourly()            → hourly[], total        (MainDashboard)
 ```
 
-**`buildHourlyBuckets` algorithm**:
-1. Fetch 500 most-recent detections sorted DESC
-2. `hoursAgo = floor((now - timestamp) / 3600000)`
-3. If `hoursAgo < 24`, increment `buckets[23 - hoursAgo]`
-4. Map to `{ label: 'HH', count }` starting from `currentHour - 23`
+**PAGE_SIZE = 50** (exported constant).  
+**CSV export** lives in `DetectionList.vue` methods, not the store — it reads `store.filtered` directly.
 
 ---
 
 ## 10. `MainDashboard.vue`
 
-**Route**: `/` | Refresh: 10 s interval + `message_saved` socket event | Clock: 1 s interval
+**Route**: `/` | Refresh: 10 s interval + `message_saved` | Clock: 1 s
 
-Sections:
-1. **Page header** — title + live clock (th-TH locale)
-2. **KPI row** — 4 `MetricCard` in `auto-fit minmax(180px, 1fr)`
-3. **Camera Status grid** — tiles from `getCamerasEdgeStatus()`, click → `/cameras/:id`
-4. **Detections — Last 24 Hours** — `HourlyChart` bar chart
-5. **Recent Detections feed** — last 20 detections, 4-column grid row, click → `/detections/:id`
-6. **Error banner** — shown on any API failure
+Sections: page header · KPI row (4 MetricCards) · camera status grid · HourlyChart · recent detection feed (20 rows) · error banner.
 
-KPI sources: online count from `edgeStatus`, today/total from 500-record detection fetch, health count from health endpoint.
-
-**Confidence color**: ≥0.90 green · ≥0.70 amber · <0.70 red
+KPI sources: online count from `edgeStatus`; today/total from 500-record detection fetch; health count from `/camera-health?limit=50`.
 
 ---
 
-## 11. `CameraList.vue` + `CameraDetail.vue`
+## 11. `DetectionList.vue` + `DetectionDetail.vue`
 
-See **Section 6** for full component descriptions. Both views fetch independently (no store pre-load required) and handle their own loading/error states.
+See **Section 6** for full component descriptions.
 
-**`CameraDetail` data loading** (parallel on mount):
-```javascript
-Promise.all([loadCamera(), loadDetections(), loadHealth()])
+**`DetectionList` data flow**:
+```
+mount → store.fetchFiltered()
+         ↳ GET /detections?limit=500&sortBy=timestamp&sortOrder=DESC[&cameraId=][&search=][&archived=]
+         ↳ store.items[] populated
+         ↳ store.filtered getter applies date/confidence client-side
+         ↳ store.currentPage slices 50 rows for table
+```
+
+**`DetectionDetail` data flow**:
+```
+mount → api.getDetection(id)
+         ↳ GET /detections/:id  (includes camera relation)
+         ↳ detection object → PlateTag, ConfidenceBar, meta grid, image
 ```
 
 ---
 
-## 12. `EdgeControl.vue` — Legacy View
+## 12. `CameraList.vue` + `CameraDetail.vue`
 
-**Route**: `/edge_control` — functional but uses old styling (not design tokens).  
-Status bulbs based on health timestamp age: green < 5 min · yellow 5–15 min · red > 15 min.  
-Migrate to design system in Phase H.
+See **Section 6**. Both fetch independently on mount, handle own loading/error states.
 
 ---
 
-## 13. Nginx Configuration
+## 13. `EdgeControl.vue` — Legacy View
+
+**Route**: `/edge_control` — functional, old styling. Status bulbs by health age: <5 min green · 5–15 min yellow · >15 min red. Migrate in Phase H.
+
+---
+
+## 14. Nginx Configuration
 
 **File**: `/etc/nginx/sites-available/lprserver`
 
@@ -583,8 +601,8 @@ server {
     alias /home/devuser/aicamera/server/frontend-app/dist/;
     index index.html;
     try_files $uri $uri/ /server/index.html;
-    # ⚠ No =404 here — with alias, 4-arg try_files treats /server/index.html
-    # as a file path check (not a URI redirect), which always fails.
+    # ⚠ No =404 — with alias, 4-arg try_files treats /server/index.html
+    # as a filesystem path, which always fails.
   }
 
   location /server/api/ {
@@ -609,70 +627,86 @@ server {
 
 ---
 
-## 14. Development Workflow
+## 15. Development Workflow
 
 ### Standard cycle (Mac → GitHub → lprserver)
 
 ```bash
-# 1. Edit source on Mac in VSCode
+# 1. Edit source on Mac
 
-# 2. Commit + push to popwandee/aicamera.git
+# 2. Commit + push
 git add <files>
 git commit -m "feat: ..."
 git push origin main          # origin = popwandee/aicamera.git
 
-# 3. Deploy to lprserver
-sshpass -p 'admin88366' ssh -o PreferredAuthentications=password \
-  devuser@100.95.46.128 \
+# 3a. Deploy frontend only
+ssh devuser@100.95.46.128 \
   "cd ~/aicamera && git pull origin main \
    && cd server/frontend-app && npm install && npm run build \
    && echo 'admin88366' | sudo -S nginx -s reload"
+
+# 3b. Deploy backend only (after controller/service changes)
+ssh devuser@100.95.46.128 \
+  "cd ~/aicamera && git pull origin main \
+   && cd server/backend-api && npm run build \
+   && sudo systemctl restart backend-api"
+
+# 3c. Both changed — run 3a then 3b
 ```
 
-### Git remotes (current state — all machines unified)
+### Service management on lprserver
+
+| Service | Start/Restart | Logs |
+|---------|--------------|------|
+| `backend-api` | `sudo systemctl restart backend-api` | `journalctl -u backend-api -f` |
+| `ws-service` | `sudo systemctl restart ws-service` | `journalctl -u ws-service -f` |
+| `mqtt-service` | `sudo systemctl restart mqtt-service` | `journalctl -u mqtt-service -f` |
+| `nginx` | `sudo systemctl reload nginx` | `/var/log/nginx/error.log` |
+
+Quick API smoke test after backend restart:
+```bash
+curl http://localhost:3000/server/api/cameras
+curl http://localhost:3000/server/api/detections?limit=1
+curl http://localhost:3000/server/api/detections/<uuid>
+```
+
+### Git remotes (all machines unified)
 
 | Machine | Remote | URL | Push rights |
 |---------|--------|-----|------------|
-| Mac | `origin` | `popwandee/aicamera.git` | ✅ (popwandee token via macOS Keychain) |
+| Mac | `origin` | `popwandee/aicamera.git` | ✅ |
 | lprserver | `origin` | `popwandee/aicamera.git` | ✅ |
-| lprserver | `myorigin` | `pwd-vw/aicamera.git` | leftover — harmless, can remove |
+| lprserver | `myorigin` | `pwd-vw/aicamera.git` | leftover — harmless |
 | aicamera2 | `origin` | `popwandee/aicamera.git` | ✅ |
-
-All three machines are on `main`. The canonical remote is `popwandee/aicamera.git`.
-
-### Build output sizes (Phase C)
-
-| File | Size | Gzipped |
-|------|------|---------|
-| `js/chunk-vendors.*.js` | ~370 KB | ~128 KB |
-| `js/app.*.js` | ~40 KB | ~11 KB |
-| `css/app.*.css` | ~22 KB | ~4 KB |
 
 ---
 
-## 15. Known Issues and Gotchas
+## 16. Known Issues and Gotchas
 
 | Issue | Root cause | Fix applied |
 |-------|-----------|------------|
-| `PATCH /detections/image-path` returns 400 | NestJS `/:id` before `/image-path`; `ParseUUIDPipe` rejected `image-path` | Moved `/image-path` route above `/:id` |
-| `camera_health` columns all NULL after MQTT | Edge sends `cpu_usage`/`cpu_temp`; backend expected different names | Fallback: `payload.cpu_percent ?? payload.cpu_usage` in mqtt-service |
-| `/server/edge_control` returned 404 | `try_files` 4-arg form with `alias` makes 3rd arg a file check | Removed `=404`, now 3-arg form |
-| Vue build fails — multi-word component names | Component `name:` must be ≥ 2 words | Always: `MainDashboard`, `CameraList`, not `Dashboard` |
-| Vue build fails — reserved keys | `data()` keys prefixed `_` or `$` reserved | Use `clockTimer`, not `_clockTimer` |
-| `kpi.total` shows max 500 | `getDetections` capped at `limit=500` | Accepted; backend count endpoint would fix for large datasets |
-| Health chart `createdAt` vs `timestamp` | Backend may use either field name for health record timestamps | Both accessed: `h.createdAt \|\| h.timestamp` |
+| `GET /detections/:id` returned 404 | Controller had `/:id/image` and list but no single-record GET | Added `@Get('detections/:id')` before the list route in `device.controller.ts` |
+| `DetectionDetail` showed `camera: undefined` | `findDetectionById` in service didn't join `relations: ['camera']` | Added `relations: ['camera']` to `findDetectionById` |
+| `PATCH /detections/image-path` returned 400 | NestJS `/:id` was before `/image-path`; `ParseUUIDPipe` rejected the literal string | Moved `/image-path` route above `/:id` |
+| `camera_health` columns NULL after MQTT | Edge sends `cpu_usage`/`cpu_temp`; backend expected different names | Fallback: `payload.cpu_percent ?? payload.cpu_usage` in mqtt-service |
+| `/server/edge_control` returned 404 | `try_files` 4-arg with `alias` treats 3rd arg as a file path | Removed `=404`, now 3-arg form |
+| Vue build — `no-unused-vars` in Pinia getter | Pinia `pageCount(state)` declared `state` but only used `this` | Removed unused param: `pageCount()` |
+| Vue build — multi-word component names | ESLint requires ≥ 2 words | Always: `DetectionList`, not `Detections` |
+| `kpi.total` shows max 500 | `getDetections` capped at `limit=500` | Accepted; a real `COUNT` endpoint would fix for large datasets |
+| Health record timestamp field name | Backend uses `createdAt` or `timestamp` depending on path | Both accessed: `h.createdAt \|\| h.timestamp` |
+| `confidence` is a string, not number | TypeORM stores DECIMAL as string | Always `parseFloat(d.confidence)` before comparison |
 
 ---
 
-## 16. Phase Roadmap
+## 17. Phase Roadmap
 
 | Phase | View(s) | Key features | Status |
 |-------|---------|-------------|--------|
-| A | Foundation | Design tokens, Sidebar, MetricCard, StatusDot, router, App shell, all stub views | ✅ Done |
+| A | Foundation | Design tokens, Sidebar, MetricCard, StatusDot, router, App shell | ✅ Done |
 | B | MainDashboard | 24h hourly bar chart, Pinia stores, chart.js | ✅ Done |
-| C | CameraList, CameraDetail, RegisterCameraModal | DataTable, register/delete, 4-tab detail, health line chart, cameras.store | ✅ Done |
-| D | DetectionList, DetectionDetail | FilterBar, ImageViewer, PlateTag, ConfidenceBar, CSV export | 🔲 Next |
-| E | AnalyticsDashboard | 30-day bar chart, confidence histogram, 7d×24h heatmap | 🔲 |
+| C | CameraList, CameraDetail, RegisterCameraModal | DataTable, register/delete, 4-tab detail, health line chart | ✅ Done |
+| D | DetectionList, DetectionDetail, 4 shared components | FilterBar, PlateTag, ConfidenceBar, ImageViewer, CSV export, archive toggle | ✅ Done |
+| E | AnalyticsDashboard | 30-day bar chart, confidence histogram, 7d×24h heatmap, camera comparison | 🔲 Next |
 | F | RouteAnalysis, RouteDetail | Client-side route algorithm, routes.store | 🔲 |
 | G | ConvoyDetection | Sliding-window convoy algorithm, parallel timeline SVG | 🔲 |
 | H | Settings, SystemEvents | 4-tab settings (localStorage), migrate EdgeControl to design tokens | 🔲 |
@@ -692,4 +726,4 @@ All three machines are on `main`. The canonical remote is `popwandee/aicamera.gi
 npm install leaflet @vue/leaflet   # Phase F (route maps) — optional
 ```
 
-`date-fns` (^3.6.0) is already installed and available.
+`date-fns` (^3.6.0) is already installed.
