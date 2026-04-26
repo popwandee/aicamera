@@ -4,7 +4,7 @@
 **Server**: lprserver — Tailscale `100.95.46.128`  
 **Live URL**: `http://100.95.46.128/server/`  
 **Last updated**: 2026-04-26  
-**Phases complete**: A (Foundation) + B (Dashboard + Chart)
+**Phases complete**: A (Foundation) · B (Dashboard + Chart) · C (Camera Management)
 
 ---
 
@@ -58,7 +58,7 @@ Client Browser
 | socket.io-client | `^4.8.3` | Socket.IO realtime |
 | chart.js | `^4.4.0` | Charting engine |
 | vue-chartjs | `^5.0.0` | Vue wrapper for chart.js |
-| date-fns | `^3.6.0` | Date utilities (installed, not yet used) |
+| date-fns | `^3.6.0` | Date utilities (installed, available) |
 | @vue/cli-service | `~5.0.0` | Build tool (Webpack, NOT Vite) |
 
 **Build command**: `npm run build`  
@@ -67,7 +67,7 @@ Client Browser
 
 ### ESLint rules that bite
 
-- `vue/multi-word-component-names` — all `name:` values in components must be two or more words (e.g. `AppSidebar`, not `Sidebar`)
+- `vue/multi-word-component-names` — all `name:` values must be two+ words (`MainDashboard`, not `Dashboard`)
 - `vue/no-reserved-keys` — `data()` keys must not start with `_` or `$`
 
 ---
@@ -93,7 +93,7 @@ server/frontend-app/src/
 │   └── useSocket.js                 Socket.IO singleton (see Section 8)
 │
 ├── stores/
-│   ├── cameras.store.js             Pinia: cameras list + edge status
+│   ├── cameras.store.js             Pinia: cameras, edgeStatus, currentCamera — full CRUD
 │   └── detections.store.js          Pinia: recent detections + hourly buckets
 │
 ├── components/
@@ -102,26 +102,28 @@ server/frontend-app/src/
 │   ├── shared/
 │   │   ├── MetricCard.vue           KPI card with icon + value + label
 │   │   └── StatusDot.vue            Colored pulsing dot (online/offline/warning/unknown)
-│   └── charts/
-│       └── HourlyChart.vue          24-bucket bar chart (vue-chartjs Bar)
+│   ├── charts/
+│   │   └── HourlyChart.vue          24-bucket bar chart (vue-chartjs Bar)
+│   └── cameras/
+│       └── RegisterCameraModal.vue  Modal form: register a new camera (Phase C)
 │
 └── views/
-    ├── MainDashboard.vue            ✅ IMPLEMENTED — Phase A+B
-    ├── EdgeControl.vue              ✅ IMPLEMENTED — legacy (pre-design-system)
-    ├── EdgeControlCamera.vue        ✅ IMPLEMENTED — legacy (pre-design-system)
-    ├── CameraList.vue               🔲 STUB — Phase C
-    ├── CameraDetail.vue             🔲 STUB — Phase C
-    ├── DetectionList.vue            🔲 STUB — Phase D
-    ├── DetectionDetail.vue          🔲 STUB — Phase D
-    ├── AnalyticsDashboard.vue       🔲 STUB — Phase E
-    ├── RouteAnalysis.vue            🔲 STUB — Phase F
-    ├── RouteDetail.vue              🔲 STUB — Phase F
-    ├── ConvoyDetection.vue          🔲 STUB — Phase G
-    ├── SystemEvents.vue             🔲 STUB — Phase H
-    ├── Settings.vue                 🔲 STUB — Phase H
-    ├── ServerHome.vue               Legacy table view (unused in new router)
-    ├── Network.vue                  Legacy (unused in new router)
-    └── Developer.vue                Legacy (unused in new router)
+    ├── MainDashboard.vue            ✅ Phase B — KPI + camera grid + hourly chart + feed
+    ├── CameraList.vue               ✅ Phase C — filterable DataTable + register/delete
+    ├── CameraDetail.vue             ✅ Phase C — 4-tab detail + health line chart
+    ├── DetectionList.vue            🔲 Phase D — stub
+    ├── DetectionDetail.vue          🔲 Phase D — stub
+    ├── AnalyticsDashboard.vue       🔲 Phase E — stub
+    ├── RouteAnalysis.vue            🔲 Phase F — stub
+    ├── RouteDetail.vue              🔲 Phase F — stub
+    ├── ConvoyDetection.vue          🔲 Phase G — stub
+    ├── SystemEvents.vue             🔲 Phase H — stub
+    ├── Settings.vue                 🔲 Phase H — stub
+    ├── EdgeControl.vue              ✅ legacy (pre-design-system)
+    ├── EdgeControlCamera.vue        ✅ legacy (pre-design-system)
+    ├── ServerHome.vue               legacy (not routed in new SPA)
+    ├── Network.vue                  legacy (not routed)
+    └── Developer.vue                legacy (not routed)
 ```
 
 ---
@@ -178,13 +180,9 @@ All four loaded from Google Fonts in `public/index.html`.
 | `.font-data` | Apply JetBrains Mono |
 | `.font-display` | Apply Rajdhani |
 | `.font-thai` | Apply Sarabun |
-| `.text-cyan` | Color: `--cyan` |
-| `.text-green` | Color: `--green` |
-| `.text-amber` | Color: `--amber` |
-| `.text-red` | Color: `--red` |
-| `.text-muted` | Color: `--text-muted` |
+| `.text-cyan/green/amber/red/muted` | Color shortcuts |
 | `.panel` | Dark card: `bg-panel` + `border-card` + `radius-md` + `shadow-card` |
-| `.badge` | Inline pill with monospace font |
+| `.badge` | Inline pill, monospace font |
 | `.badge-cyan/green/amber/red` | Colored badge variants |
 | `.btn` | Ghost button (cyan border, transparent bg) |
 | `.btn-primary` | Filled button (cyan tinted bg) |
@@ -193,23 +191,23 @@ All four loaded from Google Fonts in `public/index.html`.
 
 ## 5. Routes
 
-| Route | Name | Component | Status | Notes |
-|-------|------|-----------|--------|-------|
-| `/` | Dashboard | `MainDashboard` | ✅ Live | KPI + camera grid + hourly chart + feed |
-| `/cameras` | Cameras | `CameraList` | 🔲 Stub | Phase C |
-| `/cameras/:id` | CameraDetail | `CameraDetail` | 🔲 Stub | Phase C |
-| `/detections` | Detections | `DetectionList` | 🔲 Stub | Phase D |
-| `/detections/:id` | DetectionDetail | `DetectionDetail` | 🔲 Stub | Phase D |
-| `/analytics` | Analytics | `AnalyticsDashboard` | 🔲 Stub | Phase E |
-| `/routes` | Routes | `RouteAnalysis` | 🔲 Stub | Phase F |
-| `/routes/:routeKey` | RouteDetail | `RouteDetail` | 🔲 Stub | Phase F |
-| `/convoy` | Convoy | `ConvoyDetection` | 🔲 Stub | Phase G |
-| `/edge_control` | EdgeControl | `EdgeControl` | ✅ Live | Legacy, no design tokens |
-| `/edge_control/camera/:id` | EdgeControlCamera | `EdgeControlCamera` | ✅ Live | Legacy |
-| `/system` | System | `SystemEvents` | 🔲 Stub | Phase H |
-| `/settings` | Settings | `Settings` | 🔲 Stub | Phase H |
+| Route | Name | Component | Status |
+|-------|------|-----------|--------|
+| `/` | Dashboard | `MainDashboard` | ✅ Live |
+| `/cameras` | Cameras | `CameraList` | ✅ Live (Phase C) |
+| `/cameras/:id` | CameraDetail | `CameraDetail` | ✅ Live (Phase C, props: true) |
+| `/detections` | Detections | `DetectionList` | 🔲 Phase D |
+| `/detections/:id` | DetectionDetail | `DetectionDetail` | 🔲 Phase D |
+| `/analytics` | Analytics | `AnalyticsDashboard` | 🔲 Phase E |
+| `/routes` | Routes | `RouteAnalysis` | 🔲 Phase F |
+| `/routes/:routeKey` | RouteDetail | `RouteDetail` | 🔲 Phase F |
+| `/convoy` | Convoy | `ConvoyDetection` | 🔲 Phase G |
+| `/edge_control` | EdgeControl | `EdgeControl` | ✅ Live (legacy) |
+| `/edge_control/camera/:id` | EdgeControlCamera | `EdgeControlCamera` | ✅ Live (legacy) |
+| `/system` | System | `SystemEvents` | 🔲 Phase H |
+| `/settings` | Settings | `Settings` | 🔲 Phase H |
 
-**Nginx SPA fallback** — `try_files $uri $uri/ /server/index.html;` (no trailing `=404` — that would make the 4th arg a file check which fails with `alias`).
+**Nginx SPA fallback**: `try_files $uri $uri/ /server/index.html;` — no `=404` (breaks with `alias`).
 
 **Router history base** — auto-detected at boot:
 ```javascript
@@ -228,40 +226,33 @@ Imports `design-tokens.css` globally — all pages inherit CSS variables.
 
 ### `Sidebar.vue` (component name: `AppSidebar`)
 
-**File**: `src/components/layout/Sidebar.vue`
-
 Sections:
 1. **Brand** — `⬡ AICAM | Control Center` in Rajdhani, cyan glow
-2. **Connection status** — `StatusDot` driven by `useSocket().connected`; shows "Live" (green pulse) or "Reconnecting…" (red)
+2. **Connection status** — `StatusDot` driven by `useSocket().connected`
 3. **Nav — Monitor**: Dashboard `/`, Cameras `/cameras`, Detections `/detections`
 4. **Nav — Analyse**: Analytics `/analytics`, Routes `/routes`, Convoy `/convoy`
 5. **Nav — System**: Edge Control `/edge_control`, System Events `/system`, Settings `/settings`
 6. **Footer** — "PWD Vision Works"
 
-Active link: cyan left border (`border-left: 2px solid var(--cyan)`) + tinted background.  
-`exact-active-class` on Dashboard to avoid matching all routes.
+Active link: cyan left border + tinted background. `exact-active-class` on Dashboard route only.
 
 ---
 
 ### `MetricCard.vue`
 
-**File**: `src/components/shared/MetricCard.vue`
-
 ```
 Props:
-  icon    String  default '◈'      Unicode symbol shown large on left
-  label   String  required         Uppercase label below value
-  value   Number|String  null      Displayed as large number; ≥1000 gets toLocaleString()
-  sub     String  ''               Small secondary line
-  loading Boolean false            Shows blinking '──' shimmer when true
-  accent  String  'cyan'           Value color: 'cyan'|'green'|'amber'|'red'
+  icon    String          default '◈'   Unicode symbol
+  label   String          required      Uppercase label
+  value   Number|String   null          ≥1000 gets toLocaleString()
+  sub     String          ''            Secondary line
+  loading Boolean         false         Shows blinking shimmer
+  accent  String          'cyan'        'cyan'|'green'|'amber'|'red'
 ```
 
 ---
 
 ### `StatusDot.vue`
-
-**File**: `src/components/shared/StatusDot.vue`
 
 ```
 Props:
@@ -269,10 +260,10 @@ Props:
   title   String  ''          Tooltip text
 ```
 
-| Status | Dot color | Animation |
-|--------|----------|-----------|
-| `online` | `--green` | Pulsing green ring, 2s |
-| `warning` | `--amber` | Pulsing amber ring, 2s |
+| Status | Color | Animation |
+|--------|-------|-----------|
+| `online` | `--green` | Pulsing ring, 2s |
+| `warning` | `--amber` | Pulsing ring, 2s |
 | `offline` | `--red` | Static |
 | `unknown` | `--text-muted` | Static |
 
@@ -280,18 +271,88 @@ Props:
 
 ### `HourlyChart.vue`
 
-**File**: `src/components/charts/HourlyChart.vue`
-
 ```
 Props:
-  hourlyData  Array  []  Array of { label: '07', count: 42 } — 24 items, oldest first
+  hourlyData  Array  []  [{ label: '07', count: 42 }, …]  24 items, oldest first
 ```
 
 - Registers chart.js: `CategoryScale`, `LinearScale`, `BarElement`, `Tooltip`
-- Bars: cyan (`#00c8ff`), 18% opacity fill, 35% on hover
-- X-axis: shows every 4th label (every 4 hours) to avoid crowding
-- Tooltip: dark panel (`#0d1520` bg) with cyan title, format `"HH:00 — N detections"`
+- Bars: cyan `#00c8ff`, 18% opacity; X-axis tick every 4th label
 - Fixed container height: 180px
+
+---
+
+### `RegisterCameraModal.vue` *(Phase C)*
+
+**File**: `src/components/cameras/RegisterCameraModal.vue`
+
+```
+Emits:
+  close     — user cancelled or form submitted successfully
+  created   — (camera) new camera object returned from backend
+
+Fields:
+  cameraId  String  required  Must match the edge device config
+  name      String  optional  Display name
+  location  String  optional  Physical location text
+  ip        String  optional  Edge device IP
+```
+
+Calls `useCamerasStore().registerCamera(data)` → `POST /server/api/cameras`.  
+Closes and emits `created` on success; shows inline error on failure.
+
+---
+
+### `CameraList.vue` *(Phase C)*
+
+**Route**: `/cameras`
+
+Features:
+- Loads `edgeStatus[]` from `useCamerasStore().fetchEdgeStatus()`
+- Live text filter across `cameraId + name + location`
+- Count badges: Online (green) + Total (cyan)
+- DataTable columns: Status · Camera ID · Name · Location · IP · Temp · CPU · Mem · Last Seen · Delete
+- Row click → `/cameras/:id`
+- Delete button opens inline confirm modal → `store.removeCamera(id)`
+- "Register Camera" button → opens `RegisterCameraModal`
+
+**Camera status logic** (shared with MainDashboard):
+```javascript
+latestHealth.status: 'online'|'healthy'|'pass' → 'online'
+                     'degraded'|'warning'       → 'warning'
+                     anything else              → 'offline'
+!latestHealth                                   → 'unknown'
+```
+
+**Last Seen** format: relative (`just now`, `5m ago`, `2h ago`, `3d ago`)
+
+---
+
+### `CameraDetail.vue` *(Phase C)*
+
+**Route**: `/cameras/:id` (prop `id` = camera UUID)
+
+**Header card**: StatusDot + camera title + meta row (location, IP, status, temp, CPU)  
+**Breadcrumb**: ◈ Cameras › {cameraId} — back-navigates to `/cameras`
+
+**Tabs**:
+
+| Tab | Content | Data source |
+|-----|---------|-------------|
+| Overview | 4 metric tiles: Temp, CPU, Memory, Detection count | `healthRecords[0]` + `detections.length` |
+| Detections | Scrollable table: plate, confidence %, timestamp, image indicator | `api.getCameraDetections(id, 200)` |
+| Health Log | Dual-axis line chart + health records table | `api.getCameraHealth({ cameraId: id, limit: 100 })` |
+| Images | Thumbnail grid of detections that have `imagePath` | filtered from detections array |
+
+**Health line chart** (vue-chartjs `Line`, inline in CameraDetail):
+- Registers: `LineElement`, `PointElement`, `Filler` (in addition to globally registered scales)
+- Left Y-axis `yTemp`: temperature in °C, amber line `#ffab40`
+- Right Y-axis `yCpu`: CPU %, cyan fill `rgba(0,200,255,0.08)`, 0–100 range
+- X-axis ticks: `HH:MM` (th-TH locale), max 8 ticks shown
+- Data order: oldest-first (healthRecords reversed)
+
+**Image thumbnails**: `api.getDetectionImageUrl(detectionId)` → `GET /server/api/detections/:id/image`  
+Broken images hidden via `@error` handler.
 
 ---
 
@@ -302,18 +363,18 @@ All calls use `fetch`. Non-2xx responses throw `Error("METHOD /path → STATUS")
 
 ### Cameras
 
-| Method | Call | Endpoint | Returns |
-|--------|------|----------|---------|
-| GET | `api.getCameras()` | `/cameras` | `Camera[]` |
-| GET | `api.getCamerasEdgeStatus()` | `/cameras/edge-status` | `EdgeStatus[]` |
-| GET | `api.getCamerasSummary()` | `/cameras/summary` | summary object |
-| GET | `api.getCamera(id)` | `/cameras/:id` | `Camera` |
-| POST | `api.createCamera(data)` | `/cameras` | `Camera` |
-| PUT | `api.updateCamera(id, d)` | `/cameras/:id` | `Camera` |
-| DELETE | `api.deleteCamera(id)` | `/cameras/:id` | — |
-| POST | `api.registerCamera(data)` | `/cameras/register` | `Camera` |
-| GET | `api.getCameraDetections(id, limit)` | `/cameras/:id/detections?limit=N` | `Detection[]` |
-| GET | `api.runAnalytics()` | `/cameras/analytics/run` | result |
+| Method | Call | Endpoint |
+|--------|------|----------|
+| GET | `api.getCameras()` | `/cameras` |
+| GET | `api.getCamerasEdgeStatus()` | `/cameras/edge-status` |
+| GET | `api.getCamerasSummary()` | `/cameras/summary` |
+| GET | `api.getCamera(id)` | `/cameras/:id` |
+| POST | `api.createCamera(data)` | `/cameras` |
+| PUT | `api.updateCamera(id, d)` | `/cameras/:id` |
+| DELETE | `api.deleteCamera(id)` | `/cameras/:id` |
+| POST | `api.registerCamera(data)` | `/cameras/register` (edge self-registration) |
+| GET | `api.getCameraDetections(id, limit)` | `/cameras/:id/detections?limit=N` |
+| GET | `api.runAnalytics()` | `/cameras/analytics/run` |
 
 #### `EdgeStatus` object shape
 ```json
@@ -322,7 +383,7 @@ All calls use `fetch`. Non-2xx responses throw `Error("METHOD /path → STATUS")
     "id": "uuid",
     "cameraId": "aicamera2",
     "name": "Camera 2",
-    "location": "...",
+    "location": "Building A",
     "status": "active"
   },
   "latestHealth": {
@@ -347,19 +408,19 @@ All calls use `fetch`. Non-2xx responses throw `Error("METHOD /path → STATUS")
 | GET | `api.getDetection(id)` | `/detections/:id` |
 | PATCH | `api.archiveDetection(id)` | `/detections/:id` `{archived:true}` |
 | PATCH | `api.unarchiveDetection(id)` | `/detections/:id` `{archived:false}` |
-| GET | `api.getDetectionImageUrl(id)` | returns URL string (not a fetch) |
+| GET | `api.getDetectionImageUrl(id)` | returns URL string (not a fetch call) |
 
 **`getDetections` query params** (all optional):
 
-| Param | Type | Notes |
-|-------|------|-------|
-| `cameraId` | string | filter by camera UUID |
-| `search` | string | plate number search |
-| `limit` | number | max records (dashboard uses 500) |
-| `offset` | number | pagination |
-| `sortBy` | string | field name, e.g. `timestamp` |
-| `sortOrder` | string | `ASC` or `DESC` |
-| `archived` | boolean | include archived records |
+| Param | Notes |
+|-------|-------|
+| `cameraId` | filter by camera UUID |
+| `search` | plate number search |
+| `limit` | max records (dashboard uses 500) |
+| `offset` | pagination |
+| `sortBy` | field name, e.g. `timestamp` |
+| `sortOrder` | `ASC` or `DESC` |
+| `archived` | boolean |
 
 #### `Detection` object shape
 ```json
@@ -374,60 +435,44 @@ All calls use `fetch`. Non-2xx responses throw `Error("METHOD /path → STATUS")
 }
 ```
 
-**Important**: `confidence` is a decimal string (e.g. `"0.9245"`), not a number. Use `parseFloat()`.
+**Important**: `confidence` is a decimal string (e.g. `"0.9245"`), not a number. Always `parseFloat()`.
 
 ### Camera Health
 
 | Method | Call | Endpoint |
 |--------|------|----------|
-| GET | `api.getCameraHealth(params)` | `/camera-health?...` |
-
-**`getCameraHealth` query params**: `cameraId`, `limit`, `from` (ISO date), `to` (ISO date)
+| GET | `api.getCameraHealth(params)` | `/camera-health?cameraId=&limit=&from=&to=` |
 
 ### Analytics & Events
 
-| Method | Call | Endpoint |
-|--------|------|----------|
-| GET | `api.getAnalytics()` | `/analytics` |
-| GET | `api.getSystemEvents(limit)` | `/system-events?limit=N` |
-| GET | `api.getVisualizations()` | `/visualizations` |
-| GET | `api.getAnalyticsEvents(limit)` | `/analytics-events?limit=N` |
+| Method | Endpoint |
+|--------|----------|
+| `api.getAnalytics()` | `/analytics` |
+| `api.getSystemEvents(limit)` | `/system-events?limit=N` |
+| `api.getVisualizations()` | `/visualizations` |
+| `api.getAnalyticsEvents(limit)` | `/analytics-events?limit=N` |
 
 ---
 
 ## 8. Socket.IO (`src/composables/useSocket.js`)
 
-Singleton pattern — one connection shared across all components.
+Singleton — one connection shared across all components.
 
 ```javascript
-import { useSocket } from '@/composables/useSocket.js';
 const { socket, connected } = useSocket();
-// connected: Vue ref<boolean>, reactive
+// connected: Vue ref<boolean>
 // socket: raw Socket.IO instance
 ```
 
-**Connection config**:
-- URL: `window.location.origin` (no hardcoded IP)
-- Path: `/ws/` (nginx proxies to ws-service:3001)
-- Transports: `['websocket', 'polling']`
-- Reconnection: delay 2s, infinite attempts
+**Connection config**: URL = `window.location.origin`, path = `/ws/`, transports = `['websocket', 'polling']`
 
-**Events from server** (ws-service emits these):
+**Events from server**:
 
-| Event | Payload | When |
-|-------|---------|------|
-| `message_saved` | `{ cameraId, plate, confidence, timestamp }` | Detection written to DB |
-| `camera_registered` | `{ cameraId, ... }` | New camera registered |
-| `connect` | — | Socket connected |
-| `disconnect` | reason string | Socket lost |
-
-**Usage in `MainDashboard.vue`**:
-```javascript
-this.socket.on('message_saved',     () => this.loadDetections());
-this.socket.on('camera_registered', () => this.loadCameras());
-this.socket.on('connect',           () => { this.socketOk = true; });
-this.socket.on('disconnect',        () => { this.socketOk = false; });
-```
+| Event | When |
+|-------|------|
+| `message_saved` | Detection written to DB |
+| `camera_registered` | New camera registered |
+| `connect` / `disconnect` | Socket state change |
 
 ---
 
@@ -437,104 +482,85 @@ this.socket.on('disconnect',        () => { this.socketOk = false; });
 
 ```
 State:
-  cameras[]     Camera list (from /cameras)
-  edgeStatus[]  Edge status list (from /cameras/edge-status)
-  loading       Boolean
-  error         String|null
+  cameras[]       Camera[] — from GET /cameras
+  edgeStatus[]    EdgeStatus[] — from GET /cameras/edge-status
+  currentCamera   Camera|null — single camera from GET /cameras/:id
+  loading         Boolean
+  error           String|null
 
 Getters:
-  onlineCount   Number of cameras with status online/healthy/pass
+  onlineCount     cameras with status online/healthy/pass
 
 Actions:
-  fetchCameras()      → populates cameras[]
-  fetchEdgeStatus()   → populates edgeStatus[]
+  fetchCameras()          → populates cameras[]
+  fetchEdgeStatus()       → populates edgeStatus[]  ← used by CameraList
+  fetchCamera(id)         → populates currentCamera
+  registerCamera(data)    → POST /cameras, prepends to cameras[]
+  removeCamera(id)        → DELETE /cameras/:id, filters from cameras[] + edgeStatus[]
 ```
-
-Currently used only as a shared store; `MainDashboard.vue` fetches directly via `api` instead of the store (Phase C will migrate).
 
 ### `detections.store.js` — `useDetectionsStore`
 
 ```
 State:
-  recent[]      Detection[]  (last N detections)
-  hourly[]      { label: '07', count: N }[]  (24 buckets)
+  recent[]      Detection[]
+  hourly[]      { label: 'HH', count: N }[]  — 24 buckets
   total         Number
   todayCount    Number
   loading       Boolean
   error         String|null
 
 Actions:
-  fetchRecent(limit=20)   → populates recent[], todayCount
-  fetchHourly()           → populates hourly[], total (fetches 500)
+  fetchRecent(limit=20)   → recent[], todayCount
+  fetchHourly()           → hourly[], total  (fetches 500 records)
 ```
 
-**`buildHourlyBuckets` algorithm** (also in `MainDashboard.methods`):
+**`buildHourlyBuckets` algorithm**:
 1. Fetch 500 most-recent detections sorted DESC
-2. For each detection, compute `hoursAgo = floor((now - timestamp) / 3600000)`
+2. `hoursAgo = floor((now - timestamp) / 3600000)`
 3. If `hoursAgo < 24`, increment `buckets[23 - hoursAgo]`
-4. Map 24 buckets to `{ label: 'HH', count }` starting from `currentHour - 23`
+4. Map to `{ label: 'HH', count }` starting from `currentHour - 23`
 
 ---
 
-## 10. `MainDashboard.vue` — Implemented View
+## 10. `MainDashboard.vue`
 
-**Route**: `/`  
-**Data refresh**: every 10 seconds via `setInterval` + Socket.IO `message_saved`  
-**Clock**: Bangkok time (`th-TH` locale), updated every 1 second
+**Route**: `/` | Refresh: 10 s interval + `message_saved` socket event | Clock: 1 s interval
 
-### Sections
+Sections:
+1. **Page header** — title + live clock (th-TH locale)
+2. **KPI row** — 4 `MetricCard` in `auto-fit minmax(180px, 1fr)`
+3. **Camera Status grid** — tiles from `getCamerasEdgeStatus()`, click → `/cameras/:id`
+4. **Detections — Last 24 Hours** — `HourlyChart` bar chart
+5. **Recent Detections feed** — last 20 detections, 4-column grid row, click → `/detections/:id`
+6. **Error banner** — shown on any API failure
 
-1. **Page header** — title + live clock
-2. **KPI row** — 4 `MetricCard` components in `auto-fit minmax(180px, 1fr)` grid
-3. **Camera Status grid** — `auto-fill minmax(180px, 1fr)` tiles from `getCamerasEdgeStatus()`, clickable to `/cameras/:id`
-4. **Detections — Last 24 Hours** — `HourlyChart` in a `.panel`
-5. **Recent Detections feed** — last 20 detections in a 4-column grid row layout, clickable to `/detections/:id`
-6. **Error banner** — shown when any API call fails
+KPI sources: online count from `edgeStatus`, today/total from 500-record detection fetch, health count from health endpoint.
 
-### KPI card data sources
+**Confidence color**: ≥0.90 green · ≥0.70 amber · <0.70 red
 
-| Card | Label | Value source | Accent |
-|------|-------|-------------|--------|
-| ◈ | Cameras Online | Filter `edgeStatus[]` where status = online/healthy/pass | green |
-| ◎ | Detections Today | Count detections where `timestamp.toDateString() === today` | cyan |
-| ⚡ | Total (24h) | Length of the 500-record fetch batch | cyan |
-| ⊕ | Health Records | Length of `/camera-health?limit=50` response | amber |
+---
 
-### Camera tile status logic
+## 11. `CameraList.vue` + `CameraDetail.vue`
 
+See **Section 6** for full component descriptions. Both views fetch independently (no store pre-load required) and handle their own loading/error states.
+
+**`CameraDetail` data loading** (parallel on mount):
 ```javascript
-cameraStatus(item):
-  if !item.latestHealth → 'unknown'
-  else status = item.latestHealth.status.toLowerCase()
-    'online'|'healthy'|'pass' → 'online'
-    'degraded'|'warning'      → 'warning'
-    else                      → 'offline'
+Promise.all([loadCamera(), loadDetections(), loadHealth()])
 ```
 
-### Confidence color classes
+---
 
-| Value | Class | Color |
-|-------|-------|-------|
-| ≥ 0.90 | `.text-green` | `--green` |
-| ≥ 0.70 | `.text-amber` | `--amber` |
-| < 0.70 | `.text-red` | `--red` |
+## 12. `EdgeControl.vue` — Legacy View
+
+**Route**: `/edge_control` — functional but uses old styling (not design tokens).  
+Status bulbs based on health timestamp age: green < 5 min · yellow 5–15 min · red > 15 min.  
+Migrate to design system in Phase H.
 
 ---
 
-## 11. `EdgeControl.vue` — Legacy View
-
-**Route**: `/edge_control`  
-**Status**: Functional but uses old styling (not design tokens, no sidebar-aware layout).  
-Fetches `GET /cameras/edge-status` and renders camera cards with status bulbs (green/yellow/red) based on health timestamp age:
-- Green: health reported within 5 minutes  
-- Yellow: 5–15 minutes  
-- Red: > 15 minutes
-
-**Maintenance note**: Should be migrated to design system in Phase H.
-
----
-
-## 12. Nginx Configuration
+## 13. Nginx Configuration
 
 **File**: `/etc/nginx/sites-available/lprserver`
 
@@ -557,8 +583,8 @@ server {
     alias /home/devuser/aicamera/server/frontend-app/dist/;
     index index.html;
     try_files $uri $uri/ /server/index.html;
-    # ⚠ Do NOT add =404 here. With alias, 4-arg try_files treats
-    # /server/index.html as a file check (not URI redirect), which fails.
+    # ⚠ No =404 here — with alias, 4-arg try_files treats /server/index.html
+    # as a file path check (not a URI redirect), which always fails.
   }
 
   location /server/api/ {
@@ -579,95 +605,91 @@ server {
 }
 ```
 
-**Reload** (requires sudo password): `echo 'admin88366' | sudo -S nginx -s reload`
+**Reload**: `echo 'admin88366' | sudo -S nginx -s reload`
 
 ---
 
-## 13. Development Workflow
+## 14. Development Workflow
 
 ### Standard cycle (Mac → GitHub → lprserver)
 
 ```bash
-# 1. Edit source files on Mac in VSCode
-# 2. Commit + push to pwd-vw/aicamera.git
+# 1. Edit source on Mac in VSCode
+
+# 2. Commit + push to popwandee/aicamera.git
 git add <files>
 git commit -m "feat: ..."
-git push pwd-vw main
+git push origin main          # origin = popwandee/aicamera.git
 
-# 3. Deploy to lprserver (single SSH command)
+# 3. Deploy to lprserver
 sshpass -p 'admin88366' ssh -o PreferredAuthentications=password \
   devuser@100.95.46.128 \
-  "cd ~/aicamera && git fetch myorigin && git merge myorigin/main --no-edit \
+  "cd ~/aicamera && git pull origin main \
    && cd server/frontend-app && npm install && npm run build \
    && echo 'admin88366' | sudo -S nginx -s reload"
-
-# 4. (Optional) Keep popwandee/aicamera.git in sync
-sshpass -p 'admin88366' ssh -o PreferredAuthentications=password \
-  devuser@100.95.46.128 \
-  "cd ~/aicamera && git push origin main"
 ```
 
-### Git remotes
+### Git remotes (current state — all machines unified)
 
-| Machine | Remote name | URL | Push rights |
-|---------|------------|-----|------------|
-| Mac | `origin` | `popwandee/aicamera.git` | ❌ read-only |
-| Mac | `pwd-vw` | `pwd-vw/aicamera.git` | ✅ push here |
-| lprserver | `origin` | `popwandee/aicamera.git` | ✅ push here |
-| lprserver | `myorigin` | `pwd-vw/aicamera.git` | ✅ pull from here |
-| aicamera2 | `origin` | `popwandee/aicamera.git` (token in URL) | ✅ |
+| Machine | Remote | URL | Push rights |
+|---------|--------|-----|------------|
+| Mac | `origin` | `popwandee/aicamera.git` | ✅ (popwandee token via macOS Keychain) |
+| lprserver | `origin` | `popwandee/aicamera.git` | ✅ |
+| lprserver | `myorigin` | `pwd-vw/aicamera.git` | leftover — harmless, can remove |
+| aicamera2 | `origin` | `popwandee/aicamera.git` | ✅ |
 
-### Build output sizes (Phase B)
+All three machines are on `main`. The canonical remote is `popwandee/aicamera.git`.
+
+### Build output sizes (Phase C)
 
 | File | Size | Gzipped |
 |------|------|---------|
-| `js/chunk-vendors.*.js` | 368 KB | 127 KB |
-| `js/app.*.js` | 32 KB | 9 KB |
-| `css/app.*.css` | 20 KB | 3.6 KB |
+| `js/chunk-vendors.*.js` | ~370 KB | ~128 KB |
+| `js/app.*.js` | ~40 KB | ~11 KB |
+| `css/app.*.css` | ~22 KB | ~4 KB |
 
 ---
 
-## 14. Known Issues and Gotchas
+## 15. Known Issues and Gotchas
 
 | Issue | Root cause | Fix applied |
 |-------|-----------|------------|
-| `PATCH /detections/image-path` returns 400 | NestJS route `/:id` was before `/image-path`; `ParseUUIDPipe` rejected `image-path` as invalid UUID | Moved `/image-path` route above `/:id` in `device.controller.ts` |
-| `camera_health` columns all NULL after MQTT | Edge sends `cpu_usage`, `cpu_temp`, `memory_usage`; backend expected `cpu_percent`, `temperature_c` | Added fallback: `payload.cpu_percent ?? payload.cpu_usage` in `mqtt-service/backend-api.service.ts` |
-| `/server/edge_control` returned 404 | `try_files $uri $uri/ /server/index.html =404` — 4-arg form with `alias` makes 3rd arg a file check | Removed `=404`, leaving 3 args |
-| Vue build fails — `vue/multi-word-component-names` | Component `name:` must be ≥ 2 words | Always name components `AppSidebar`, `MainDashboard`, not `Sidebar` |
-| Vue build fails — `vue/no-reserved-keys` | `data()` keys prefixed `_` or `$` are reserved | Use `clockTimer`, not `_clockTimer` |
-| Image-detection timestamp linking | Edge filenames use Bangkok local time (no `Z`); server parses as local → correct | No code fix needed; design is intentional |
-| `kpi.total` shows max 500 | `getDetections` fetch is capped at limit=500 | Accepted; a real count endpoint would fix this for large datasets |
+| `PATCH /detections/image-path` returns 400 | NestJS `/:id` before `/image-path`; `ParseUUIDPipe` rejected `image-path` | Moved `/image-path` route above `/:id` |
+| `camera_health` columns all NULL after MQTT | Edge sends `cpu_usage`/`cpu_temp`; backend expected different names | Fallback: `payload.cpu_percent ?? payload.cpu_usage` in mqtt-service |
+| `/server/edge_control` returned 404 | `try_files` 4-arg form with `alias` makes 3rd arg a file check | Removed `=404`, now 3-arg form |
+| Vue build fails — multi-word component names | Component `name:` must be ≥ 2 words | Always: `MainDashboard`, `CameraList`, not `Dashboard` |
+| Vue build fails — reserved keys | `data()` keys prefixed `_` or `$` reserved | Use `clockTimer`, not `_clockTimer` |
+| `kpi.total` shows max 500 | `getDetections` capped at `limit=500` | Accepted; backend count endpoint would fix for large datasets |
+| Health chart `createdAt` vs `timestamp` | Backend may use either field name for health record timestamps | Both accessed: `h.createdAt \|\| h.timestamp` |
 
 ---
 
-## 15. Phase Roadmap
+## 16. Phase Roadmap
 
 | Phase | View(s) | Key features | Status |
 |-------|---------|-------------|--------|
 | A | Foundation | Design tokens, Sidebar, MetricCard, StatusDot, router, App shell, all stub views | ✅ Done |
 | B | MainDashboard | 24h hourly bar chart, Pinia stores, chart.js | ✅ Done |
-| C | CameraList, CameraDetail | DataTable, Register Camera modal, 4-tab detail, cameras.store | 🔲 Next |
-| D | DetectionList, DetectionDetail | FilterBar, ImageViewer, PlateTag, ConfidenceBar, CSV export, detections.store | 🔲 |
-| E | AnalyticsDashboard | 30-day bar chart, confidence histogram, 7d×24h heatmap, camera comparison | 🔲 |
+| C | CameraList, CameraDetail, RegisterCameraModal | DataTable, register/delete, 4-tab detail, health line chart, cameras.store | ✅ Done |
+| D | DetectionList, DetectionDetail | FilterBar, ImageViewer, PlateTag, ConfidenceBar, CSV export | 🔲 Next |
+| E | AnalyticsDashboard | 30-day bar chart, confidence histogram, 7d×24h heatmap | 🔲 |
 | F | RouteAnalysis, RouteDetail | Client-side route algorithm, routes.store | 🔲 |
 | G | ConvoyDetection | Sliding-window convoy algorithm, parallel timeline SVG | 🔲 |
-| H | Settings, SystemEvents | 4-tab settings (localStorage), apply design tokens to EdgeControl | 🔲 |
-| I | All | Responsive layout, loading skeletons everywhere, error states + retry | 🔲 |
-
-### Dependencies still to install (Phase C–I)
-
-```bash
-cd server/frontend-app
-npm install leaflet @vue/leaflet   # Phase F (route maps) — optional
-```
-
-`date-fns` (^3.6.0) is already installed.
+| H | Settings, SystemEvents | 4-tab settings (localStorage), migrate EdgeControl to design tokens | 🔲 |
+| I | All | Responsive layout, error states + retry everywhere | 🔲 |
 
 ### Stores still to create
 
-| File | Used by phase |
-|------|-------------|
-| `src/stores/analytics.store.js` | Phase E |
-| `src/stores/routes.store.js` | Phase F |
-| `src/stores/settings.store.js` | Phase H |
+| File | Phase |
+|------|-------|
+| `src/stores/analytics.store.js` | E |
+| `src/stores/routes.store.js` | F |
+| `src/stores/settings.store.js` | H |
+
+### Dependencies still to install
+
+```bash
+npm install leaflet @vue/leaflet   # Phase F (route maps) — optional
+```
+
+`date-fns` (^3.6.0) is already installed and available.
