@@ -987,23 +987,29 @@ def _resolve_storage_path(raw_path):
     """Resolve relative media paths to absolute locations under IMAGE_SAVE_DIR."""
     if not raw_path or not isinstance(raw_path, str):
         return None
-    
+
     cleaned = raw_path.strip()
     if not cleaned:
         return None
-    
-    # If already absolute, ensure it resides inside IMAGE_SAVE_DIR
-    if os.path.isabs(cleaned):
-        normalized = os.path.normpath(cleaned)
-        return normalized if os.path.commonpath([normalized, IMAGE_SAVE_DIR]) == IMAGE_SAVE_DIR else None
-    
-    relative = cleaned.lstrip('/')
-    if relative.startswith('edge/'):
-        relative = relative.split('edge/', 1)[1]
-    if relative.startswith('captured_images/'):
-        relative = relative[len('captured_images/'):]
-    
-    candidate = os.path.normpath(os.path.join(IMAGE_SAVE_DIR, relative))
-    if os.path.commonpath([candidate, IMAGE_SAVE_DIR]) != IMAGE_SAVE_DIR:
+
+    try:
+        # If already absolute, ensure it resides inside IMAGE_SAVE_DIR
+        if os.path.isabs(cleaned):
+            normalized = os.path.normpath(cleaned)
+            if os.path.commonpath([normalized, IMAGE_SAVE_DIR]) != IMAGE_SAVE_DIR:
+                return None
+            return normalized
+
+        relative = cleaned.lstrip('/')
+        if relative.startswith('edge/'):
+            relative = relative.split('edge/', 1)[1]
+        if relative.startswith('captured_images/'):
+            relative = relative[len('captured_images/'):]
+
+        candidate = os.path.normpath(os.path.join(IMAGE_SAVE_DIR, relative))
+        if os.path.commonpath([candidate, IMAGE_SAVE_DIR]) != IMAGE_SAVE_DIR:
+            return None
+        return candidate
+    except (ValueError, OSError) as e:
+        logger.warning(f"Resolve storage path failed for {raw_path!r}: {e}")
         return None
-    return candidate

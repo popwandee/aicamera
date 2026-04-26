@@ -330,6 +330,9 @@ const DashboardManager = {
     /**
      * Update server connection status
      */
+    /**
+     * Update Server Connection card from WebSocket (Socket.IO) status only.
+     */
     updateServerConnectionStatus: function() {
         AICameraUtils.apiRequest('/websocket-sender/status')
             .then(data => {
@@ -337,11 +340,7 @@ const DashboardManager = {
                     const status = data.status;
                     const connectionElement = document.getElementById('main-server-connection-status');
                     const connectionText = document.getElementById('main-server-connection-text');
-                    const dataSendingElement = document.getElementById('main-data-sending-status');
-                    const dataSendingText = document.getElementById('main-data-sending-text');
                     const lastSyncElement = document.getElementById('main-last-sync-time');
-                    
-                    // Update server connection status
                     if (connectionElement && connectionText) {
                         if (status.connected) {
                             connectionElement.className = 'status-indicator status-online';
@@ -354,22 +353,6 @@ const DashboardManager = {
                             connectionText.textContent = 'Disconnected';
                         }
                     }
-                    
-                    // Update data sending status
-                    if (dataSendingElement && dataSendingText) {
-                        if (status.running && (status.total_detections_sent > 0 || status.total_health_sent > 0)) {
-                            dataSendingElement.className = 'status-indicator status-online';
-                            dataSendingText.textContent = 'Active';
-                        } else if (status.running) {
-                            dataSendingElement.className = 'status-indicator status-warning';
-                            dataSendingText.textContent = 'Ready';
-                        } else {
-                            dataSendingElement.className = 'status-indicator status-offline';
-                            dataSendingText.textContent = 'Inactive';
-                        }
-                    }
-                    
-                    // Update last sync time
                     if (lastSyncElement) {
                         if (status.last_detection_check || status.last_health_check) {
                             const lastCheck = status.last_detection_check || status.last_health_check;
@@ -377,7 +360,6 @@ const DashboardManager = {
                             const now = new Date();
                             const diffMs = now - lastCheckTime;
                             const diffMins = Math.floor(diffMs / 60000);
-                            
                             if (diffMins < 1) {
                                 lastSyncElement.textContent = 'Just now';
                             } else if (diffMins < 60) {
@@ -394,12 +376,49 @@ const DashboardManager = {
             })
             .catch(error => {
                 console.error('Failed to fetch server connection status:', error);
-                // Update status to show error
                 const connectionElement = document.getElementById('main-server-connection-status');
                 const connectionText = document.getElementById('main-server-connection-text');
                 if (connectionElement && connectionText) {
                     connectionElement.className = 'status-indicator status-offline';
                     connectionText.textContent = 'Error';
+                }
+            });
+    },
+
+    /**
+     * Update Data Sending card from MQTT service status only.
+     */
+    updateMqttStatus: function() {
+        AICameraUtils.apiRequest('/mqtt-service/status')
+            .then(data => {
+                if (data && data.success && data.status) {
+                    const status = data.status;
+                    const el = document.getElementById('main-data-sending-status');
+                    const textEl = document.getElementById('main-data-sending-text');
+                    if (el && textEl) {
+                        if (status.connected && status.running) {
+                            el.className = 'status-indicator status-online';
+                            textEl.textContent = status.total_health_sent > 0 ? 'Active' : 'Connected';
+                        } else if (status.running) {
+                            el.className = 'status-indicator status-warning';
+                            textEl.textContent = 'Connecting';
+                        } else if (status.enabled) {
+                            el.className = 'status-indicator status-offline';
+                            textEl.textContent = 'Inactive';
+                        } else {
+                            el.className = 'status-indicator status-offline';
+                            textEl.textContent = 'Disabled';
+                        }
+                    }
+                }
+            })
+            .catch(error => {
+                console.log('MQTT service not available (optional):', error.message);
+                const el = document.getElementById('main-data-sending-status');
+                const textEl = document.getElementById('main-data-sending-text');
+                if (el && textEl) {
+                    el.className = 'status-indicator status-offline';
+                    textEl.textContent = 'Unavailable';
                 }
             });
     },
@@ -457,8 +476,11 @@ const DashboardManager = {
         this.updateDetectionStatusFromAPI();
 
         // === OPTIONAL MODULES (Conditionally Available) ===
-        // Update WebSocket sender status - OPTIONAL MODULE (WebSocket Service)
+        // Update WebSocket sender status - Server Connection card (WebSocket only)
         this.updateWebSocketSenderStatus();
+
+        // Update MQTT service status - Data Sending card (MQTT only)
+        this.updateMqttStatus();
 
         // Update storage status - OPTIONAL MODULE (Storage Service)
         this.updateStorageStatusFromAPI();
@@ -568,7 +590,7 @@ const DashboardManager = {
             .then(data => {
                 if (data.success) {
                     this.updateOptionalServiceStatus('websocket', 'online', 'Available');
-                    this.updateServerConnectionStatus(data.status);
+                    this.updateServerConnectionDisplay(data.status);
                 } else {
                     console.log('WebSocket sender not available (optional module)');
                     this.updateOptionalServiceStatus('websocket', 'offline', 'Offline');
@@ -1236,22 +1258,19 @@ const DashboardManager = {
     /**
      * Update server connection status display
      */
+    /**
+     * Update Server Connection and Last Sync display from WebSocket status only (Data Sending is from MQTT).
+     */
     updateServerConnectionDisplay: function(status) {
         let connected = false;
         let connectionText = 'Not Running';
-        let dataActive = false;
-        let dataText = 'Inactive';
         let lastSync = 'Never';
 
         if (status) {
-            // Check if in offline mode
             if (status.offline_mode) {
                 connected = false;
                 connectionText = 'Offline Mode';
-                dataActive = status.running && (status.detection_thread_alive || status.health_thread_alive);
-                dataText = dataActive ? 'Active (Local)' : 'Inactive';
             } else {
-                // Server connection status - ลำดับความสำคัญใหม่
                 if (status.connected) {
                     connected = true;
                     connectionText = 'Connected';
@@ -1262,25 +1281,10 @@ const DashboardManager = {
                     connected = false;
                     connectionText = 'Not Running';
                 }
-
-                // Data sending status
-                if (status.running && (status.total_detections_sent > 0 || status.total_health_sent > 0)) {
-                    dataActive = true;
-                    dataText = 'Active';
-                } else if (status.running) {
-                    dataActive = false;
-                    dataText = 'Ready';
-                } else {
-                    dataActive = false;
-                    dataText = 'Inactive';
-                }
             }
-
-            // Last sync time
             if (status.last_detection_check || status.last_health_check) {
                 const lastDetectionCheck = status.last_detection_check ? new Date(status.last_detection_check) : null;
                 const lastHealthCheck = status.last_health_check ? new Date(status.last_health_check) : null;
-                
                 let latestSync = null;
                 if (lastDetectionCheck && lastHealthCheck) {
                     latestSync = lastDetectionCheck > lastHealthCheck ? lastDetectionCheck : lastHealthCheck;
@@ -1289,17 +1293,13 @@ const DashboardManager = {
                 } else if (lastHealthCheck) {
                     latestSync = lastHealthCheck;
                 }
-                
                 if (latestSync) {
                     lastSync = latestSync.toLocaleString();
                 }
             }
         }
 
-        // Update UI elements
         AICameraUtils.updateStatusIndicator('main-server-connection-status', connected, connectionText);
-        AICameraUtils.updateStatusIndicator('main-data-sending-status', dataActive, dataText);
-        
         const lastSyncElement = document.getElementById('main-last-sync-time');
         if (lastSyncElement) {
             lastSyncElement.textContent = lastSync;

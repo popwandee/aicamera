@@ -33,6 +33,7 @@ MQTT_TOPIC_PREFIX = os.getenv('MQTT_TOPIC_PREFIX', 'aicamera')
 MQTT_TOPICS = {
     'device_register': f'{MQTT_TOPIC_PREFIX}/device/register',
     'device_heartbeat': f'{MQTT_TOPIC_PREFIX}/device/heartbeat',
+    'health_status': f'{MQTT_TOPIC_PREFIX}/device/{{device_id}}/health',
     'detection_data': f'{MQTT_TOPIC_PREFIX}/detection/{{device_id}}/data',
     'detection_response': f'{MQTT_TOPIC_PREFIX}/detection/{{device_id}}/response',
     'image_transfer_request': f'{MQTT_TOPIC_PREFIX}/image/{{device_id}}/request',

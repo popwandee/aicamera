@@ -1,0 +1,165 @@
+<!--
+ * AI Camera v2.0 - MQTT Service Dashboard Template
+ *
+ * MQTT service status: connection to broker, sending activity, and topics info.
+ * Broker: port 1883; topics per plan (camera/{id}/status, health, detections, etc.)
+ -->
+{% extends "base.html" %}
+
+{% set active_page = "mqtt_service" %}
+{% set use_socketio = false %}
+
+{% block title %}MQTT Service Dashboard - AI Camera v2.0{% endblock %}
+
+{% block additional_css %}
+<link href="{{ url_for('static', filename='css/mqtt_service.css', v=timestamp) }}" rel="stylesheet">
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center">
+                <h2><i class="fas fa-broadcast-tower"></i> MQTT Service Dashboard</h2>
+                <div>
+                    <button id="refresh-btn" class="btn btn-outline-primary btn-sm" title="Refresh status" aria-label="Refresh status">
+                        <i class="fas fa-sync-alt"></i> Refresh
+                    </button>
+                    <a href="{{ url_for('main.index') }}" class="btn btn-outline-secondary btn-sm">
+                        <i class="fas fa-arrow-left"></i> Back to Dashboard
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Status Cards -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card status-card">
+                <div class="card-body text-center">
+                    <i class="fas fa-plug status-icon" id="connection-icon"></i>
+                    <h5 class="card-title">Connection Status</h5>
+                    <p class="card-text" id="connection-status">Loading...</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card status-card">
+                <div class="card-body text-center">
+                    <i class="fas fa-server status-icon" id="broker-icon"></i>
+                    <h5 class="card-title">Broker</h5>
+                    <p class="card-text text-muted small" id="broker-url">-</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card status-card">
+                <div class="card-body text-center">
+                    <i class="fas fa-play-circle status-icon" id="service-icon"></i>
+                    <h5 class="card-title">Service</h5>
+                    <p class="card-text" id="service-status">Loading...</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card status-card">
+                <div class="card-body text-center">
+                    <i class="fas fa-heartbeat status-icon" id="health-sent-icon"></i>
+                    <h5 class="card-title">Health Records Sent</h5>
+                    <p class="card-text" id="health-sent-count">0</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Connection & Device Info -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0"><i class="fas fa-info-circle"></i> Connection &amp; Device Info</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="mqtt-broker-url">Broker URL</label>
+                                <input type="text" class="form-control" id="mqtt-broker-url" readonly>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="mqtt-device-id">Device ID</label>
+                                <input type="text" class="form-control" id="mqtt-device-id" readonly>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="mqtt-topic-prefix">Topic Prefix</label>
+                                <input type="text" class="form-control" id="mqtt-topic-prefix" readonly>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="mqtt-enabled">MQTT Enabled</label>
+                                <input type="text" class="form-control" id="mqtt-enabled" readonly>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Data Sending (รายละเอียดการส่งข้อมูล ผ่าน MQTT ในห้วงที่ผ่านมา) -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0"><i class="fas fa-upload"></i> Data Sending via MQTT</h5>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted mb-3">Summary of MQTT sending activity. Health check records are sent to the server via MQTT (broker port 1883).</p>
+                    <div class="row">
+                        <div class="col-md-4">
+                            <p><strong>Total health records sent:</strong> <span id="summary-health-sent">0</span></p>
+                        </div>
+                        <div class="col-md-4">
+                            <p><strong>Service running:</strong> <span id="summary-service-running">-</span></p>
+                        </div>
+                        <div class="col-md-4">
+                            <p><strong>Thread alive:</strong> <span id="summary-thread-alive">-</span></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Topics (Server subscribes per plan) -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0"><i class="fas fa-list"></i> Topics (Server)</h5>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small">Server mqtt-service subscribes to these topics. Edge publishes health to camera/{id}/health.</p>
+                    <ul class="list-unstyled mb-0">
+                        <li><code>camera/{id}/status</code> – Camera status</li>
+                        <li><code>camera/{id}/health</code> – Health (Edge sends here)</li>
+                        <li><code>camera/{id}/detections</code> – Detections</li>
+                        <li><code>system/events</code> – System events</li>
+                        <li><code>system/health</code> – System health</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block additional_js %}
+<script src="{{ url_for('static', filename='js/mqtt_service.js') }}"></script>
+{% endblock %}

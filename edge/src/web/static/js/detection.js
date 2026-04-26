@@ -300,6 +300,14 @@ const DetectionManager = {
                 this.handleSelectionChange(row.dataset.resultId, checkbox.checked);
             });
         }
+
+        // Select All checkbox in header
+        const selectAllCheckbox = document.getElementById('select-all-checkbox');
+        if (selectAllCheckbox) {
+            selectAllCheckbox.addEventListener('change', (e) => {
+                this.handleSelectAllChange(e.target.checked);
+            });
+        }
     },
 
     /**
@@ -679,6 +687,15 @@ const DetectionManager = {
         this.isLoading = true;
         this.showLoadingState();
         
+        // Always read per_page from the dropdown so it matches the selected value (fixes 20/50/100 showing only 13)
+        const perPageSelect = document.getElementById('per-page-select');
+        if (perPageSelect) {
+            const value = parseInt(perPageSelect.value, 10);
+            if (Number.isInteger(value) && value >= 1 && value <= 200) {
+                this.perPage = value;
+            }
+        }
+        
         const params = new URLSearchParams({
             page: this.currentPage,
             per_page: this.perPage,
@@ -798,6 +815,7 @@ const DetectionManager = {
         this.totalResults = total || count || results.length;
 
         this.currentResults = Array.isArray(results) ? results : [];
+        
         if (this.selectionMode) {
             this.pruneSelectionToCurrentResults();
         } else if (this.selectedResults.size > 0) {
@@ -838,7 +856,10 @@ const DetectionManager = {
 
         tbody.innerHTML = '';
         
-        results.forEach(result => {
+        // Ensure we render ALL results, not limited
+        const resultsToRender = Array.isArray(results) ? results : [];
+        
+        resultsToRender.forEach((result, index) => {
             const vehiclesDisplay = this.formatVehicleCell(result);
             const platesDisplay = this.formatPlatesForTable(result.plate_detections);
             const row = document.createElement('tr');
@@ -873,6 +894,8 @@ const DetectionManager = {
             `;
             tbody.appendChild(row);
         });
+
+        this.updateSelectAllCheckbox();
     },
 
     /**
@@ -1029,6 +1052,8 @@ const DetectionManager = {
         if (countBadge) {
             countBadge.textContent = this.selectedResults.size;
         }
+
+        this.updateSelectAllCheckbox();
     },
 
     handleSelectionChange: function(resultId, isChecked) {
@@ -1043,6 +1068,7 @@ const DetectionManager = {
             row.classList.toggle('selected-row', isChecked);
         }
         this.updateSelectionUI();
+        this.updateSelectAllCheckbox();
     },
 
     clearSelection: function() {
@@ -1052,6 +1078,64 @@ const DetectionManager = {
             checkbox.checked = false;
         });
         this.updateSelectionUI();
+        this.updateSelectAllCheckbox();
+    },
+
+    /**
+     * Handle Select All checkbox in table header (select/deselect all on current page)
+     */
+    handleSelectAllChange: function(isChecked) {
+        if (!this.selectionMode) return;
+
+        const checkboxes = document.querySelectorAll('.result-select-checkbox:not(:disabled)');
+        checkboxes.forEach(checkbox => {
+            checkbox.checked = isChecked;
+            const resultId = checkbox.dataset.resultId;
+            if (resultId) {
+                if (isChecked) {
+                    this.selectedResults.add(resultId);
+                } else {
+                    this.selectedResults.delete(resultId);
+                }
+            }
+        });
+
+        document.querySelectorAll('#results-table-body tr').forEach(row => {
+            const checkbox = row.querySelector('.result-select-checkbox');
+            if (checkbox && !checkbox.disabled) {
+                row.classList.toggle('selected-row', isChecked);
+            }
+        });
+
+        this.updateSelectionUI();
+        this.updateSelectAllCheckbox();
+    },
+
+    /**
+     * Sync header "Select All" checkbox state with row checkboxes (checked / unchecked / indeterminate)
+     */
+    updateSelectAllCheckbox: function() {
+        const selectAllCheckbox = document.getElementById('select-all-checkbox');
+        if (!selectAllCheckbox) return;
+
+        const checkboxes = document.querySelectorAll('.result-select-checkbox:not(:disabled)');
+        if (checkboxes.length === 0) {
+            selectAllCheckbox.indeterminate = false;
+            selectAllCheckbox.checked = false;
+            return;
+        }
+
+        const checkedCount = Array.from(checkboxes).filter(cb => cb.checked).length;
+        if (checkedCount === 0) {
+            selectAllCheckbox.indeterminate = false;
+            selectAllCheckbox.checked = false;
+        } else if (checkedCount === checkboxes.length) {
+            selectAllCheckbox.indeterminate = false;
+            selectAllCheckbox.checked = true;
+        } else {
+            selectAllCheckbox.indeterminate = true;
+            selectAllCheckbox.checked = false;
+        }
     },
 
     pruneSelectionToCurrentResults: function() {
@@ -1083,18 +1167,29 @@ const DetectionManager = {
             deleteBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Deleting...';
         }
 
-        Promise.allSettled(ids.map(id => this.deleteDetectionResult(id, { suppressReload: true, suppressAlerts: true })))
-            .then(results => {
-                const successCount = results.filter(r => r.status === 'fulfilled').length;
-                const failureCount = ids.length - successCount;
-                if (successCount > 0) {
-                    this.addLogMessage(`Deleted ${successCount} detection result(s)`, failureCount === 0 ? 'success' : 'warning');
+        // Delete sequentially to avoid SQLite lock / concurrent write issues on the server
+        const deleteSequentially = async () => {
+            let successCount = 0;
+            let failureCount = 0;
+            for (const id of ids) {
+                try {
+                    await this.deleteDetectionResult(id, { suppressReload: true, suppressAlerts: true });
+                    successCount++;
+                } catch (e) {
+                    failureCount++;
+                    console.warn('Bulk delete: failed for id', id, e);
                 }
-                if (failureCount > 0) {
-                    this.addLogMessage(`${failureCount} detection result(s) failed to delete`, 'error');
-                    window.alert(`${failureCount} detection record(s) could not be deleted. Check logs for details.`);
-                }
-            })
+            }
+            if (successCount > 0) {
+                this.addLogMessage(`Deleted ${successCount} detection result(s)`, failureCount === 0 ? 'success' : 'warning');
+            }
+            if (failureCount > 0) {
+                this.addLogMessage(`${failureCount} detection result(s) failed to delete`, 'error');
+                window.alert(`${failureCount} detection record(s) could not be deleted. Check logs for details.`);
+            }
+        };
+
+        deleteSequentially()
             .catch(error => {
                 console.error('Bulk delete error:', error);
                 window.alert('Bulk delete failed: ' + error.message);
@@ -1302,7 +1397,24 @@ const DetectionManager = {
         const resultsTable = document.getElementById('results-table-container');
         
         if (loadingSpinner) loadingSpinner.style.display = 'none';
-        if (resultsTable) resultsTable.style.display = 'block';
+        if (resultsTable) {
+            resultsTable.style.display = 'block';
+            // Ensure table container and table are fully visible
+            resultsTable.style.maxHeight = 'none';
+            resultsTable.style.overflow = 'visible';
+            const tableResponsive = resultsTable.querySelector('.table-responsive');
+            if (tableResponsive) {
+                tableResponsive.style.maxHeight = 'none';
+                tableResponsive.style.overflow = 'visible';
+            }
+            
+            // Fix: Remove max-height and overflow from parent card-body
+            const cardBody = resultsTable.closest('.card-body');
+            if (cardBody) {
+                cardBody.style.maxHeight = 'none';
+                cardBody.style.overflow = 'visible';
+            }
+        }
     },
 
     /**

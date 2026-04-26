@@ -45,7 +45,8 @@ from edge.src.core.utils.logging_config import get_logger, get_detection_logger,
 from edge.src.core.config import (
     VEHICLE_DETECTION_MODEL, LICENSE_PLATE_DETECTION_MODEL, LICENSE_PLATE_OCR_MODEL,
     HEF_MODEL_PATH, MODEL_ZOO_URL, EASYOCR_LANGUAGES,
-    IMAGE_SAVE_DIR, DATABASE_PATH, CONFIDENCE_THRESHOLD, PLATE_CONFIDENCE_THRESHOLD
+    IMAGE_SAVE_DIR, DATABASE_PATH, CONFIDENCE_THRESHOLD, PLATE_CONFIDENCE_THRESHOLD,
+    TRACKING_ENABLED, REENTRY_TIME_THRESHOLD, IOU_THRESHOLD
 )
 from edge.src.components.async_ocr_loader import AsyncOCRLoader
 from edge.src.components.parallel_ocr_processor import ParallelOCRProcessor
@@ -211,13 +212,13 @@ class DetectionProcessor:
         self.previous_frame = None
         self.frame_buffer_size = 5  # Circular buffer for motion detection
         
-        # Vehicle Tracking
-        self.tracking_enabled = True
+        # Vehicle Tracking (use config values)
+        self.tracking_enabled = TRACKING_ENABLED
         self.next_track_id = 1
         self.active_tracks: Dict[int, VehicleTrack] = {}
         self.track_timeout = 5.0  # seconds
-        self.reentry_time_threshold = 10.0  # seconds for deduplication
-        self.iou_threshold = 0.2  # IoU threshold for tracking
+        self.reentry_time_threshold = REENTRY_TIME_THRESHOLD  # seconds for deduplication (from config)
+        self.iou_threshold = IOU_THRESHOLD  # IoU threshold for tracking (from config)
         
         # Best Frame Selection
         self.best_frame_selection_enabled = True
@@ -867,8 +868,15 @@ class DetectionProcessor:
                     self.logger.debug(f"🔧 [DETECTION_PROCESSOR] perform_ocr: plate {i} region is empty, skipping")
                     continue
                 
-                # ปรับภาพสำหรับ OCR (CLAHE + threshold)
-                plate_region = self._enhance_plate_for_ocr(plate_region)
+                # Check plate quality before OCR processing
+                quality_check = self._check_plate_quality(plate_region)
+                if not quality_check['is_acceptable']:
+                    self.logger.warning(f"🔧 [DETECTION_PROCESSOR] perform_ocr: plate {i} quality too low - {quality_check['reason']}, skipping OCR")
+                    continue
+                
+                # Enhanced OCR preprocessing: Use enhance_for_ocr() for better OCR accuracy
+                # This includes resize, OCR preprocessing, text clarity enhancement, and character edge enhancement
+                plate_region = self.enhance_for_ocr(plate_region)
                 
                 self.logger.debug(f"🔧 [DETECTION_PROCESSOR] perform_ocr: plate {i} region shape: {plate_region.shape}")
                 
@@ -1513,15 +1521,27 @@ class DetectionProcessor:
             return plate_region
     
     def _apply_ocr_preprocessing(self, plate_region: np.ndarray) -> np.ndarray:
-        """Apply OCR-specific preprocessing."""
+        """Apply OCR-specific preprocessing with enhanced contrast and noise reduction."""
         try:
             # Convert to grayscale
-            gray = cv2.cvtColor(plate_region, cv2.COLOR_BGR2GRAY)
+            gray = cv2.cvtColor(plate_region, cv2.COLOR_BGR2GRAY) if len(plate_region.shape) == 3 else plate_region
             
-            # Apply adaptive thresholding
-            processed = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
+            # Step 1: Noise reduction using bilateral filter (preserves edges)
+            denoised = cv2.bilateralFilter(gray, 5, 50, 50)
             
-            # Convert back to BGR
+            # Step 2: Contrast enhancement using CLAHE (Contrast Limited Adaptive Histogram Equalization)
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+            enhanced = clahe.apply(denoised)
+            
+            # Step 3: Apply adaptive thresholding with improved parameters
+            processed = cv2.adaptiveThreshold(
+                enhanced, 255, 
+                cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                cv2.THRESH_BINARY, 
+                11, 2
+            )
+            
+            # Step 4: Convert back to BGR for consistency
             processed = cv2.cvtColor(processed, cv2.COLOR_GRAY2BGR)
             
             return processed
@@ -1531,11 +1551,27 @@ class DetectionProcessor:
             return plate_region
     
     def _enhance_text_clarity(self, plate_region: np.ndarray) -> np.ndarray:
-        """Enhance text clarity for OCR."""
+        """Enhance text clarity for OCR with improved morphological operations and sharpening."""
         try:
-            # Apply morphological operations to clean up text
+            # Convert to grayscale if needed
+            if len(plate_region.shape) == 3:
+                gray = cv2.cvtColor(plate_region, cv2.COLOR_BGR2GRAY)
+            else:
+                gray = plate_region
+            
+            # Step 1: Apply morphological operations to clean up text
+            # Use smaller kernel for better character preservation
             kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
-            enhanced = cv2.morphologyEx(plate_region, cv2.MORPH_CLOSE, kernel)
+            cleaned = cv2.morphologyEx(gray, cv2.MORPH_CLOSE, kernel)
+            
+            # Step 2: Apply sharpening filter to enhance character edges
+            sharpen_kernel = np.array([[-1, -1, -1],
+                                      [-1,  9, -1],
+                                      [-1, -1, -1]])
+            sharpened = cv2.filter2D(cleaned, -1, sharpen_kernel)
+            
+            # Step 3: Convert back to BGR
+            enhanced = cv2.cvtColor(sharpened, cv2.COLOR_GRAY2BGR)
             
             return enhanced
             
@@ -1543,12 +1579,85 @@ class DetectionProcessor:
             self.logger.warning(f"Text clarity enhancement failed: {e}")
             return plate_region
     
-    def _enhance_character_edges(self, plate_region: np.ndarray) -> np.ndarray:
-        """Enhance character edges for better OCR."""
+    def _check_plate_quality(self, plate_region: np.ndarray) -> Dict[str, Any]:
+        """
+        Check plate image quality before OCR processing.
+        
+        Args:
+            plate_region: Cropped license plate region
+            
+        Returns:
+            Dict with 'is_acceptable' (bool) and 'reason' (str) if not acceptable
+        """
         try:
-            # Apply edge enhancement
-            kernel = np.array([[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]])
-            enhanced = cv2.filter2D(plate_region, -1, kernel)
+            if plate_region.size == 0:
+                return {'is_acceptable': False, 'reason': 'Empty region'}
+            
+            h, w = plate_region.shape[:2]
+            
+            # Check minimum size (too small images are hard to read)
+            min_size = 20  # pixels
+            if h < min_size or w < min_size:
+                return {'is_acceptable': False, 'reason': f'Too small ({w}x{h})'}
+            
+            # Convert to grayscale if needed
+            if len(plate_region.shape) == 3:
+                gray = cv2.cvtColor(plate_region, cv2.COLOR_BGR2GRAY)
+            else:
+                gray = plate_region
+            
+            # Check sharpness (blur detection using Laplacian variance)
+            laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
+            min_sharpness = 50.0  # Minimum Laplacian variance for acceptable sharpness
+            if laplacian_var < min_sharpness:
+                return {'is_acceptable': False, 'reason': f'Too blurry (sharpness: {laplacian_var:.1f})'}
+            
+            # Check brightness (too dark or too bright images are hard to read)
+            mean_brightness = np.mean(gray)
+            if mean_brightness < 30:  # Too dark
+                return {'is_acceptable': False, 'reason': f'Too dark (brightness: {mean_brightness:.1f})'}
+            if mean_brightness > 240:  # Too bright (overexposed)
+                return {'is_acceptable': False, 'reason': f'Too bright (brightness: {mean_brightness:.1f})'}
+            
+            # Check contrast (low contrast makes OCR difficult)
+            contrast = np.std(gray)
+            min_contrast = 15.0
+            if contrast < min_contrast:
+                return {'is_acceptable': False, 'reason': f'Low contrast ({contrast:.1f})'}
+            
+            return {'is_acceptable': True, 'reason': 'OK'}
+            
+        except Exception as e:
+            self.logger.warning(f"Plate quality check failed: {e}")
+            # Default to acceptable if check fails
+            return {'is_acceptable': True, 'reason': 'Check failed, proceeding'}
+    
+    def _enhance_character_edges(self, plate_region: np.ndarray) -> np.ndarray:
+        """Enhance character edges for better OCR with improved edge detection and unsharp masking."""
+        try:
+            # Convert to grayscale if needed
+            if len(plate_region.shape) == 3:
+                gray = cv2.cvtColor(plate_region, cv2.COLOR_BGR2GRAY)
+            else:
+                gray = plate_region
+            
+            # Step 1: Apply unsharp masking for better edge enhancement
+            # Blur the image
+            blurred = cv2.GaussianBlur(gray, (0, 0), 2.0)
+            # Create unsharp mask
+            unsharp_mask = cv2.addWeighted(gray, 1.5, blurred, -0.5, 0)
+            
+            # Step 2: Apply edge enhancement kernel (improved)
+            edge_kernel = np.array([[-1, -1, -1],
+                                   [-1,  9, -1],
+                                   [-1, -1, -1]])
+            edge_enhanced = cv2.filter2D(unsharp_mask, -1, edge_kernel)
+            
+            # Step 3: Normalize to 0-255 range
+            normalized = cv2.normalize(edge_enhanced, None, 0, 255, cv2.NORM_MINMAX)
+            
+            # Step 4: Convert back to BGR
+            enhanced = cv2.cvtColor(normalized.astype(np.uint8), cv2.COLOR_GRAY2BGR)
             
             return enhanced
             
@@ -1699,16 +1808,75 @@ class DetectionProcessor:
             self.logger.warning(f"Track creation error: {e}")
             return None
     
-    def _calculate_frame_score(self, detection: Dict[str, Any], frame: np.ndarray) -> float:
+    def _calculate_plate_region_sharpness(self, frame: np.ndarray, plate_bbox: List[float]) -> float:
         """
-        Calculate weighted score for best frame selection.
-        Score = a*sharpness + b*plate_conf + y*area_ratio + k*plate_centeredness
+        Calculate sharpness specifically for license plate region.
+        
+        Args:
+            frame: Full frame image
+            plate_bbox: Bounding box of license plate [x1, y1, x2, y2]
+            
+        Returns:
+            float: Sharpness score (Laplacian variance) for plate region
         """
         try:
-            # Calculate sharpness (Laplacian variance)
+            if len(plate_bbox) < 4:
+                return 0.0
+            
+            # Extract plate region
+            x1, y1, x2, y2 = int(plate_bbox[0]), int(plate_bbox[1]), int(plate_bbox[2]), int(plate_bbox[3])
+            
+            # Ensure coordinates are within frame bounds
+            h, w = frame.shape[:2]
+            x1 = max(0, min(x1, w))
+            y1 = max(0, min(y1, h))
+            x2 = max(0, min(x2, w))
+            y2 = max(0, min(y2, h))
+            
+            if x2 <= x1 or y2 <= y1:
+                return 0.0
+            
+            plate_region = frame[y1:y2, x1:x2]
+            
+            if plate_region.size == 0:
+                return 0.0
+            
+            # Convert to grayscale if needed
+            if len(plate_region.shape) == 3:
+                gray = cv2.cvtColor(plate_region, cv2.COLOR_BGR2GRAY)
+            else:
+                gray = plate_region
+            
+            # Calculate Laplacian variance for sharpness
+            laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
+            
+            return float(laplacian_var)
+            
+        except Exception as e:
+            self.logger.warning(f"Plate region sharpness calculation error: {e}")
+            return 0.0
+    
+    def _calculate_frame_score(self, detection: Dict[str, Any], frame: np.ndarray, plate_bbox: Optional[List[float]] = None) -> float:
+        """
+        Calculate weighted score for best frame selection.
+        Score = a*sharpness + b*plate_conf + y*area_ratio + k*plate_centeredness + p*plate_sharpness
+        
+        Args:
+            detection: Vehicle detection dictionary
+            frame: Full frame image
+            plate_bbox: Optional license plate bounding box for plate-specific sharpness
+        """
+        try:
+            # Calculate overall frame sharpness (Laplacian variance)
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             sharpness = cv2.Laplacian(gray, cv2.CV_64F).var()
             sharpness_score = min(sharpness / 1000.0, 1.0)  # Normalize to 0-1
+            
+            # Calculate plate region sharpness if plate bbox provided
+            plate_sharpness_score = 0.0
+            if plate_bbox and len(plate_bbox) >= 4:
+                plate_sharpness = self._calculate_plate_region_sharpness(frame, plate_bbox)
+                plate_sharpness_score = min(plate_sharpness / 1000.0, 1.0)  # Normalize to 0-1
             
             # Plate confidence (from detection)
             plate_conf = detection.get('score', 0.0)
@@ -1737,7 +1905,10 @@ class DetectionProcessor:
             
             # Calculate weighted score
             weights = self.frame_score_weights
-            score = (weights['sharpness'] * sharpness_score +
+            # Combine frame sharpness and plate sharpness (prefer plate sharpness if available)
+            combined_sharpness = plate_sharpness_score if plate_sharpness_score > 0 else sharpness_score
+            
+            score = (weights['sharpness'] * combined_sharpness +
                     weights['plate_confidence'] * plate_conf +
                     weights['area_ratio'] * area_ratio +
                     weights['plate_centeredness'] * centeredness)

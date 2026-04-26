@@ -669,10 +669,10 @@ class DatabaseManager:
     def delete_detection_result(self, result_id: int) -> bool:
         """
         Delete a detection result by ID.
-        
+
         Args:
             result_id: ID of the detection result to delete
-        
+
         Returns:
             bool: True if a record was deleted, False otherwise
         """
@@ -680,7 +680,7 @@ class DatabaseManager:
             if not self.connection:
                 self.logger.error("Database connection not available")
                 return False
-            
+
             cursor = self.connection.cursor()
             cursor.execute("DELETE FROM detection_results WHERE id = ?", (result_id,))
             deleted = cursor.rowcount > 0
@@ -692,6 +692,10 @@ class DatabaseManager:
             return deleted
         except Exception as e:
             self.logger.error(f"Error deleting detection result {result_id}: {e}")
+            try:
+                self.connection.rollback()
+            except Exception as rollback_err:
+                self.logger.warning(f"Rollback after delete error failed: {rollback_err}")
             return False
     
     def execute_query(self, query: str, params: tuple = None) -> List[tuple]:

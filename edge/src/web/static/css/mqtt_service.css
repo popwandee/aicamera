@@ -1,0 +1,70 @@
+/**
+ * AI Camera v2.0 - MQTT Service Dashboard CSS
+ * Styles for MQTT service status and connection info
+ */
+
+.status-card {
+    transition: all 0.3s ease;
+    border: none;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.status-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}
+
+.status-icon {
+    font-size: 2.5rem;
+    margin-bottom: 1rem;
+    transition: all 0.3s ease;
+}
+
+.status-icon.connected {
+    color: #28a745;
+}
+
+.status-icon.disconnected {
+    color: #dc3545;
+}
+
+.status-icon.warning {
+    color: #ffc107;
+}
+
+.status-icon.loading {
+    color: #17a2b8;
+}
+
+.form-group {
+    margin-bottom: 1rem;
+}
+
+.form-control[readonly] {
+    background-color: #f8f9fa;
+    border-color: #dee2e6;
+}
+
+.btn {
+    margin-right: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.card-header {
+    background-color: #f8f9fa;
+    border-bottom: 1px solid #dee2e6;
+}
+
+.card-title {
+    color: #495057;
+    font-weight: 600;
+}
+
+@media (max-width: 768px) {
+    .status-card {
+        margin-bottom: 1rem;
+    }
+    .status-icon {
+        font-size: 2rem;
+    }
+}
