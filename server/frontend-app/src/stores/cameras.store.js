@@ -5,6 +5,7 @@ export const useCamerasStore = defineStore('cameras', {
   state: () => ({
     cameras: [],
     edgeStatus: [],
+    currentCamera: null,
     loading: false,
     error: null,
   }),
@@ -35,6 +36,23 @@ export const useCamerasStore = defineStore('cameras', {
       } finally {
         this.loading = false;
       }
+    },
+    async fetchCamera(id) {
+      try {
+        this.currentCamera = await api.getCamera(id);
+      } catch (e) {
+        this.error = e.message;
+      }
+    },
+    async registerCamera(data) {
+      const cam = await api.createCamera(data);
+      this.cameras.unshift(cam);
+      return cam;
+    },
+    async removeCamera(id) {
+      await api.deleteCamera(id);
+      this.cameras    = this.cameras.filter(c => c.id !== id);
+      this.edgeStatus = this.edgeStatus.filter(c => c.camera.id !== id);
     },
   },
 });
