@@ -4,7 +4,7 @@
 **Server**: lprserver — Tailscale `100.95.46.128`  
 **Live URL**: `http://100.95.46.128/server/`  
 **Last updated**: 2026-04-26  
-**Phases complete**: A (Foundation) · B (Dashboard + Chart) · C (Camera Management) · D (Detection Management)
+**Phases complete**: A (Foundation) · B (Dashboard + Chart) · C (Camera Management) · D (Detection Management) · E (Analytics Dashboard)
 
 ---
 
@@ -95,7 +95,8 @@ server/frontend-app/src/
 │
 ├── stores/
 │   ├── cameras.store.js             Pinia: cameras, edgeStatus, currentCamera — full CRUD
-│   └── detections.store.js          Pinia: filters, fetchFiltered, pagination getters, CSV-ready
+│   ├── detections.store.js          Pinia: filters, fetchFiltered, pagination getters, CSV-ready
+│   └── analytics.store.js           Pinia: fetchAll() → analytics[] + detections[2000]; 8 getters (Phase E)
 │
 ├── components/
 │   ├── layout/
@@ -118,7 +119,7 @@ server/frontend-app/src/
     ├── CameraDetail.vue             ✅ Phase C — 4-tab detail + health line chart
     ├── DetectionList.vue            ✅ Phase D — FilterBar + DataTable + pagination + CSV
     ├── DetectionDetail.vue          ✅ Phase D — full record, image viewer, archive toggle
-    ├── AnalyticsDashboard.vue       🔲 Phase E — stub
+    ├── AnalyticsDashboard.vue       ✅ Phase E — 30-day chart, histogram, heatmap, camera comparison, top plates
     ├── RouteAnalysis.vue            🔲 Phase F — stub
     ├── RouteDetail.vue              🔲 Phase F — stub
     ├── ConvoyDetection.vue          🔲 Phase G — stub
@@ -532,6 +533,29 @@ Actions:
 **PAGE_SIZE = 50** (exported constant).  
 **CSV export** lives in `DetectionList.vue` methods, not the store — it reads `store.filtered` directly.
 
+### `analytics.store.js` — `useAnalyticsStore` *(Phase E)*
+
+```
+State:   analytics[], detections[], loading, error
+
+Getters (no state param — all use this):
+  dailyTotals          [{ date, count }] last 30 days oldest-first, from analytics[]
+  cameraComparison     [{ cameraId, name, count }] per-camera totals sorted desc
+  confidenceHistogram  [{ label: '0–10', count }] 10 buckets of 10%
+  heatmapData          { cells: number[7][24], dayLabels: string[7] } last 7 days × 24 h
+  topPlates            [{ plate, count }] top 20 by frequency from detections[]
+  totalDetections      sum of analytics[].totalDetections (0 if analytics never populated)
+  uniquePlatesAll      Set size of detections[].licensePlate
+  avgConfidence        mean parseFloat(confidence) across detections[]
+
+Actions:
+  fetchAll()   Promise.all([api.getAnalytics(), api.getDetections({limit:2000})])
+```
+
+**Data note**: `dailyTotals` and `cameraComparison` derive from `/analytics` (populated by
+`GET /cameras/analytics/run`). `confidenceHistogram`, `heatmapData`, `topPlates` derive from
+the 2000-record detections fetch — always available even if analytics is empty.
+
 ---
 
 ## 10. `MainDashboard.vue`
@@ -572,7 +596,37 @@ See **Section 6**. Both fetch independently on mount, handle own loading/error s
 
 ---
 
-## 13. `EdgeControl.vue` — Legacy View
+## 13. `AnalyticsDashboard.vue` *(Phase E)*
+
+**Route**: `/analytics`
+
+- **Store**: `useAnalyticsStore().fetchAll()` on mount — single `Promise.all` call
+- **KPI row**: 4 MetricCards — Total Detections / Unique Plates / Avg Confidence / Active Cameras
+- **E2 — 30-day bar chart**: cyan bars, last 30 calendar days, `maxTicksLimit: 10` auto-skips labels
+- **E3 — Confidence histogram**: 10 buckets × 10% (0–10% … 90–100%); bars coloured red/amber/green by bucket midpoint
+- **E4 — 7d×24h heatmap**: CSS grid (7 rows × 24 cols), cyan opacity scaled against per-render max; hover tooltip shows count; legend bar bottom-left
+- **E5 — Camera comparison**: horizontal bar (`indexAxis: 'y'`), green bars, sorted by total desc; shows "No camera data" if `/cameras/analytics/run` not yet called
+- **E6 — Top plates table**: rank / PlateTag / count / % of loaded records; sourced from 2000-record detections fetch
+
+**Data flow**:
+```
+mount → store.fetchAll()
+  ├── GET /analytics          → analytics[] (per-camera per-day rows)
+  └── GET /detections?limit=2000 → detections[]
+
+computed getters:
+  dailyTotals        from analytics[]    → 30-day chart labels+data
+  cameraComparison   from analytics[]    → camera bar chart
+  confidenceHistogram from detections[]  → histogram
+  heatmapData        from detections[]   → 7×24 cells + dayLabels
+  topPlates          from detections[]   → top-20 table
+```
+
+**Populating analytics**: `GET /server/api/cameras/analytics/run` triggers `update_daily_analytics()` stored procedure. Call this once after data is in DB; it backfills all dates. Without this, 30-day chart and camera comparison show zeros but histogram/heatmap/top-plates still render from raw detections.
+
+---
+
+## 14. `EdgeControl.vue` — Legacy View
 
 **Route**: `/edge_control` — functional, old styling. Status bulbs by health age: <5 min green · 5–15 min yellow · >15 min red. Migrate in Phase H.
 
@@ -706,8 +760,8 @@ curl http://localhost:3000/server/api/detections/<uuid>
 | B | MainDashboard | 24h hourly bar chart, Pinia stores, chart.js | ✅ Done |
 | C | CameraList, CameraDetail, RegisterCameraModal | DataTable, register/delete, 4-tab detail, health line chart | ✅ Done |
 | D | DetectionList, DetectionDetail, 4 shared components | FilterBar, PlateTag, ConfidenceBar, ImageViewer, CSV export, archive toggle | ✅ Done |
-| E | AnalyticsDashboard | 30-day bar chart, confidence histogram, 7d×24h heatmap, camera comparison | 🔲 Next |
-| F | RouteAnalysis, RouteDetail | Client-side route algorithm, routes.store | 🔲 |
+| E | AnalyticsDashboard | 30-day bar chart, confidence histogram, 7d×24h heatmap, camera comparison, top plates | ✅ Done |
+| F | RouteAnalysis, RouteDetail | Client-side route algorithm, routes.store | 🔲 Next |
 | G | ConvoyDetection | Sliding-window convoy algorithm, parallel timeline SVG | 🔲 |
 | H | Settings, SystemEvents | 4-tab settings (localStorage), migrate EdgeControl to design tokens | 🔲 |
 | I | All | Responsive layout, error states + retry everywhere | 🔲 |
@@ -716,7 +770,6 @@ curl http://localhost:3000/server/api/detections/<uuid>
 
 | File | Phase |
 |------|-------|
-| `src/stores/analytics.store.js` | E |
 | `src/stores/routes.store.js` | F |
 | `src/stores/settings.store.js` | H |
 
