@@ -4,7 +4,7 @@
 **Server**: lprserver — Tailscale `100.95.46.128`  
 **Live URL**: `http://100.95.46.128/server/`  
 **Last updated**: 2026-04-26  
-**Phases complete**: A (Foundation) · B (Dashboard + Chart) · C (Camera Management) · D (Detection Management) · E (Analytics Dashboard) · F (Route Analysis) · G (Convoy Detection)
+**Phases complete**: A (Foundation) · B (Dashboard + Chart) · C (Camera Management) · D (Detection Management) · E (Analytics Dashboard) · F (Route Analysis) · G (Convoy Detection) · H (Settings + System Events)
 
 ---
 
@@ -124,10 +124,10 @@ server/frontend-app/src/
     ├── RouteAnalysis.vue            ✅ Phase F — route list + F3 camera flow diagram SVG
     ├── RouteDetail.vue              ✅ Phase F — per-route trips table + F5 node chain SVG
     ├── ConvoyDetection.vue          ✅ Phase G — sliding-window convoy algorithm + parallel timeline SVG
-    ├── SystemEvents.vue             🔲 Phase H — stub
-    ├── Settings.vue                 🔲 Phase H — stub
-    ├── EdgeControl.vue              ✅ legacy (pre-design-system)
-    ├── EdgeControlCamera.vue        ✅ legacy (pre-design-system)
+    ├── SystemEvents.vue             ✅ Phase H — event log table, severity filter, search
+    ├── Settings.vue                 ✅ Phase H — 4-tab settings UI (Detection/Display/Alerts/About)
+    ├── EdgeControl.vue              ✅ Phase H — migrated to design tokens
+    ├── EdgeControlCamera.vue        ✅ Phase H — migrated to design tokens
     ├── ServerHome.vue               legacy (not routed in new SPA)
     ├── Network.vue                  legacy (not routed)
     └── Developer.vue                legacy (not routed)
@@ -215,10 +215,10 @@ All four loaded from Google Fonts in `public/index.html`.
 | `/routes` | Routes | `RouteAnalysis` | ✅ Live (Phase F) |
 | `/routes/:routeKey` | RouteDetail | `RouteDetail` | ✅ Live (Phase F, props: true) |
 | `/convoy` | Convoy | `ConvoyDetection` | ✅ Live (Phase G) |
-| `/edge_control` | EdgeControl | `EdgeControl` | ✅ Live (legacy) |
-| `/edge_control/camera/:id` | EdgeControlCamera | `EdgeControlCamera` | ✅ Live (legacy) |
-| `/system` | System | `SystemEvents` | 🔲 Phase H |
-| `/settings` | Settings | `Settings` | 🔲 Phase H |
+| `/edge_control` | EdgeControl | `EdgeControl` | ✅ Live (Phase H — design token migration) |
+| `/edge_control/camera/:id` | EdgeControlCamera | `EdgeControlCamera` | ✅ Live (Phase H — design token migration) |
+| `/system` | System | `SystemEvents` | ✅ Live (Phase H) |
+| `/settings` | Settings | `Settings` | ✅ Live (Phase H) |
 
 **Nginx SPA fallback**: `try_files $uri $uri/ /server/index.html;` — no `=404` (breaks with `alias`).
 
@@ -733,13 +733,75 @@ All SVG coordinates are pre-computed in `convoyTimeline` computed — template b
 
 ---
 
-## 16. `EdgeControl.vue` — Legacy View
+## 16. `EdgeControl.vue` + `EdgeControlCamera.vue` *(Phase H migration)*
 
-**Route**: `/edge_control` — functional, old styling. Status bulbs by health age: <5 min green · 5–15 min yellow · >15 min red. Migrate in Phase H.
+**Route**: `/edge_control` and `/edge_control/camera/:id`
+
+Both views were migrated from Bootstrap-like hardcoded hex colors to the design-token system in Phase H:
+- `background: #fff` → `var(--bg-panel)`; borders → `var(--border-card)` / `var(--border-dim)`
+- Status bulb colors → `var(--green)` / `var(--amber)` / `var(--red)` with CSS glow animation
+- Text colors → `var(--text-primary)` / `var(--text-secondary)` / `var(--text-muted)`
+- Page title → `.page-title.font-display` with `var(--cyan)` + `var(--cyan-glow)` (matches all other views)
+- Camera cards → `.panel` utility class (dark background, `border-card`, `radius-md`, `shadow-card`)
+- Camera grid → `grid-template-columns: repeat(auto-fill, minmax(280px, 1fr))` responsive
+- Health table → dark-theme `.data-table` matching Detection/Route tables
+- Health values → color-coded: CPU/memory/temp thresholds → `.text-red` / `.text-amber` / `.text-green`
+- `EdgeControlCamera`: breadcrumb matches RouteDetail pattern; `shortcam`-style ID display
+
+Status bulb thresholds (unchanged from original): < 5 min → green; 5–15 min → amber; > 15 min → red
 
 ---
 
-## 17. Nginx Configuration
+## 17. `Settings.vue` + `SystemEvents.vue` *(Phase H)*
+
+### Settings.vue
+
+**Route**: `/settings` — component name `AppSettings` (multi-word)  
+**Store**: `useSettingsStore` — `persist: true` → localStorage key `settings`
+
+4 tabs (rendered with `v-show`, not `v-if` — all mounted at once):
+
+| Tab | Settings |
+|-----|---------|
+| Detection | `confThreshold` (slider 0–100%), `routeGapMin` (30m–8h), `convoyWindowMin` (2–30m), `convoyMinCameras` (2–4) |
+| Display | `rowsPerPage` (10/25/50/100), `dateLocale` (th-TH/en-US/en-GB with live preview), `refreshInterval` (off/30s/1m/5m) |
+| Alerts | `alertsEnabled` toggle (calls `Notification.requestPermission()`), `alertConfMin` slider (50–100%), `alertOnConvoy` toggle |
+| About | API base URL, tech stack info, Reset button with confirm step |
+
+- **Auto-save**: `$watch(JSON.stringify($state))` shows a green toast for 1.8 s after any change — no explicit Save button
+- **Toggle switch**: pure CSS `<input type="checkbox">` — thumb position driven by `input:checked + .toggle-track > .toggle-thumb`
+- **Permission banner**: shown in Alerts tab if `Notification.permission === 'denied'`
+- **Reset flow**: shows inline confirm step (`Yes, reset` / `Cancel`) before calling `store.resetAll()`
+
+### SystemEvents.vue
+
+**Route**: `/system` — component name `SystemEvents`  
+**API**: `GET /server/api/system-events?limit=N` via `api.getSystemEvents(limit)`
+
+- **Controls**: severity select (all/info/warning/error), limit select, free-text search (message/type/source)
+- **Severity bar**: clickable count badges (info=cyan, warn=amber, error=red) — clicking filters the table
+- **Severity normalization**: `sevKey()` maps `critical`/`fatal` → `'error'`; `warn` → `'warning'`; anything else → `'info'`
+- **Row tinting**: error rows have `rgba(255,61,87,0.03)` background; warn rows `rgba(255,171,64,0.03)`
+- **No store**: all state is local `data()` — events array replaced on each fetch
+
+### settings.store.js
+
+```javascript
+// src/stores/settings.store.js
+persist: true   // auto-saved to localStorage by pinia-plugin-persistedstate
+
+Getters:
+  confDecimal()   → confThreshold / 100       (for filtering confidence values)
+  routeGapMs()    → routeGapMin * 60000       (for routes.store trip algorithm)
+  convoyWindowMs() → convoyWindowMin * 60000   (for convoy algorithm)
+
+Action:
+  resetAll() → this.$reset()
+```
+
+---
+
+## 18. Nginx Configuration
 
 **File**: `/etc/nginx/sites-available/lprserver`
 
@@ -788,7 +850,7 @@ server {
 
 ---
 
-## 18. Development Workflow
+## 19. Development Workflow
 
 ### Standard cycle (Mac → GitHub → lprserver)
 
@@ -842,7 +904,7 @@ curl http://localhost:3000/server/api/detections/<uuid>
 
 ---
 
-## 19. Known Issues and Gotchas
+## 20. Known Issues and Gotchas
 
 | Issue | Root cause | Fix applied |
 |-------|-----------|------------|
@@ -859,7 +921,7 @@ curl http://localhost:3000/server/api/detections/<uuid>
 
 ---
 
-## 20. Phase Roadmap
+## 21. Phase Roadmap
 
 | Phase | View(s) | Key features | Status |
 |-------|---------|-------------|--------|
@@ -870,14 +932,18 @@ curl http://localhost:3000/server/api/detections/<uuid>
 | E | AnalyticsDashboard | 30-day bar chart, confidence histogram, 7d×24h heatmap, camera comparison, top plates | ✅ Done |
 | F | RouteAnalysis, RouteDetail | Trip algorithm (2h gap), camera flow SVG (F3), node chain SVG (F5), routes.store | ✅ Done |
 | G | ConvoyDetection | Sliding-window convoy algorithm, parallel timeline SVG | ✅ Done |
-| H | Settings, SystemEvents | 4-tab settings (localStorage), migrate EdgeControl to design tokens | 🔲 |
+| H | Settings, SystemEvents, EdgeControl | 4-tab settings (localStorage), SystemEvents log, EdgeControl/Camera design token migration | ✅ Done |
 | I | All | Responsive layout, error states + retry everywhere | 🔲 |
 
-### Stores still to create
+### Stores (all created)
 
-| File | Phase |
-|------|-------|
-| `src/stores/settings.store.js` | H |
+| File | Phase | Notes |
+|------|-------|-------|
+| `src/stores/cameras.store.js` | C | full CRUD |
+| `src/stores/detections.store.js` | D | filters, pagination |
+| `src/stores/analytics.store.js` | E | dailyTotals, histogram, heatmap |
+| `src/stores/routes.store.js` | F | trip algorithm, flow data |
+| `src/stores/settings.store.js` | H | persist: true → localStorage |
 
 ### Dependencies still to install
 
