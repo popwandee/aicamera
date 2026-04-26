@@ -1,0 +1,19 @@
+[Unit]
+Description=AI Camera MQTT Microservice
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=devuser
+WorkingDirectory=/home/devuser/aicamera/server/mqtt-service
+Environment=NODE_ENV=production
+Environment=MQTT_URL=mqtt://localhost:1883
+ExecStart=/usr/bin/node dist/main.js
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+
+

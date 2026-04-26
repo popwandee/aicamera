@@ -30,6 +30,12 @@ if [ "$EUID" -eq 0 ]; then
     echo "Warning: Running as root. Results will be saved in project directory."
 fi
 
+# Inject default health-check tuning unless user overrides
+EXTRA_ARGS=()
+if [[ "$*" != *"--skip-health-check"* && "$*" != *"--health-check-duration"* ]]; then
+    EXTRA_ARGS+=(--health-check-duration 4.0)
+fi
+
 # Run the test script with all arguments
-python "$SCRIPT_DIR/test_focus_modes.py" "$@"
+python "$SCRIPT_DIR/test_focus_modes.py" "${EXTRA_ARGS[@]}" "$@"
 

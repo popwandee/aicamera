@@ -72,7 +72,7 @@ LOCATION_LON = os.getenv("LOCATION_LON", "100.501443")
 CAMERA_LOCATION = os.getenv("CAMERA_LOCATION", "Main Entrance")
 
 # Camera properties defaults - Can be overridden via environment variables
-HIGH_QUALITY_CAPTURE_RESOLUTION = tuple(map(int, os.getenv("HIGH_QUALITY_CAPTURE_RESOLUTION", "1920x1080").split('x')))
+HIGH_QUALITY_CAPTURE_RESOLUTION = tuple(map(int, os.getenv("HIGH_QUALITY_CAPTURE_RESOLUTION", "2304x1296").split('x')))
 DETECTION_RESOLUTION = tuple(map(int, os.getenv("DETECTION_RESOLUTION", "640x640").split('x')))
 QUALITY_ENHANCEMENT_ENABLED = os.getenv("QUALITY_ENHANCEMENT_ENABLED", "true").lower() == "true"
 DEFAULT_RESOLUTION = tuple(map(int, os.getenv("CAMERA_RESOLUTION", "640x640").split('x')))
@@ -84,7 +84,7 @@ CAMERA_MANUAL_FOCUS = float(os.getenv("CAMERA_MANUAL_FOCUS", "0.3"))  # 0.0 to 1
 # Main and Lores stream resolutions - Can be overridden via environment variables
 MAIN_RESOLUTION = tuple(map(int, os.getenv("MAIN_RESOLUTION", "640x640").split('x')))
 LORES_RESOLUTION = tuple(map(int, os.getenv("LORES_RESOLUTION", "640x480").split('x')))  # LPR optimized: 640x640 for web preview/streaming
-DEFAULT_FRAMERATE = int(os.getenv("CAMERA_FPS", "15"))
+DEFAULT_FRAMERATE = int(os.getenv("CAMERA_FPS", "30"))
 DEFAULT_BRIGHTNESS = float(os.getenv("CAMERA_BRIGHTNESS", "0.0"))  # -1.0 to 1.0
 DEFAULT_CONTRAST = float(os.getenv("CAMERA_CONTRAST", "1.0"))    # 0.0 to 2.0
 DEFAULT_SATURATION = float(os.getenv("CAMERA_SATURATION", "1.0"))  # 0.0 to 2.0
@@ -96,6 +96,12 @@ DEFAULT_AUTOFOCUS_ENABLED = os.getenv("DEFAULT_AUTOFOCUS_ENABLED", "true").lower
 AUTOFOCUS_TRIGGER_BEFORE_CAPTURE = os.getenv("AUTOFOCUS_TRIGGER_BEFORE_CAPTURE", "false").lower() == "true"  # Trigger AF before important captures
 FOCUS_QUALITY_MIN_THRESHOLD = int(os.getenv("FOCUS_QUALITY_MIN_THRESHOLD", "800"))  # Minimum FocusFoM for acceptable focus quality
 DEFAULT_QUALITY_MONITORING = os.getenv("DEFAULT_QUALITY_MONITORING", "enabled")
+FOCUS_HEALTH_ENABLED = os.getenv("FOCUS_HEALTH_ENABLED", "true").lower() == "true"
+FOCUS_HEALTH_DURATION = float(os.getenv("FOCUS_HEALTH_DURATION", "3.0"))
+FOCUS_HEALTH_MIN_SAMPLES = int(os.getenv("FOCUS_HEALTH_MIN_SAMPLES", "20"))
+FOCUS_HEALTH_VARIATION_THRESHOLD = float(os.getenv("FOCUS_HEALTH_VARIATION_THRESHOLD", "50.0"))
+FOCUS_HEALTH_MIN_FOM = int(os.getenv("FOCUS_HEALTH_MIN_FOM", "700"))
+FOCUS_HEALTH_RETRY_ATTEMPTS = int(os.getenv("FOCUS_HEALTH_RETRY_ATTEMPTS", "2"))
 
 # Detection Settings - Can be overridden via environment variables
 DETECTION_INTERVAL = float(os.getenv("DETECTION_INTERVAL", "30.0"))  # Optimized to 30.0s for performance

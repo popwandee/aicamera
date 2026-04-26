@@ -43,6 +43,8 @@ CREATE TABLE detections (
     vehicle_type VARCHAR(50),
     status detection_status DEFAULT 'pending',
     metadata JSONB DEFAULT '{}',
+    archived BOOLEAN DEFAULT false,
+    archived_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -202,9 +204,9 @@ $$ LANGUAGE plpgsql;
 
 -- Insert sample data for testing
 INSERT INTO cameras (camera_id, name, location_lat, location_lng, location_address) VALUES
-('cam-001', 'Main Entrance Camera', 40.7128, -74.0060, '123 Main St, New York, NY'),
-('cam-002', 'Side Entrance Camera', 40.7130, -74.0058, '125 Main St, New York, NY'),
-('cam-003', 'Parking Lot Camera', 40.7125, -74.0065, '120 Main St, New York, NY');
+('cam-001', 'Main Entrance Camera', 30.7128, 100.0060, '123 Main St, Chiangmai, TH'),
+('cam-002', 'Side Entrance Camera', 30.7130, 100.0058, '125 Main St, Chiangmai, TH'),
+('cam-003', 'Parking Lot Camera', 30.7125, 100.0065, '120 Main St, Chiangmai, TH');
 
 -- Create comments for documentation
 COMMENT ON TABLE cameras IS 'Edge camera devices that perform LPR detection';

@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LPR Server – AI Camera System</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --card: #1a2332;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --accent: #58a6ff;
+      --accent-hover: #79b8ff;
+      --border: #30363d;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      margin: 0;
+      padding: 2rem 1rem;
+      min-height: 100vh;
+    }
+    .wrap { max-width: 720px; margin: 0 auto; }
+    h1 { font-size: 1.75rem; margin-bottom: 0.5rem; }
+    .subtitle { color: var(--muted); margin-bottom: 2rem; }
+    section {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem 1.5rem;
+      margin-bottom: 1.25rem;
+    }
+    section h2 { font-size: 1.1rem; margin-top: 0; margin-bottom: 0.75rem; color: var(--accent); }
+    .nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      margin-top: 1rem;
+    }
+    .nav a {
+      display: inline-block;
+      padding: 0.6rem 1rem;
+      background: var(--accent);
+      color: #fff;
+      text-decoration: none;
+      border-radius: 6px;
+      font-weight: 500;
+      transition: background .15s;
+    }
+    .nav a:hover { background: var(--accent-hover); }
+    ul { margin: 0.5rem 0; padding-left: 1.25rem; }
+    .arch {
+      font-family: ui-monospace, monospace;
+      font-size: 0.85rem;
+      background: #0d1117;
+      padding: 1rem;
+      border-radius: 6px;
+      overflow-x: auto;
+      margin: 0.75rem 0;
+      border: 1px solid var(--border);
+    }
+    .arch span.c { color: #8b949e; }
+    .arch span.p { color: #79c0ff; }
+    .arch span.u { color: #7ee787; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>LPR Server</h1>
+    <p class="subtitle">AI Camera – ศูนย์รวมข้อมูลและสถานะระบบ</p>
+
+    <section>
+      <h2>สถาปัตยกรรมและวิธีการทำงาน</h2>
+      <p>ระบบแบ่งเป็น <strong>เครื่องลูกข่าย (Edge)</strong> และ <strong>เครื่อง Server นี้</strong>. ลูกข่ายส่งข้อมูล (ข้อความ, ภาพ) ผ่าน <strong>WebSocket</strong> หรือ <strong>MQTT</strong> เข้ามาที่ Microservices บนเครื่องนี้. ข้อมูลถูกจัดเก็บหรือประมวลผลแล้วนำไปแสดงในส่วนแสดงผลจากฐานข้อมูล.</p>
+      <div class="arch">
+<span class="c"># Client (Browser / Edge device)</span><br>
+<span class="p">/</span>           → Landing (หน้านี้)<br>
+<span class="p">/server/</span>   → Detection Dashboard (ข้อมูลจาก DB + สถานะ Services)<br>
+<span class="p">/server/network</span> → Communication Network (สถานะ API, WebSocket, MQTT)<br>
+<span class="p">/server/edge_control</span> → Edge AI Dashboard (สถานะอุปกรณ์ Edge)<br>
+<span class="p">/ws/</span>       → WebSocket (Socket.IO) สำหรับลูกข่าย (ผ่าน Nginx port 80)<br>
+<span class="c"># Microservices (บนเครื่องนี้)</span><br>
+<span class="u">backend-api</span> (port 3000) – REST API, อ่าน/เขียน DB<br>
+<span class="u">ws-service</span> (port 3001 ภายใน) – รับข้อความ/ภาพผ่าน Socket.IO<br>
+<span class="u">mqtt-service</span> – รับข้อมูลผ่าน MQTT broker<br>
+<span class="u">frontend</span> – แสดงผลที่ /server/
+      </div>
+    </section>
+
+    <section>
+      <h2>เมนูเข้าถึงระบบ</h2>
+      <ul>
+        <li><strong>Server (Detection Dashboard)</strong> – แสดงผลการตรวจจับยานพาหนะจาก Edge AI Client และสถานะ Services</li>
+        <li><strong>Network (Communication Network)</strong> – แสดงสถานะ Microservice (REST API, WebSocket, MQTT) และข้อมูลสำหรับ Config Client</li>
+        <li><strong>Edge Control (Edge AI Dashboard)</strong> – แสดงสถานะ Edge Client Device (แบตเตอรี่, ดิสก์, CPU, RAM, อุณหภูมิ, uptime, พิกัด, เครือข่าย) จาก MQTT</li>
+      </ul>
+      <div class="nav">
+        <a href="/server/">Server (Detection)</a>
+        <a href="/server/network/">Network</a>
+        <a href="/server/edge_control/">Edge Control</a>
+        <a href="/server/developer/">For Developer</a>
+      </div>
+    </section>
+
+    <section>
+      <h2>การเชื่อมต่อสำหรับลูกข่าย</h2>
+      <p>ลูกข่าย (Edge) สามารถส่งข้อมูลเข้ามาได้ผ่าน:</p>
+      <ul>
+        <li><strong>WebSocket (Socket.IO)</strong>: ใช้ URL <code>http://lprserver.tail605477.ts.net/ws/</code> (path: <code>/ws/</code>)</li>
+        <li><strong>MQTT</strong>: ตามการตั้งค่า MQTT broker และ topic ที่ Microservice ใช้</li>
+      </ul>
+      <p>รายละเอียดการส่งข้อความและภาพผ่าน WebSocket อยู่ใน <a href="/server/" style="color: var(--accent);">Server</a> และเอกสาร WebSocket Client Guide ในโปรเจกต์</p>
+    </section>
+  </div>
+</body>
+</html>

@@ -1,0 +1,25 @@
+# ============ PWD Vision Works — Edge AI Cameras (Tailscale) ============
+# Paste this block into your ~/.ssh/config file
+# or run: bash scripts/setup.sh  (it does this automatically)
+
+Host aicamera2
+    HostName aicamera2.tail605477.ts.net
+    User camuser
+    StrictHostKeyChecking no
+    ServerAliveInterval 30
+    ServerAliveCountMax 3
+
+Host aicamera3
+    HostName aicamera3.tail605477.ts.net
+    User camuser
+    StrictHostKeyChecking no
+    ServerAliveInterval 30
+    ServerAliveCountMax 3
+
+Host lprserver
+    HostName lprserver.tail605477.ts.net
+    User lpruser
+    StrictHostKeyChecking no
+    ServerAliveInterval 30
+    ServerAliveCountMax 3
+# ========================================================================

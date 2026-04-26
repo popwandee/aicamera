@@ -34,6 +34,15 @@ systemctl status aicamera
 ```bash
 cd /home/camuser/aicamera
 
+# ทดสอบ Default Mode (ค่าอัตโนมัติทุกค่าของ IMX708)
+./edge/src/tools/run_focus_test.sh --mode default --duration 300
+
+# ทดสอบ Adaptive Mode (ปรับอัตโนมัติจนคมชัด)
+./edge/src/tools/run_focus_test.sh --mode adaptive --duration 300
+
+# ทดสอบ Manual Mode (ปรับตามต้องการ)
+./edge/src/tools/run_focus_test.sh --mode manual --duration 300 --sharpness 1.5 --contrast 1.1
+
 # ทดสอบ Continuous Mode (แนะนำสำหรับพื้นหลังเคลื่อนไหว)
 ./edge/src/tools/run_focus_test.sh --mode continuous --duration 300
 ```
@@ -78,10 +87,18 @@ source edge/installation/venv_hailo/bin/activate
 ```
 
 คำสั่งนี้จะ:
-- ทดสอบทุกโหมด (auto, continuous, manual, hybrid)
+- ทดสอบทุกโหมด (default, adaptive, continuous, auto, hybrid, manual)
 - เปรียบเทียบผลลัพธ์
 - แสดงสรุปผล
 - Export ผลลัพธ์เป็น JSON
+
+**ลำดับการทดสอบ:**
+1. **Default** - ค่าเริ่มต้นของ IMX708 (all auto)
+2. **Adaptive** - ปรับอัตโนมัติจนคมชัด
+3. **Continuous** - Continuous autofocus
+4. **Auto** - Auto mode
+5. **Hybrid** - Hybrid mode
+6. **Manual** - Manual mode
 
 ### 4. Export ผลลัพธ์
 
@@ -95,11 +112,95 @@ source edge/installation/venv_hailo/bin/activate
 
 **หมายเหตุ**: ผลลัพธ์จะถูกบันทึกใน `edge/tests/results/` แทน `/tmp/` เพื่อแก้ปัญหา permission denied
 
+## โหมดการทดสอบ 3 แบบใหม่
+
+### 1. Default Mode (โหมดค่าเริ่มต้น)
+
+**ลักษณะการทำงาน:**
+- ใช้ค่าอัตโนมัติทุกค่าของ Camera Module 3 IMX708
+- Auto Exposure, Auto White Balance, Continuous Autofocus
+- ไม่มีการปรับแต่งใดๆ - ใช้ค่า default ของกล้อง
+
+**การใช้งาน:**
+```bash
+./edge/src/tools/run_focus_test.sh --mode default --duration 300
+```
+
+**เหมาะสำหรับ:**
+- Baseline testing - เปรียบเทียบกับโหมดอื่น
+- สภาพแวดล้อมปกติที่กล้องทำงานได้ดีอยู่แล้ว
+
+### 2. Manual Mode (โหมดแมนนวล)
+
+**ลักษณะการทำงาน:**
+- ปรับค่าต่างๆ ตามต้องการ
+- สามารถกำหนด Brightness, Contrast, Saturation, Sharpness
+- สามารถกำหนด Exposure Time และ Analogue Gain
+- สามารถเลือก Autofocus Mode
+
+**การใช้งาน:**
+```bash
+# ตัวอย่าง: ปรับ Sharpness และ Contrast
+./edge/src/tools/run_focus_test.sh \
+    --mode manual \
+    --duration 300 \
+    --sharpness 1.5 \
+    --contrast 1.1 \
+    --brightness 0.0
+
+# ตัวอย่าง: ปรับ Exposure Time แมนนวล
+./edge/src/tools/run_focus_test.sh \
+    --mode manual \
+    --duration 300 \
+    --exposure-time 33333 \
+    --analogue-gain 2.0
+```
+
+**Parameters ที่ใช้ได้:**
+- `--af-mode`: 0=Manual, 1=Auto, 2=Continuous
+- `--brightness`: -1.0 ถึง 1.0
+- `--contrast`: 0.0 ถึง 2.0
+- `--saturation`: 0.0 ถึง 2.0
+- `--sharpness`: 0.0 ถึง 4.0
+- `--exposure-time`: microseconds (ปิด auto exposure)
+- `--analogue-gain`: gain value (ปิด auto exposure)
+
+### 3. Adaptive Mode (โหมดปรับอัตโนมัติ)
+
+**ลักษณะการทำงาน:**
+- ปรับค่าอัตโนมัติด้วย code เพื่อให้ได้ภาพคมชัดที่สุด
+- ทดสอบผลและปรับปรุงจนกว่าจะคมชัด
+- เมื่อคมชัดแล้วจะหยุดการปรับปรุงค่า เป็นเวลา 1 นาที
+- หากภาพแย่ลงจะปรับใหม่
+
+**Algorithm:**
+1. **Searching Phase**: ค้นหาค่าที่ดีเริ่มต้น
+2. **Optimizing Phase**: ปรับแต่งค่าจนได้คุณภาพดี
+3. **Stable Phase**: Lock ค่าและ monitor เป็นเวลา 1 นาที
+4. **Degraded Phase**: หากคุณภาพแย่ลง จะ re-optimize
+
+**การใช้งาน:**
+```bash
+./edge/src/tools/run_focus_test.sh --mode adaptive --duration 300
+```
+
+**เหมาะสำหรับ:**
+- สภาพแวดล้อมที่เปลี่ยนแปลงบ่อย
+- ต้องการภาพคมชัดที่สุดโดยอัตโนมัติ
+- ทดสอบประสิทธิภาพของ adaptive algorithm
+
+**Metrics ที่ Adaptive Mode จะปรับ:**
+- Focus Speed (Normal/Fast)
+- Sharpness (0.5-2.0)
+- Contrast (0.8-1.2)
+- Brightness (-0.2-0.2)
+- Saturation (0.8-1.2)
+
 ## IMX708 Configuration สำหรับ LPR Use Case
 
 ### การ Config อัตโนมัติ
 
-สคริปต์จะ config picamera2 สำหรับ IMX708 อัตโนมัติเมื่อเริ่มต้น:
+สคริปต์จะ config picamera2 สำหรับ IMX708 อัตโนมัติเมื่อเริ่มต้น (สำหรับ default mode):
 
 **Camera Configuration:**
 - **Model**: IMX708 (Camera Module 3)
@@ -128,6 +229,58 @@ source edge/installation/venv_hailo/bin/activate
 4. **Full range**: รองรับรถที่อยู่ไกลและใกล้กล้อง
 
 ## พารามิเตอร์ที่ใช้ได้
+
+### Default Mode Parameters
+
+**ไม่มีพารามิเตอร์** - ใช้ค่าอัตโนมัติทุกค่าของ IMX708
+
+```bash
+./edge/src/tools/run_focus_test.sh --mode default --duration 300
+```
+
+### Adaptive Mode Parameters
+
+**ไม่มีพารามิเตอร์** - ระบบจะปรับอัตโนมัติ
+
+```bash
+./edge/src/tools/run_focus_test.sh --mode adaptive --duration 300
+```
+
+**Algorithm States:**
+- `searching`: กำลังค้นหาค่าที่ดี
+- `optimizing`: กำลังปรับแต่งค่า
+- `stable`: ค่าล็อคแล้ว (monitor 1 นาที)
+- `degraded`: คุณภาพแย่ลง กำลัง re-optimize
+
+### Manual Mode Parameters
+
+```bash
+--af-mode <0|1|2>              # Autofocus mode (0=Manual, 1=Auto, 2=Continuous, default: 2)
+--brightness <float>           # Brightness (-1.0 to 1.0, default: 0.0)
+--contrast <float>             # Contrast (0.0 to 2.0, default: 1.0)
+--saturation <float>           # Saturation (0.0 to 2.0, default: 1.0)
+--sharpness <float>            # Sharpness (0.0 to 4.0, default: 1.0)
+--exposure-time <int>          # Exposure time in microseconds (disables auto exposure)
+--analogue-gain <float>        # Analogue gain (disables auto exposure)
+```
+
+**ตัวอย่าง:**
+```bash
+# ปรับ Sharpness และ Contrast สำหรับภาพคมชัดขึ้น
+./edge/src/tools/run_focus_test.sh \
+    --mode manual \
+    --duration 300 \
+    --sharpness 1.5 \
+    --contrast 1.1 \
+    --brightness 0.0
+
+# ปรับ Exposure Time แมนนวล
+./edge/src/tools/run_focus_test.sh \
+    --mode manual \
+    --duration 300 \
+    --exposure-time 33333 \
+    --analogue-gain 2.0
+```
 
 ### Continuous Mode Parameters (แนะนำสำหรับ LPR)
 
@@ -231,12 +384,14 @@ source edge/installation/venv_hailo/bin/activate
 ### Scenario 2: เปรียบเทียบทุกโหมด (LPR Use Case)
 
 ```bash
-# ทดสอบทุกโหมด 5 นาทีต่อโหมด (รวม 20 นาที)
-# โหมดจะถูกทดสอบตามลำดับความเหมาะสมสำหรับ LPR:
-# 1. Continuous (แนะนำสำหรับ LPR)
-# 2. Auto
-# 3. Hybrid
-# 4. Manual
+# ทดสอบทุกโหมด 5 นาทีต่อโหมด (รวม 30 นาที)
+# โหมดจะถูกทดสอบตามลำดับ:
+# 1. Default (baseline - all auto)
+# 2. Adaptive (auto-optimize)
+# 3. Continuous (continuous tracking)
+# 4. Auto (single-shot)
+# 5. Hybrid (adaptive)
+# 6. Manual (fixed)
 ./edge/src/tools/run_focus_test.sh \
     --compare-all \
     --duration 300 \
@@ -244,12 +399,43 @@ source edge/installation/venv_hailo/bin/activate
 ```
 
 **ลำดับการทดสอบ:**
-1. **Continuous** - เหมาะที่สุดสำหรับรถที่เคลื่อนที่
-2. **Auto** - เหมาะสำหรับสภาพที่เสถียร
-3. **Hybrid** - แบบปรับตัว
-4. **Manual** - เหมาะสำหรับระยะคงที่
+1. **Default** - Baseline: ค่าเริ่มต้นของ IMX708 (all auto)
+2. **Adaptive** - Auto-optimize: ปรับอัตโนมัติจนคมชัด
+3. **Continuous** - เหมาะที่สุดสำหรับรถที่เคลื่อนที่
+4. **Auto** - เหมาะสำหรับสภาพที่เสถียร
+5. **Hybrid** - แบบปรับตัว
+6. **Manual** - เหมาะสำหรับระยะคงที่
 
-### Scenario 3: ทดสอบ Auto Mode ด้วยพารามิเตอร์ต่างๆ (LPR Alternative)
+### Scenario 3: ทดสอบ Adaptive Mode (Auto-Optimize)
+
+```bash
+# ทดสอบ Adaptive Mode - ระบบจะปรับอัตโนมัติจนคมชัด
+./edge/src/tools/run_focus_test.sh \
+    --mode adaptive \
+    --duration 300 \
+    --output edge/tests/results/lpr_adaptive_test.json
+```
+
+**สิ่งที่ Adaptive Mode จะทำ:**
+- ค้นหาค่าที่ดีเริ่มต้น (Searching)
+- ปรับแต่งค่าจนได้คุณภาพดี (Optimizing)
+- Lock ค่าและ monitor เป็นเวลา 1 นาที (Stable)
+- หากคุณภาพแย่ลงจะปรับใหม่ (Degraded → Re-optimize)
+
+### Scenario 4: ทดสอบ Manual Mode ด้วยพารามิเตอร์ต่างๆ
+
+```bash
+# ทดสอบ Manual Mode - ปรับ Sharpness และ Contrast
+./edge/src/tools/run_focus_test.sh \
+    --mode manual \
+    --duration 300 \
+    --sharpness 1.5 \
+    --contrast 1.1 \
+    --brightness 0.0 \
+    --output edge/tests/results/lpr_manual_test.json
+```
+
+### Scenario 5: ทดสอบ Auto Mode ด้วยพารามิเตอร์ต่างๆ (LPR Alternative)
 
 ```bash
 # ทดสอบ Auto Mode ที่ trigger บ่อยขึ้น (เหมาะสำหรับรถเคลื่อนที่เร็ว)
@@ -444,13 +630,29 @@ systemctl status aicamera-detection
 
 ### Configuration สำหรับ LPR ที่แนะนำ
 
-**Best Practice:**
-- **Mode**: Continuous (Mode 2)
-- **Speed**: Normal (0)
-- **Metering**: Center-weighted (1)
-- **Range**: Full (0)
-- **Resolution**: Main 1280x720, Lores 640x640
-- **Format**: RGB888
+**Best Practice (3 แบบ):**
+
+1. **Default Mode (Baseline):**
+   - ใช้ค่าอัตโนมัติทุกค่าของ IMX708
+   - เหมาะสำหรับ baseline testing
+
+2. **Adaptive Mode (Auto-Optimize):**
+   - ระบบปรับอัตโนมัติจนคมชัด
+   - เหมาะสำหรับสภาพแวดล้อมที่เปลี่ยนแปลง
+
+3. **Continuous Mode (Manual Tuned):**
+   - **Mode**: Continuous (Mode 2)
+   - **Speed**: Normal (0)
+   - **Metering**: Center-weighted (1)
+   - **Range**: Full (0)
+   - **Resolution**: Main 1280x720, Lores 640x640
+   - **Format**: RGB888
+
+**การเลือกโหมด:**
+- **Default**: ใช้เป็น baseline เพื่อเปรียบเทียบ
+- **Adaptive**: ใช้เมื่อต้องการภาพคมชัดที่สุดโดยอัตโนมัติ
+- **Continuous**: ใช้เมื่อรู้ค่าที่เหมาะสมแล้ว
+- **Manual**: ใช้เมื่อต้องการควบคุมทุกอย่างเอง
 
 การ config นี้เหมาะสำหรับกล้อง LPR ที่ตั้งประจำที่ที่รถวิ่งเข้ามาหากล้อง เพราะจะติดตามและปรับโฟกัสอย่างต่อเนื่องให้ได้ภาพที่ชัดและเสถียรสำหรับทั้ง streaming และ detection
 

@@ -101,3 +101,6 @@ edge/db/
 
 #images
 *.jpg
+CLAUDE.md
+CONTEXT_ENGINEERING.md
+TEST_AND_DEBUG_PLAN.md

@@ -1,0 +1,21 @@
+[Unit]
+Description=AI Camera Backend API
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=devuser
+WorkingDirectory=/home/devuser/aicamera/server/backend-api
+Environment=NODE_ENV=production
+Environment=PORT=3000
+# โหลด DATABASE_URL จาก .env (สร้างจาก .env.example; ไม่ commit .env)
+EnvironmentFile=-/home/devuser/aicamera/server/backend-api/.env
+ExecStart=/usr/bin/node dist/main.js
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+
+

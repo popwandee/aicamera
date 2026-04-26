@@ -63,6 +63,108 @@ class FocusTestFramework:
         
         self.logger.info("FocusTestFramework initialized")
     
+    def perform_focus_health_check(
+        self,
+        duration: float = 3.0,
+        min_valid_samples: int = 20,
+        variation_threshold: float = 50.0,
+        attempt_recover: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Quickly validate that FocusFoM / metadata streams are responsive before running long tests.
+        """
+        start_time = time.time()
+        samples: List[float] = []
+        lens_positions: List[float] = []
+        warnings: List[str] = []
+        
+        while time.time() - start_time < duration:
+            frame_data = self.camera.capture_frame(
+                source="buffer",
+                stream_type="main",
+                include_metadata=True
+            )
+            if not frame_data or not isinstance(frame_data, dict):
+                time.sleep(0.02)
+                continue
+            
+            metadata = frame_data.get('metadata', {})
+            focus_fom = metadata.get("FocusFoM")
+            if focus_fom:
+                samples.append(float(focus_fom))
+            lens_position = metadata.get("LensPosition")
+            if lens_position is not None:
+                lens_positions.append(float(lens_position))
+            
+            if len(samples) >= min_valid_samples:
+                break
+            
+            time.sleep(0.02)
+        
+        variation = (max(samples) - min(samples)) if len(samples) >= 2 else 0.0
+        status = len(samples) >= min_valid_samples and variation >= variation_threshold
+        if len(samples) < min_valid_samples:
+            warnings.append(
+                f"Only {len(samples)} FocusFoM samples collected (required {min_valid_samples})"
+            )
+        if variation < variation_threshold:
+            warnings.append(
+                f"FocusFoM variation too low ({variation:.1f} < {variation_threshold})"
+            )
+        
+        result = {
+            'status': status,
+            'sample_count': len(samples),
+            'fom_min': min(samples) if samples else 0.0,
+            'fom_max': max(samples) if samples else 0.0,
+            'variation': variation,
+            'lens_positions': lens_positions,
+            'warnings': warnings
+        }
+        
+        if not status and attempt_recover and hasattr(self.camera, '_trigger_and_wait_autofocus'):
+            self.logger.warning(
+                "Focus health check failed, attempting autofocus recovery before retrying..."
+            )
+            try:
+                self.camera._trigger_and_wait_autofocus(
+                    timeout=3.0,
+                    min_fom=max(variation_threshold, 600)
+                )
+                return self.perform_focus_health_check(
+                    duration=duration,
+                    min_valid_samples=min_valid_samples,
+                    variation_threshold=variation_threshold,
+                    attempt_recover=False
+                )
+            except Exception as exc:
+                warnings.append(f"Autofocus recovery failed: {exc}")
+                result['warnings'] = warnings
+        
+        return result
+    
+    def summarize_metrics(self, metrics: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Produce a concise summary of key metrics for logging/reporting purposes.
+        """
+        focus_quality = metrics.get('focus_quality') or {}
+        detection_metrics = metrics.get('detection_metrics') or {}
+        lens_stats = metrics.get('lens_stats') or {}
+        
+        return {
+            'mode': metrics.get('mode'),
+            'duration_s': round(metrics.get('actual_duration', metrics.get('duration', 0)), 2),
+            'frames': metrics.get('total_frames', 0),
+            'focus_mean': round(focus_quality.get('mean', 0.0), 1),
+            'focus_min': round(focus_quality.get('min', 0.0), 1),
+            'focus_max': round(focus_quality.get('max', 0.0), 1),
+            'focus_std': round(focus_quality.get('std', 0.0), 1),
+            'focus_poor_ratio': metrics.get('focus_quality_distribution', {}).get('poor', 0),
+            'detection_rate': round(detection_metrics.get('detection_rate', 0.0), 3),
+            'lens_min': round(lens_stats.get('min', 0.0), 3),
+            'lens_max': round(lens_stats.get('max', 0.0), 3)
+        }
+    
     def run_test(self, mode: str, duration: int = 300, **kwargs) -> Dict[str, Any]:
         """
         Run focus test for specified mode and duration.
@@ -85,13 +187,81 @@ class FocusTestFramework:
         
         self.logger.info(f"Starting focus test: mode={mode}, duration={duration}s")
         
-        # Setup focus mode
-        if not self.focus_controller.set_focus_mode(mode, **kwargs):
-            self.logger.error(f"Failed to setup focus mode: {mode}")
-            return None
+        # Setup focus mode (skip for default and adaptive modes)
+        if mode not in ['default', 'adaptive']:
+            if not self.focus_controller.set_focus_mode(mode, **kwargs):
+                self.logger.error(f"Failed to setup focus mode: {mode}")
+                return None
+            
+            # Reset statistics
+            self.focus_controller.reset_statistics()
         
-        # Reset statistics
-        self.focus_controller.reset_statistics()
+        # For Auto Focus mode: Trigger and wait for autofocus to complete before starting test
+        if mode == 'auto':
+            self.logger.info("Auto Focus mode: Triggering autofocus and waiting for completion...")
+            print(f"🔧 Auto Focus mode: Triggering autofocus and waiting for completion...\n")
+            
+            # Wait for autofocus to complete
+            if hasattr(self.camera, '_trigger_and_wait_autofocus'):
+                # Use camera handler's method to wait for autofocus
+                focus_achieved = self.camera._trigger_and_wait_autofocus(
+                    timeout=5.0,  # Wait up to 5 seconds
+                    min_fom=700  # Minimum FocusFoM threshold
+                )
+                if focus_achieved:
+                    self.logger.info("✅ Autofocus achieved, starting test")
+                    print(f"🔧 ✅ Autofocus achieved, starting test\n")
+                else:
+                    self.logger.warning("⚠️ Autofocus timeout, but continuing with test")
+                    print(f"🔧 ⚠️ Autofocus timeout, but continuing with test\n")
+                    # Wait additional time for lens to settle
+                    time.sleep(1.0)
+            else:
+                # Fallback: Manual trigger and wait
+                try:
+                    if hasattr(self.camera, 'picam2') and self.camera.picam2:
+                        # Ensure Auto mode
+                        self.camera.picam2.set_controls({"AfMode": 1})
+                        time.sleep(0.2)
+                        
+                        # Trigger autofocus
+                        self.camera.picam2.set_controls({"AfTrigger": 0})
+                        self.logger.info("Autofocus triggered, waiting for completion...")
+                        
+                        # Wait for autofocus to complete (check FocusFoM)
+                        wait_timeout = 5.0
+                        wait_start = time.time()
+                        focus_achieved = False
+                        
+                        while time.time() - wait_start < wait_timeout:
+                            # Capture a frame to check FocusFoM
+                            frame_data = self.camera.capture_frame(
+                                source="buffer",
+                                stream_type="main",
+                                include_metadata=True
+                            )
+                            
+                            if frame_data and isinstance(frame_data, dict):
+                                metadata = frame_data.get('metadata', {})
+                                focus_fom = metadata.get("FocusFoM", 0)
+                                
+                                if focus_fom >= 700:  # Good focus threshold
+                                    focus_achieved = True
+                                    self.logger.info(f"✅ Autofocus achieved: FocusFoM={focus_fom:.0f}")
+                                    print(f"🔧 ✅ Autofocus achieved: FocusFoM={focus_fom:.0f}\n")
+                                    break
+                            
+                            time.sleep(0.2)
+                        
+                        if not focus_achieved:
+                            self.logger.warning("⚠️ Autofocus timeout, but continuing with test")
+                            print(f"🔧 ⚠️ Autofocus timeout, but continuing with test\n")
+                        
+                        # Additional wait for lens to settle
+                        time.sleep(1.0)
+                except Exception as e:
+                    self.logger.warning(f"Failed to wait for autofocus: {e}, continuing anyway")
+                    time.sleep(2.0)  # Fallback wait time
         
         # Initialize metrics
         metrics = {
@@ -104,7 +274,8 @@ class FocusTestFramework:
             'focus_fom_timestamps': [],
             'detection_results': [],
             'focus_actions': [],
-            'metadata_samples': []
+            'metadata_samples': [],
+            'lens_positions': []
         }
         
         # Run test
@@ -113,17 +284,22 @@ class FocusTestFramework:
         last_frame_time = time.time()
         frame_interval = 1.0 / self.test_config['frame_rate']
         
-        # Warmup period
-        warmup_frames = 0
-        while warmup_frames < self.test_config['warmup_frames']:
-            frame = self.camera.capture_frame(source="buffer", stream_type="main")
-            if frame is not None:
-                warmup_frames += 1
-            time.sleep(0.033)
-        
-        self.logger.info(f"Warmup complete, starting test data collection")
+        # Warmup period (skip for Auto mode since we already waited for autofocus)
+        if mode != 'auto':
+            warmup_frames = 0
+            while warmup_frames < self.test_config['warmup_frames']:
+                frame = self.camera.capture_frame(source="buffer", stream_type="main")
+                if frame is not None:
+                    warmup_frames += 1
+                time.sleep(0.033)
+            self.logger.info(f"Warmup complete, starting test data collection")
+        else:
+            # For Auto mode, we already waited for autofocus, so shorter warmup
+            self.logger.info("Auto mode: Skipping warmup (autofocus already completed)")
+            time.sleep(0.5)  # Brief pause before starting
         
         # Main test loop
+        last_af_trigger_time = time.time()  # Track last autofocus trigger for Auto mode
         while time.time() < end_time:
             current_time = time.time()
             
@@ -157,6 +333,10 @@ class FocusTestFramework:
                     metrics['focus_fom_values'].append(focus_fom)
                     metrics['focus_fom_timestamps'].append(current_time)
                 
+                lens_position = metadata.get("LensPosition")
+                if lens_position is not None:
+                    metrics['lens_positions'].append(float(lens_position))
+                
                 # Sample metadata periodically (every 10 frames)
                 if frame_count % 10 == 0:
                     metrics['metadata_samples'].append({
@@ -183,6 +363,42 @@ class FocusTestFramework:
                             })
                     except Exception as e:
                         self.logger.debug(f"Detection failed: {e}")
+                
+                # For Auto mode: Check if we need to re-trigger autofocus and wait
+                if mode == 'auto' and focus_fom > 0:
+                    # Check if focus quality is poor and enough time has passed since last trigger
+                    trigger_interval = kwargs.get('trigger_interval', 30.0)
+                    poor_threshold = kwargs.get('poor_threshold', 400)
+                    
+                    if (focus_fom < poor_threshold and 
+                        (current_time - last_af_trigger_time) >= trigger_interval):
+                        
+                        self.logger.info(f"Auto mode: Poor focus detected (FoM={focus_fom:.0f}), re-triggering autofocus...")
+                        print(f"🔧 Auto mode: Poor focus detected (FoM={focus_fom:.0f}), re-triggering autofocus...\n")
+                        
+                        # Re-trigger autofocus and wait
+                        if hasattr(self.camera, '_trigger_and_wait_autofocus'):
+                            focus_achieved = self.camera._trigger_and_wait_autofocus(
+                                timeout=3.0,
+                                min_fom=700
+                            )
+                            if focus_achieved:
+                                self.logger.info("✅ Autofocus re-achieved")
+                            else:
+                                self.logger.warning("⚠️ Autofocus re-trigger timeout")
+                        else:
+                            # Fallback: Manual trigger
+                            try:
+                                if hasattr(self.camera, 'picam2') and self.camera.picam2:
+                                    self.camera.picam2.set_controls({"AfTrigger": 0})
+                                    time.sleep(2.0)  # Wait for autofocus
+                            except Exception as e:
+                                self.logger.warning(f"Failed to re-trigger autofocus: {e}")
+                        
+                        last_af_trigger_time = current_time
+                        
+                        # Wait a bit more for lens to settle after re-focus
+                        time.sleep(0.5)
                 
                 # Update focus controller
                 self.focus_controller.update_focus_quality(metadata, detection_result)
@@ -282,9 +498,24 @@ class FocusTestFramework:
             }
             metrics['ocr_metrics'] = None
         
-        # Focus controller statistics
-        focus_stats = self.focus_controller.get_focus_statistics()
-        metrics['focus_controller_stats'] = focus_stats
+        # Focus controller statistics (only for modes that use focus controller)
+        if mode not in ['default', 'adaptive']:
+            focus_stats = self.focus_controller.get_focus_statistics()
+            metrics['focus_controller_stats'] = focus_stats
+        else:
+            metrics['focus_controller_stats'] = None
+        
+        # Lens position stats
+        if metrics['lens_positions']:
+            lens_positions = np.array(metrics['lens_positions'], dtype=float)
+            metrics['lens_stats'] = {
+                'min': float(np.min(lens_positions)),
+                'max': float(np.max(lens_positions)),
+                'mean': float(np.mean(lens_positions)),
+                'std': float(np.std(lens_positions))
+            }
+        else:
+            metrics['lens_stats'] = None
         
         # Store results
         self.results.append(metrics)
@@ -322,21 +553,37 @@ class FocusTestFramework:
             
             # Focus quality comparison
             if result.get('focus_quality'):
+                # Calculate excellent/poor percent from distribution if available
+                excellent_percent = 0.0
+                poor_percent = 0.0
+                
+                if result.get('focus_quality_distribution') and result.get('focus_fom_values'):
+                    total_samples = len(result['focus_fom_values'])
+                    if total_samples > 0:
+                        excellent_percent = (
+                            result['focus_quality_distribution']['excellent'] / 
+                            total_samples * 100
+                        )
+                        poor_percent = (
+                            result['focus_quality_distribution']['poor'] / 
+                            total_samples * 100
+                        )
+                elif result.get('focus_fom_values'):
+                    # Calculate from focus_fom_values if distribution not available
+                    import numpy as np
+                    fom_values = np.array(result['focus_fom_values'])
+                    total_samples = len(fom_values)
+                    if total_samples > 0:
+                        excellent_percent = (np.sum(fom_values > 1000) / total_samples) * 100
+                        poor_percent = (np.sum(fom_values <= 400) / total_samples) * 100
+                
                 comparison['focus_quality_comparison'][mode] = {
                     'mean': result['focus_quality']['mean'],
-                    'std': result['focus_quality']['std'],
-                    'min': result['focus_quality']['min'],
-                    'max': result['focus_quality']['max'],
-                    'excellent_percent': (
-                        result['focus_quality_distribution']['excellent'] / 
-                        len(result['focus_fom_values']) * 100
-                        if result['focus_fom_values'] else 0
-                    ),
-                    'poor_percent': (
-                        result['focus_quality_distribution']['poor'] / 
-                        len(result['focus_fom_values']) * 100
-                        if result['focus_fom_values'] else 0
-                    )
+                    'std': result['focus_quality'].get('std', 0.0),
+                    'min': result['focus_quality'].get('min', 0.0),
+                    'max': result['focus_quality'].get('max', 0.0),
+                    'excellent_percent': excellent_percent,
+                    'poor_percent': poor_percent
                 }
             
             # Detection comparison

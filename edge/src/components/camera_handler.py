@@ -25,7 +25,7 @@ Date: December 2025
 import threading
 import time
 import multiprocessing
-from typing import Dict, Any, Optional, Tuple, Union, Literal
+from typing import Dict, Any, Optional, Tuple, Union, Literal, List
 from pathlib import Path
 import json
 import queue
@@ -40,9 +40,26 @@ from collections import deque
 
 from edge.src.core.utils.logging_config import get_logger, get_camera_logger, RateLimitedLogger
 from edge.src.core.config import (
-    DEFAULT_AUTOFOCUS_ENABLED, DEFAULT_AUTOFOCUS_MODE, MAIN_RESOLUTION, LORES_RESOLUTION, DEFAULT_FRAMERATE,
-    DEFAULT_SHARPNESS, DEFAULT_NOISE_REDUCTION_MODE, AUTOFOCUS_TRIGGER_BEFORE_CAPTURE, FOCUS_QUALITY_MIN_THRESHOLD,
-    DEFAULT_BRIGHTNESS, DEFAULT_CONTRAST, DEFAULT_SATURATION
+    DEFAULT_AUTOFOCUS_ENABLED,
+    DEFAULT_AUTOFOCUS_MODE,
+    MAIN_RESOLUTION,
+    LORES_RESOLUTION,
+    DEFAULT_FRAMERATE,
+    DEFAULT_SHARPNESS,
+    DEFAULT_NOISE_REDUCTION_MODE,
+    AUTOFOCUS_TRIGGER_BEFORE_CAPTURE,
+    FOCUS_QUALITY_MIN_THRESHOLD,
+    DEFAULT_BRIGHTNESS,
+    DEFAULT_CONTRAST,
+    DEFAULT_SATURATION,
+    QUALITY_ENHANCEMENT_ENABLED,
+    HIGH_QUALITY_CAPTURE_RESOLUTION,
+    FOCUS_HEALTH_ENABLED,
+    FOCUS_HEALTH_DURATION,
+    FOCUS_HEALTH_MIN_SAMPLES,
+    FOCUS_HEALTH_VARIATION_THRESHOLD,
+    FOCUS_HEALTH_MIN_FOM,
+    FOCUS_HEALTH_RETRY_ATTEMPTS,
 )
 
 logger = get_logger(__name__)
@@ -563,16 +580,27 @@ class CameraEnhancementEngine:
             return None
 
     def _trigger_autofocus(self, reason: str) -> Optional[str]:
-        """Trigger autofocus scan using continuous mode."""
+        """Trigger hardware autofocus scan and wait for completion."""
         try:
-            # Instead of full-scene autofocus, bias focus to predefined distance range
-            self._set_manual_focus(self.focus_target_distance_m)
-            self.focus_locked = True
-            self.good_frame_counter = 0
-            self.poor_frame_counter = 0
-            self.last_focus_lock_time = time.time()
-            self.last_focus_action_time = self.last_focus_lock_time
-            return f"focus_set_target_{reason}"
+            if not self.camera or not getattr(self.camera, "picam2", None):
+                return None
+            
+            min_fom = max(self.focus_good_threshold, FOCUS_QUALITY_MIN_THRESHOLD)
+            autofocus_success = self.camera._trigger_and_wait_autofocus(
+                timeout=3.0,
+                min_fom=min_fom
+            )
+            
+            self.last_focus_action_time = time.time()
+            if autofocus_success:
+                self.focus_locked = True
+                self.good_frame_counter = 0
+                self.poor_frame_counter = 0
+                self.last_focus_lock_time = self.last_focus_action_time
+                return f"autofocus_locked_{reason}"
+            
+            self.focus_locked = False
+            return f"autofocus_failed_{reason}"
         except Exception as af_error:
             self.logger.warning(f"AF trigger failed: {af_error}")
             return None
@@ -580,7 +608,20 @@ class CameraEnhancementEngine:
     def _lock_focus(self, metadata: Dict[str, Any]) -> Optional[str]:
         """Lock focus by switching to manual mode with current lens position."""
         try:
-            self._set_manual_focus(self.focus_target_distance_m)
+            lens_position = None
+            if metadata:
+                lens_position = metadata.get("LensPosition")
+            if lens_position is not None and self.camera and self.camera.picam2:
+                controls = {
+                    "AfMode": 0,
+                    "LensPosition": float(lens_position),
+                    "AfMetering": 1,
+                    "AfRange": 0
+                }
+                self.camera.picam2.set_controls(controls)
+                self.last_lens_position = float(lens_position)
+            else:
+                self._set_manual_focus(self.focus_target_distance_m)
             self.focus_locked = True
             self.good_frame_counter = 0
             self.poor_frame_counter = 0
@@ -753,6 +794,10 @@ class CameraHandler:
         self.max_retry_attempts = 5
         self.retry_delay = 2.0
         
+        # Focus health tracking
+        self.last_focus_health = None
+        self.focus_health_enabled = FOCUS_HEALTH_ENABLED
+        
         self.logger.info("CameraHandler singleton initialized")
         # self.logger.info(f"Camera availability: {self.camera_status}")  # INFO: ปิดรายละเอียด เพื่อลดขนาด log
         
@@ -807,8 +852,15 @@ class CameraHandler:
                 self.sensor_modes = self.picam2.sensor_modes
                 
                 # Create optimized dual-stream configuration with hardware MJPEG encoding
-                main_config = {"size": MAIN_RESOLUTION, "format": "RGB888"}  # Main stream with RGB color for detection
+                main_size = (HIGH_QUALITY_CAPTURE_RESOLUTION
+                             if QUALITY_ENHANCEMENT_ENABLED
+                             else MAIN_RESOLUTION)
+                main_config = {"size": main_size, "format": "RGB888"}  # Main stream with RGB color for detection
                 lores_config = {"size": LORES_RESOLUTION, "format": "RGB888"}   # Lores stream with RGB color for proper display
+                self.logger.info(
+                    f"Main stream resolution set to {main_size} "
+                    f"(quality_enhancement={'on' if QUALITY_ENHANCEMENT_ENABLED else 'off'})"
+                )
                 
                 # Import MJPEG encoder
                 from picamera2.encoders import MJPEGEncoder
@@ -931,10 +983,45 @@ class CameraHandler:
                 af_mode_name = self._get_af_mode_name(controls["AfMode"])
                 self.logger.info(f"Autofocus enabled with mode: {af_mode_name} ({controls['AfMode']})")
             
-            # self.logger.debug(f"Applied initial controls: {list(controls.keys())}")  # DEBUG: ปิดรายละเอียด
+            # Apply IMX708 auto-focus defaults (mirrors focus test harness)
+            self.apply_auto_focus_defaults()
             
         except Exception as e:
             self.logger.warning(f"Failed to apply initial controls: {e}")
+    
+    def apply_auto_focus_defaults(self) -> bool:
+        """
+        Apply the same IMX708 auto-focus configuration used by the focus test harness.
+        Ensures AfMode=Auto, full-range scan, and consistent image processing controls.
+        """
+        if not self.picam2:
+            return False
+        
+        controls = {
+            "AeEnable": True,
+            "AwbEnable": True,
+            "AfMode": 1,      # Auto
+            "AfRange": 0,     # Full range
+            "AfSpeed": 0,     # Normal speed
+            "AfMetering": 1,  # Center-weighted
+            "Brightness": 0.0,
+            "Contrast": 1.0,
+            "Saturation": 1.0,
+            "Sharpness": 1.0,
+        }
+        
+        try:
+            self.picam2.set_controls(controls)
+            time.sleep(0.1)
+            try:
+                self.picam2.set_controls({"AfTrigger": 0})
+            except Exception as trigger_error:
+                self.logger.debug(f"Auto focus trigger skipped: {trigger_error}")
+            self.logger.info("Auto focus defaults applied (AfMode=Auto, AfRange=Full, AfSpeed=Normal)")
+            return True
+        except Exception as focus_error:
+            self.logger.warning(f"Failed to apply auto focus defaults: {focus_error}")
+            return False
     
     def _trigger_and_wait_autofocus(self, timeout: float = 2.0, min_fom: int = None) -> bool:
         """
@@ -992,6 +1079,109 @@ class CameraHandler:
             self.logger.warning(f"Autofocus trigger failed: {e}")
             return False
     
+    def _collect_focus_health_metrics(
+        self,
+        duration: float = None,
+        min_samples: int = None
+    ) -> Dict[str, Any]:
+        """Collect short-term FocusFoM statistics for health verification."""
+        duration = duration or FOCUS_HEALTH_DURATION
+        min_samples = min_samples or FOCUS_HEALTH_MIN_SAMPLES
+        
+        samples: List[float] = []
+        lens_positions: List[float] = []
+        end_time = time.time() + duration
+        
+        while time.time() < end_time and len(samples) < min_samples:
+            frame = self.capture_frame(
+                source="buffer",
+                stream_type="main",
+                include_metadata=True
+            )
+            if not frame or not isinstance(frame, dict):
+                time.sleep(0.02)
+                continue
+            
+            metadata = frame.get('metadata', {})
+            focus_fom = metadata.get("FocusFoM")
+            if focus_fom:
+                samples.append(float(focus_fom))
+            lens_position = metadata.get("LensPosition")
+            if lens_position is not None:
+                lens_positions.append(float(lens_position))
+            
+            time.sleep(0.02)
+        
+        variation = (max(samples) - min(samples)) if len(samples) >= 2 else 0.0
+        metrics = {
+            'samples': len(samples),
+            'fom_min': min(samples) if samples else 0.0,
+            'fom_max': max(samples) if samples else 0.0,
+            'variation': variation,
+            'lens_min': min(lens_positions) if lens_positions else None,
+            'lens_max': max(lens_positions) if lens_positions else None,
+            'timestamp': datetime.now().isoformat()
+        }
+        return metrics
+    
+    def _is_focus_health_good(self, metrics: Dict[str, Any]) -> bool:
+        if not metrics or metrics.get('samples', 0) < FOCUS_HEALTH_MIN_SAMPLES:
+            return False
+        if metrics.get('variation', 0.0) < FOCUS_HEALTH_VARIATION_THRESHOLD:
+            return False
+        if metrics.get('fom_max', 0.0) < FOCUS_HEALTH_MIN_FOM:
+            return False
+        return True
+    
+    def _verify_focus_health(self) -> bool:
+        """Ensure camera focus behaves like the validated auto-focus profile."""
+        if not self.focus_health_enabled:
+            return True
+        
+        attempts = max(1, FOCUS_HEALTH_RETRY_ATTEMPTS)
+        last_metrics = None
+        
+        for attempt in range(attempts):
+            metrics = self._collect_focus_health_metrics()
+            last_metrics = metrics
+            
+            if self._is_focus_health_good(metrics):
+                self.last_focus_health = metrics
+                self.logger.info(
+                    "Focus health verified ✅ (samples=%s, FoM %.0f-%.0f, variation=%.1f, lens=%s-%s)",
+                    metrics.get('samples'),
+                    metrics.get('fom_min', 0.0),
+                    metrics.get('fom_max', 0.0),
+                    metrics.get('variation', 0.0),
+                    metrics.get('lens_min'),
+                    metrics.get('lens_max')
+                )
+                return True
+            
+            self.logger.warning(
+                "Focus health check failed (attempt %s/%s). FoM range %.0f-%.0f, variation=%.1f. Re-triggering autofocus...",
+                attempt + 1,
+                attempts,
+                metrics.get('fom_min', 0.0),
+                metrics.get('fom_max', 0.0),
+                metrics.get('variation', 0.0)
+            )
+            self._trigger_and_wait_autofocus(
+                timeout=3.0,
+                min_fom=max(FOCUS_HEALTH_MIN_FOM, FOCUS_QUALITY_MIN_THRESHOLD)
+            )
+            time.sleep(0.2)
+        
+        self.last_focus_health = last_metrics
+        self.logger.error(
+            "Focus health verification failed after %s attempts. FoM range %.0f-%.0f, variation=%.1f",
+            attempts,
+            (last_metrics or {}).get('fom_min', 0.0),
+            (last_metrics or {}).get('fom_max', 0.0),
+            (last_metrics or {}).get('variation', 0.0)
+        )
+        return False
+    
     def start_camera(self) -> bool:
         """
         Start camera with optimized frame capture system.
@@ -1030,6 +1220,10 @@ class CameraHandler:
                     return False
                 
                 self.streaming = True
+                
+                # Verify focus quality matches validated profile
+                self._verify_focus_health()
+                
                 self.logger.info("Camera started")
                 return True
                 
@@ -1067,6 +1261,8 @@ class CameraHandler:
         stable_enhancement_interval = 30.0  # When stable, check every 30 seconds
         current_enhancement_interval = enhancement_interval
         last_enhancement = 0
+        metadata_copy_interval = max(0.01, 1.0 / max(DEFAULT_FRAMERATE, 1))
+        last_metadata_update = 0.0
         last_stats_log = time.time()
         
         while self._capture_running:
@@ -1106,10 +1302,10 @@ class CameraHandler:
                     with self._frame_buffer_lock:
                         self._main_frame_buffer = main_frame  # No copy needed for detection # if want to copy the frame to the buffer use main_frame.copy()
                         self._lores_frame_buffer = lores_frame  # Store RGB888 array
-                        # Only serialize metadata every 1 second to reduce CPU overhead
                         current_time = time.time()
-                        if current_time - last_enhancement > 60.0:  # 60Hz metadata update
+                        if current_time - last_metadata_update >= metadata_copy_interval:
                             self._metadata_buffer = make_json_serializable(metadata)
+                            last_metadata_update = current_time
                     
                     # Update statistics
                     self._update_frame_statistics()
@@ -1451,6 +1647,9 @@ class CameraHandler:
             if self.camera_properties:
                 status['camera_properties'] = make_json_serializable(self.camera_properties)
             
+            if self.last_focus_health:
+                status['focus_health'] = self.last_focus_health
+            
             return status
             
         except Exception as e:
@@ -1485,6 +1684,10 @@ class CameraHandler:
                 'error': str(e),
                 'timestamp': datetime.now().isoformat()
             }
+
+    def get_focus_health_status(self) -> Optional[Dict[str, Any]]:
+        """Return the most recent focus health verification result."""
+        return self.last_focus_health
     
     def _get_buffer_status(self) -> Dict[str, Any]:
         """Get frame buffer status."""

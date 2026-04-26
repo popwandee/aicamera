@@ -1,0 +1,119 @@
+/* AI Camera Dashboard — Industrial Cyber Design Tokens */
+
+/* ── Core Palette ──────────────────────────────────────── */
+:root {
+  --bg-void:    #080c12;
+  --bg-panel:   #0d1520;
+  --bg-surface: #111c2b;
+  --bg-hover:   #162236;
+
+  --border-dim:    rgba(0, 200, 255, 0.10);
+  --border-bright: rgba(0, 200, 255, 0.45);
+  --border-card:   rgba(0, 200, 255, 0.18);
+
+  /* ── Brand Accent ───────────────────────────────────── */
+  --cyan:       #00c8ff;
+  --cyan-dim:   rgba(0, 200, 255, 0.65);
+  --cyan-glow:  0 0 12px rgba(0, 200, 255, 0.35);
+  --cyan-glow-lg: 0 0 24px rgba(0, 200, 255, 0.4);
+
+  /* ── Status Colors ──────────────────────────────────── */
+  --green:      #00e676;
+  --green-dim:  rgba(0, 230, 118, 0.15);
+  --amber:      #ffab40;
+  --amber-dim:  rgba(255, 171, 64, 0.15);
+  --red:        #ff3d57;
+  --red-dim:    rgba(255, 61, 87, 0.15);
+  --purple:     #b388ff;
+  --purple-dim: rgba(179, 136, 255, 0.15);
+
+  /* ── Text ───────────────────────────────────────────── */
+  --text-primary:   rgba(220, 240, 255, 0.92);
+  --text-secondary: rgba(160, 200, 230, 0.60);
+  --text-muted:     rgba(120, 160, 200, 0.40);
+  --text-cyan:      var(--cyan);
+
+  /* ── Typography ─────────────────────────────────────── */
+  --font-data:    'JetBrains Mono', 'Courier New', monospace;
+  --font-ui:      'IBM Plex Sans', 'Segoe UI', sans-serif;
+  --font-display: 'Rajdhani', 'Impact', sans-serif;
+  --font-thai:    'Sarabun', 'Noto Sans Thai', sans-serif;
+
+  /* ── Sizing ─────────────────────────────────────────── */
+  --sidebar-w:  220px;
+  --radius-sm:  4px;
+  --radius-md:  8px;
+  --radius-lg:  12px;
+
+  /* ── Shadows ─────────────────────────────────────────── */
+  --shadow-panel: 0 2px 12px rgba(0, 0, 0, 0.6);
+  --shadow-card:  0 1px 8px rgba(0, 0, 0, 0.5);
+
+  /* ── Transitions ─────────────────────────────────────── */
+  --transition: 0.18s ease;
+}
+
+/* ── Global Reset ───────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg-void);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Scrollbar ───────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-void); }
+::-webkit-scrollbar-thumb { background: rgba(0, 200, 255, 0.25); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(0, 200, 255, 0.45); }
+
+/* ── Utility Classes ─────────────────────────────────────── */
+.font-data    { font-family: var(--font-data); }
+.font-display { font-family: var(--font-display); }
+.font-thai    { font-family: var(--font-thai); }
+.text-cyan    { color: var(--cyan); }
+.text-green   { color: var(--green); }
+.text-amber   { color: var(--amber); }
+.text-red     { color: var(--red); }
+.text-muted   { color: var(--text-muted); }
+
+.panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-md);
+  padding: 1.25rem;
+  box-shadow: var(--shadow-card);
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-family: var(--font-data);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+.badge-cyan   { background: rgba(0,200,255,0.15); color: var(--cyan); border: 1px solid rgba(0,200,255,0.3); }
+.badge-green  { background: var(--green-dim);  color: var(--green);  border: 1px solid rgba(0,230,118,0.3); }
+.badge-amber  { background: var(--amber-dim);  color: var(--amber);  border: 1px solid rgba(255,171,64,0.3); }
+.badge-red    { background: var(--red-dim);    color: var(--red);    border: 1px solid rgba(255,61,87,0.3); }
+
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 14px;
+  border: 1px solid var(--border-bright);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--cyan);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  cursor: pointer;
+  transition: var(--transition);
+}
+.btn:hover { background: rgba(0,200,255,0.08); box-shadow: var(--cyan-glow); }
+.btn-primary { background: rgba(0,200,255,0.15); }

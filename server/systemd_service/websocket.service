@@ -1,0 +1,19 @@
+[Unit]
+Description=AI Camera Websocket Service
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=devuser
+WorkingDirectory=/home/devuser/aicamera/server/ws-service
+Environment=NODE_ENV=production
+Environment=PORT=3001
+ExecStart=/usr/bin/node dist/main.js
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+
+
