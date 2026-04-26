@@ -88,6 +88,13 @@ export class DeviceController {
     return new StreamableFile(stream, { type });
   }
 
+  @Get('detections/:id')
+  async getDetection(@Param('id', ParseUUIDPipe) id: string) {
+    const detection = await this.deviceService.findDetectionById(id);
+    if (!detection) throw new NotFoundException('Detection not found');
+    return detection;
+  }
+
   @Get('detections')
   async getDetections(
     @Query('cameraId') cameraId?: string,

@@ -166,7 +166,7 @@ export class DeviceService {
   }
 
   async findDetectionById(id: string): Promise<Detection | null> {
-    return this.detectionRepo.findOne({ where: { id } });
+    return this.detectionRepo.findOne({ where: { id }, relations: ['camera'] });
   }
 
   async updateDetection(id: string, data: Partial<Detection>): Promise<Detection> {
