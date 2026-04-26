@@ -24,7 +24,6 @@
   "exclude": [
     "frontend/**/*",
     "src/examples/**/*",
-    "src/communication/**/*",
     "src/device-registration/**/*",
     "src/controllers/**/*",
     "src/services/**/*",
