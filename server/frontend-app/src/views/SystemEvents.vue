@@ -97,12 +97,12 @@
             </thead>
             <tbody>
               <tr v-for="ev in filteredEvents" :key="ev.id" :class="rowClass(ev)">
-                <td class="font-data text-secondary ts-cell">{{ fmtTs(ev.timestamp) }}</td>
+                <td class="font-data text-secondary ts-cell">{{ fmtTs(ev.createdAt || ev.timestamp) }}</td>
                 <td>
                   <span :class="['badge', sevBadgeClass(ev)]">{{ sevLabel(ev) }}</span>
                 </td>
                 <td class="font-data text-muted">{{ ev.eventType || ev.type || '—' }}</td>
-                <td class="font-data text-muted">{{ ev.source || ev.service || '—' }}</td>
+                <td class="font-data text-muted">{{ ev.source || ev.service || (ev.camera && ev.camera.cameraId) || '—' }}</td>
                 <td class="msg-cell">{{ ev.message || ev.description || '—' }}</td>
               </tr>
             </tbody>
@@ -149,7 +149,8 @@ export default {
         list = list.filter(e =>
           (e.message || e.description || '').toLowerCase().includes(q) ||
           (e.eventType || e.type || '').toLowerCase().includes(q) ||
-          (e.source || e.service || '').toLowerCase().includes(q),
+          (e.source || e.service || '').toLowerCase().includes(q) ||
+          (e.camera?.cameraId || '').toLowerCase().includes(q),
         );
       }
       return list;
@@ -179,7 +180,7 @@ export default {
     },
 
     sevKey(ev) {
-      const s = (ev.severity || ev.level || ev.type || 'info').toLowerCase();
+      const s = (ev.severity || ev.eventLevel || ev.level || ev.type || 'info').toLowerCase();
       if (s === 'error' || s === 'critical' || s === 'fatal') return 'error';
       if (s === 'warning' || s === 'warn')                    return 'warning';
       return 'info';
@@ -209,7 +210,7 @@ export default {
     fmtTs(ts) {
       if (!ts) return '—';
       return new Date(ts).toLocaleString('th-TH', {
-        month: '2-digit', day: '2-digit',
+        month: '2-digit', day: '2-digit', year: '2-digit',
         hour: '2-digit', minute: '2-digit', second: '2-digit',
       });
     },
