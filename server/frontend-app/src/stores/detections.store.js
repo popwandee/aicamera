@@ -46,7 +46,7 @@ export const useDetectionsStore = defineStore('detections', {
       const start = state.page * PAGE_SIZE;
       return this.filtered.slice(start, start + PAGE_SIZE);
     },
-    pageCount(state) {
+    pageCount() {
       return Math.max(1, Math.ceil(this.filtered.length / PAGE_SIZE));
     },
     hasNext(state) {
