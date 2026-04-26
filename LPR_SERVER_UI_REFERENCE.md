@@ -4,7 +4,7 @@
 **Server**: lprserver — Tailscale `100.95.46.128`  
 **Live URL**: `http://100.95.46.128/server/`  
 **Last updated**: 2026-04-26  
-**Phases complete**: A (Foundation) · B (Dashboard + Chart) · C (Camera Management) · D (Detection Management) · E (Analytics Dashboard) · F (Route Analysis)
+**Phases complete**: A (Foundation) · B (Dashboard + Chart) · C (Camera Management) · D (Detection Management) · E (Analytics Dashboard) · F (Route Analysis) · G (Convoy Detection)
 
 ---
 
@@ -123,7 +123,7 @@ server/frontend-app/src/
     ├── AnalyticsDashboard.vue       ✅ Phase E — 30-day chart, histogram, heatmap, camera comparison, top plates
     ├── RouteAnalysis.vue            ✅ Phase F — route list + F3 camera flow diagram SVG
     ├── RouteDetail.vue              ✅ Phase F — per-route trips table + F5 node chain SVG
-    ├── ConvoyDetection.vue          🔲 Phase G — stub
+    ├── ConvoyDetection.vue          ✅ Phase G — sliding-window convoy algorithm + parallel timeline SVG
     ├── SystemEvents.vue             🔲 Phase H — stub
     ├── Settings.vue                 🔲 Phase H — stub
     ├── EdgeControl.vue              ✅ legacy (pre-design-system)
@@ -214,7 +214,7 @@ All four loaded from Google Fonts in `public/index.html`.
 | `/analytics` | Analytics | `AnalyticsDashboard` | ✅ Live (Phase E) |
 | `/routes` | Routes | `RouteAnalysis` | ✅ Live (Phase F) |
 | `/routes/:routeKey` | RouteDetail | `RouteDetail` | ✅ Live (Phase F, props: true) |
-| `/convoy` | Convoy | `ConvoyDetection` | 🔲 Phase G |
+| `/convoy` | Convoy | `ConvoyDetection` | ✅ Live (Phase G) |
 | `/edge_control` | EdgeControl | `EdgeControl` | ✅ Live (legacy) |
 | `/edge_control/camera/:id` | EdgeControlCamera | `EdgeControlCamera` | ✅ Live (legacy) |
 | `/system` | System | `SystemEvents` | 🔲 Phase H |
@@ -660,13 +660,86 @@ computed getters:
 
 ---
 
-## 14. `EdgeControl.vue` — Legacy View
+## 14. `RouteAnalysis.vue` + `RouteDetail.vue` *(Phase F)*
+
+**Route**: `/routes` → `/routes/:routeKey`
+
+### Trip algorithm (`routes.store.js`)
+
+```
+fetchDetections() → detections[2000]
+  └── buildTrips(detections)
+        1. Group by licensePlate
+        2. Sort each plate's detections by timestamp
+        3. Split into trips on gap > 2 h
+        4. Deduplicate consecutive same-camera appearances
+        5. routeKey = camSeq.join(' → ')
+```
+
+- **Store**: `useRoutesStore` — `persist: false`; getters: `trips`, `routes`, `filteredRoutes`, `transitions`, `allCameraIds`
+- **Separator**: `'|||'` for camera-pair keys (never appears in camera IDs); display uses `' → '`
+- **F3 SVG (RouteAnalysis)**: bezier arcs above centerline for forward legs, below for backward; arc height scales with `|xj - xi| * 0.14`; stroke width scales with count; `id="ra-fwd"` / `id="ra-bwd"` markers
+- **F5 SVG (RouteDetail)**: `<rect>` nodes (100×44px) + `<line>` arrows with `url(#rd-arrow)` marker; leg counts from per-trip `cameras` arrays
+- **URL encoding**: Vue Router 4 auto-encodes/decodes `' → '` in `:routeKey` param — no `encodeURIComponent` needed
+
+---
+
+## 15. `ConvoyDetection.vue` *(Phase G)*
+
+**Route**: `/convoy`  
+**Store**: self-contained — fetches `GET /detections?limit=2000` in `mounted()`; no separate Pinia store
+
+### Sliding-window convoy algorithm
+
+```javascript
+// For each camera, sort events by timestamp
+// O(N·K) sliding window per camera:
+for each camera cam:
+  for i in evs:
+    for j = i+1 while evs[j].ts - evs[i].ts ≤ windowMs:
+      if evs[i].plate ≠ evs[j].plate:
+        pairCams[sortedPair].add(cam)
+
+// Filter: convoy = pair appearing at ≥ minCameras
+```
+
+- **Controls**: `windowMin` select (2/5/10/15/30 min), `minCameras` select (≥2/3/4), date range filters
+- **KPI row**: Convoys Found / Vehicles Tracked / Cameras Involved / Avg Duration
+- **Convoy table**: plate pair, cameras (cam-chips), first/last seen, duration; click row to toggle timeline
+- **`watch`**: `windowMin`, `minCameras`, `filterDateFrom`, `filterDateTo` — all clear `selectedId`
+
+### Parallel timeline SVG (`convoyTimeline` computed)
+
+Layout constants (module-level): `LABEL_W=92`, `TL_W=580`, `LANE_H=74`, `PAD_TOP=20`, `PAD_BOT=46`
+
+```
+svgWidth  = LABEL_W + TL_W + 20
+svgHeight = PAD_TOP + plates.length × LANE_H + PAD_BOT
+
+For each plate lane:
+  laneY = PAD_TOP + laneIndex × LANE_H + LANE_H / 2
+  dots  = detections at cameras in convoy, mapped to x = tsToX(ts)
+  color = CAM_COLORS[camIndex[cam] % 7]   (cyan/green/amber/purple/red/teal/orange)
+
+Sync lines (dashed vertical):
+  for each (e1 in plate[0], e2 in plate[1]) where e1.cam === e2.cam AND |e1.ts - e2.ts| ≤ windowMs:
+    draw dashed line at x = tsToX((e1.ts + e2.ts) / 2), y1..y2 between lane centres
+
+X-axis: auto-selects tick interval from [30s,1m,2m,5m,10m,30m,1h] so ≤ 8 ticks
+Legend: camera name + color dot, centered across SVG width
+```
+
+All SVG coordinates are pre-computed in `convoyTimeline` computed — template binds only to pre-built arrays (`lanes`, `syncLines`, `xLabels`, `legend`).
+
+---
+
+## 16. `EdgeControl.vue` — Legacy View
 
 **Route**: `/edge_control` — functional, old styling. Status bulbs by health age: <5 min green · 5–15 min yellow · >15 min red. Migrate in Phase H.
 
 ---
 
-## 14. Nginx Configuration
+## 17. Nginx Configuration
 
 **File**: `/etc/nginx/sites-available/lprserver`
 
@@ -715,7 +788,7 @@ server {
 
 ---
 
-## 15. Development Workflow
+## 18. Development Workflow
 
 ### Standard cycle (Mac → GitHub → lprserver)
 
@@ -769,7 +842,7 @@ curl http://localhost:3000/server/api/detections/<uuid>
 
 ---
 
-## 16. Known Issues and Gotchas
+## 19. Known Issues and Gotchas
 
 | Issue | Root cause | Fix applied |
 |-------|-----------|------------|
@@ -786,7 +859,7 @@ curl http://localhost:3000/server/api/detections/<uuid>
 
 ---
 
-## 17. Phase Roadmap
+## 20. Phase Roadmap
 
 | Phase | View(s) | Key features | Status |
 |-------|---------|-------------|--------|
@@ -796,7 +869,7 @@ curl http://localhost:3000/server/api/detections/<uuid>
 | D | DetectionList, DetectionDetail, 4 shared components | FilterBar, PlateTag, ConfidenceBar, ImageViewer, CSV export, archive toggle | ✅ Done |
 | E | AnalyticsDashboard | 30-day bar chart, confidence histogram, 7d×24h heatmap, camera comparison, top plates | ✅ Done |
 | F | RouteAnalysis, RouteDetail | Trip algorithm (2h gap), camera flow SVG (F3), node chain SVG (F5), routes.store | ✅ Done |
-| G | ConvoyDetection | Sliding-window convoy algorithm, parallel timeline SVG | 🔲 Next |
+| G | ConvoyDetection | Sliding-window convoy algorithm, parallel timeline SVG | ✅ Done |
 | H | Settings, SystemEvents | 4-tab settings (localStorage), migrate EdgeControl to design tokens | 🔲 |
 | I | All | Responsive layout, error states + retry everywhere | 🔲 |
 
