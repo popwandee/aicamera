@@ -4,7 +4,7 @@
 **Server**: lprserver — Tailscale `100.95.46.128`  
 **Live URL**: `http://100.95.46.128/server/`  
 **Last updated**: 2026-04-26  
-**Phases complete**: A (Foundation) · B (Dashboard + Chart) · C (Camera Management) · D (Detection Management) · E (Analytics Dashboard)
+**Phases complete**: A (Foundation) · B (Dashboard + Chart) · C (Camera Management) · D (Detection Management) · E (Analytics Dashboard) · F (Route Analysis)
 
 ---
 
@@ -96,7 +96,8 @@ server/frontend-app/src/
 ├── stores/
 │   ├── cameras.store.js             Pinia: cameras, edgeStatus, currentCamera — full CRUD
 │   ├── detections.store.js          Pinia: filters, fetchFiltered, pagination getters, CSV-ready
-│   └── analytics.store.js           Pinia: fetchAll() → analytics[] + detections[2000]; 8 getters (Phase E)
+│   ├── analytics.store.js           Pinia: fetchAll() → analytics[] + detections[2000]; 8 getters (Phase E)
+│   └── routes.store.js              Pinia: fetchDetections() → trips + routes computed; flow diagram data (Phase F)
 │
 ├── components/
 │   ├── layout/
@@ -120,8 +121,8 @@ server/frontend-app/src/
     ├── DetectionList.vue            ✅ Phase D — FilterBar + DataTable + pagination + CSV
     ├── DetectionDetail.vue          ✅ Phase D — full record, image viewer, archive toggle
     ├── AnalyticsDashboard.vue       ✅ Phase E — 30-day chart, histogram, heatmap, camera comparison, top plates
-    ├── RouteAnalysis.vue            🔲 Phase F — stub
-    ├── RouteDetail.vue              🔲 Phase F — stub
+    ├── RouteAnalysis.vue            ✅ Phase F — route list + F3 camera flow diagram SVG
+    ├── RouteDetail.vue              ✅ Phase F — per-route trips table + F5 node chain SVG
     ├── ConvoyDetection.vue          🔲 Phase G — stub
     ├── SystemEvents.vue             🔲 Phase H — stub
     ├── Settings.vue                 🔲 Phase H — stub
@@ -210,9 +211,9 @@ All four loaded from Google Fonts in `public/index.html`.
 | `/cameras/:id` | CameraDetail | `CameraDetail` | ✅ Live (Phase C, props: true) |
 | `/detections` | Detections | `DetectionList` | ✅ Live (Phase D) |
 | `/detections/:id` | DetectionDetail | `DetectionDetail` | ✅ Live (Phase D, props: true) |
-| `/analytics` | Analytics | `AnalyticsDashboard` | 🔲 Phase E |
-| `/routes` | Routes | `RouteAnalysis` | 🔲 Phase F |
-| `/routes/:routeKey` | RouteDetail | `RouteDetail` | 🔲 Phase F |
+| `/analytics` | Analytics | `AnalyticsDashboard` | ✅ Live (Phase E) |
+| `/routes` | Routes | `RouteAnalysis` | ✅ Live (Phase F) |
+| `/routes/:routeKey` | RouteDetail | `RouteDetail` | ✅ Live (Phase F, props: true) |
 | `/convoy` | Convoy | `ConvoyDetection` | 🔲 Phase G |
 | `/edge_control` | EdgeControl | `EdgeControl` | ✅ Live (legacy) |
 | `/edge_control/camera/:id` | EdgeControlCamera | `EdgeControlCamera` | ✅ Live (legacy) |
@@ -556,6 +557,39 @@ Actions:
 `GET /cameras/analytics/run`). `confidenceHistogram`, `heatmapData`, `topPlates` derive from
 the 2000-record detections fetch — always available even if analytics is empty.
 
+### `routes.store.js` — `useRoutesStore` *(Phase F)*
+
+```
+State:   detections[], loading, error
+         filterMinCameras (1|2|3|4), filterSearch, filterDateFrom, filterDateTo
+
+Trip algorithm (buildTrips — module-level function):
+  1. Group detections by licensePlate
+  2. Sort each group by timestamp
+  3. Split groups on 2-hour gap → separate trips
+  4. De-duplicate consecutive same-camera appearances → camSeq[]
+  5. routeKey = camSeq.join(' → ')
+
+Getters:
+  trips            All trip objects: { plate, routeKey, cameras[], cameraCount,
+                   detections, startTs, endTs, durationMs, durationMin, firstDetId }
+  routes           Aggregated per routeKey: { routeKey, cameras[], cameraCount,
+                   tripCount, uniquePlates, avgDurationMin, lastSeen }
+                   sorted by tripCount desc
+  filteredRoutes   Applies filterMinCameras / filterSearch / filterDateFrom / filterDateTo
+  transitions      Camera-to-camera counts: [{ from, to, count }] for flow diagram
+  allCameraIds     Unique cameras sorted by avg position in trips (entry cameras first)
+  totalTrips       trips.length
+  multiCameraTrips trips where cameraCount > 1
+  uniquePlatesTotal Set size across all trips
+
+Actions:
+  fetchDetections()  GET /detections?limit=2000&sortBy=timestamp&sortOrder=DESC
+```
+
+**RouteDetail lazy-load**: `RouteDetail.mounted()` calls `fetchDetections()` only if
+`store.detections.length === 0`, so navigating from RouteAnalysis reuses cached data.
+
 ---
 
 ## 10. `MainDashboard.vue`
@@ -761,8 +795,8 @@ curl http://localhost:3000/server/api/detections/<uuid>
 | C | CameraList, CameraDetail, RegisterCameraModal | DataTable, register/delete, 4-tab detail, health line chart | ✅ Done |
 | D | DetectionList, DetectionDetail, 4 shared components | FilterBar, PlateTag, ConfidenceBar, ImageViewer, CSV export, archive toggle | ✅ Done |
 | E | AnalyticsDashboard | 30-day bar chart, confidence histogram, 7d×24h heatmap, camera comparison, top plates | ✅ Done |
-| F | RouteAnalysis, RouteDetail | Client-side route algorithm, routes.store | 🔲 Next |
-| G | ConvoyDetection | Sliding-window convoy algorithm, parallel timeline SVG | 🔲 |
+| F | RouteAnalysis, RouteDetail | Trip algorithm (2h gap), camera flow SVG (F3), node chain SVG (F5), routes.store | ✅ Done |
+| G | ConvoyDetection | Sliding-window convoy algorithm, parallel timeline SVG | 🔲 Next |
 | H | Settings, SystemEvents | 4-tab settings (localStorage), migrate EdgeControl to design tokens | 🔲 |
 | I | All | Responsive layout, error states + retry everywhere | 🔲 |
 
@@ -770,7 +804,6 @@ curl http://localhost:3000/server/api/detections/<uuid>
 
 | File | Phase |
 |------|-------|
-| `src/stores/routes.store.js` | F |
 | `src/stores/settings.store.js` | H |
 
 ### Dependencies still to install
