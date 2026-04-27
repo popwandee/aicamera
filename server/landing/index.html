@@ -2,119 +2,902 @@
 <html lang="th">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>LPR Server – AI Camera System</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="AI Camera LPR System — ระบบตรวจจับป้ายทะเบียนอัตโนมัติด้วย Edge AI โดย PWD Vision Works">
+  <title>AI Camera LPR System — PWD Vision Works</title>
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Sarabun:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg: #0f1419;
-      --card: #1a2332;
-      --text: #e6edf3;
-      --muted: #8b949e;
-      --accent: #58a6ff;
-      --accent-hover: #79b8ff;
-      --border: #30363d;
+      --bg-void: #080c12;
+      --bg-panel: #0d1520;
+      --bg-surface: #111c2b;
+      --cyan: #00c8ff;
+      --green: #00e676;
+      --amber: #ffab40;
+      --red: #ff3d57;
+      --text-primary: rgba(220,240,255,0.92);
+      --text-secondary: rgba(160,200,230,0.60);
+      --border-card: rgba(0,200,255,0.18);
+      --border-bright: rgba(0,200,255,0.45);
+      --cyan-glow: 0 0 12px rgba(0,200,255,0.35);
     }
-    * { box-sizing: border-box; }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-      background: var(--bg);
-      color: var(--text);
+      font-family: 'IBM Plex Sans', 'Sarabun', sans-serif;
+      background: var(--bg-void);
+      color: var(--text-primary);
       line-height: 1.6;
-      margin: 0;
-      padding: 2rem 1rem;
       min-height: 100vh;
     }
-    .wrap { max-width: 720px; margin: 0 auto; }
-    h1 { font-size: 1.75rem; margin-bottom: 0.5rem; }
-    .subtitle { color: var(--muted); margin-bottom: 2rem; }
-    section {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 1.25rem 1.5rem;
-      margin-bottom: 1.25rem;
+
+    .wrap {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 0 1.25rem 3rem;
     }
-    section h2 { font-size: 1.1rem; margin-top: 0; margin-bottom: 0.75rem; color: var(--accent); }
-    .nav {
+
+    /* ─── Card ─── */
+    .card {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-card);
+      border-radius: 10px;
+      padding: 1.75rem;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+    }
+
+    /* ─── Section layout ─── */
+    section { margin-bottom: 2rem; }
+
+    .section-title {
+      font-family: 'Rajdhani', sans-serif;
+      font-size: 1.35rem;
+      font-weight: 700;
+      color: var(--cyan);
+      text-shadow: var(--cyan-glow);
+      margin-bottom: 1.25rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid var(--border-card);
+    }
+
+    /* ─── Hero ─── */
+    .hero {
+      text-align: center;
+      padding: 3.5rem 2rem 2.5rem;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse at 50% 0%, rgba(0,200,255,0.08) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .hero-icon {
+      font-size: 3rem;
+      display: block;
+      margin-bottom: 0.75rem;
+      filter: drop-shadow(0 0 16px rgba(0,200,255,0.5));
+    }
+
+    .hero-title {
+      font-family: 'Rajdhani', sans-serif;
+      font-size: clamp(2rem, 5vw, 3.25rem);
+      font-weight: 700;
+      color: #ffffff;
+      text-shadow: 0 0 20px rgba(0,200,255,0.4);
+      line-height: 1.1;
+      margin-bottom: 0.5rem;
+    }
+
+    .hero-subtitle {
+      font-family: 'Sarabun', sans-serif;
+      font-size: 1.1rem;
+      color: var(--text-secondary);
+      margin-bottom: 1rem;
+    }
+
+    .hero-tagline {
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 0.95rem;
+      color: var(--cyan);
+      font-style: italic;
+      margin-bottom: 0.35rem;
+    }
+
+    .hero-funded {
+      font-family: 'Sarabun', sans-serif;
+      font-size: 0.875rem;
+      color: var(--text-secondary);
+      margin-bottom: 1.5rem;
+    }
+
+    .hero-badges {
       display: flex;
+      justify-content: center;
       flex-wrap: wrap;
       gap: 0.75rem;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.3rem 0.85rem;
+      border-radius: 4px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.75rem;
+    }
+
+    .badge-server {
+      background: rgba(0,200,255,0.1);
+      color: var(--cyan);
+      border: 1px solid var(--border-bright);
+    }
+
+    .badge-online {
+      background: rgba(0,230,118,0.12);
+      color: var(--green);
+      border: 1px solid rgba(0,230,118,0.3);
+    }
+
+    .badge-network {
+      background: rgba(255,171,64,0.1);
+      color: var(--amber);
+      border: 1px solid rgba(255,171,64,0.3);
+    }
+
+    /* ─── Objective cards ─── */
+    .obj-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+      gap: 1rem;
+    }
+
+    .obj-item {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-card);
+      border-left: 3px solid var(--cyan);
+      border-radius: 8px;
+      padding: 1rem 1.1rem;
+    }
+
+    .obj-item .obj-head {
+      font-family: 'Rajdhani', sans-serif;
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 0.3rem;
+    }
+
+    .obj-item .obj-body {
+      font-family: 'Sarabun', sans-serif;
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+
+    /* ─── Architecture code block ─── */
+    .arch-block {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.78rem;
+      background: #06090f;
+      border: 1px solid var(--border-card);
+      border-radius: 8px;
+      padding: 1.1rem 1.25rem;
+      overflow-x: auto;
+      white-space: pre;
+      color: var(--text-secondary);
+      line-height: 1.7;
+    }
+
+    .arch-block .c-cyan { color: var(--cyan); }
+    .arch-block .c-green { color: var(--green); }
+    .arch-block .c-amber { color: var(--amber); }
+    .arch-block .c-red { color: var(--red); }
+    .arch-block .c-dim { color: rgba(160,200,230,0.35); }
+
+    /* ─── Data flow ─── */
+    .flow-steps {
+      display: flex;
+      align-items: stretch;
+      gap: 0;
+      margin-top: 1.25rem;
+      flex-wrap: wrap;
+    }
+
+    .flow-step {
+      flex: 1;
+      min-width: 140px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-card);
+      border-radius: 8px;
+      padding: 0.85rem 1rem;
+      text-align: center;
+    }
+
+    .flow-step .flow-icon { font-size: 1.4rem; display: block; margin-bottom: 0.3rem; }
+    .flow-step .flow-label {
+      font-family: 'Sarabun', sans-serif;
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+    }
+    .flow-step .flow-title {
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 0.2rem;
+    }
+
+    .flow-arrow {
+      display: flex;
+      align-items: center;
+      padding: 0 0.35rem;
+      color: var(--cyan);
+      font-size: 1.1rem;
+      opacity: 0.7;
+    }
+
+    /* ─── Tech stack ─── */
+    .tech-cols {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.25rem;
+    }
+
+    @media (max-width: 560px) {
+      .tech-cols { grid-template-columns: 1fr; }
+    }
+
+    .tech-group {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-card);
+      border-radius: 8px;
+      padding: 1rem 1.1rem;
+    }
+
+    .tech-group-title {
+      font-family: 'Rajdhani', sans-serif;
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: var(--cyan);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 0.6rem;
+      padding-bottom: 0.4rem;
+      border-bottom: 1px solid var(--border-card);
+    }
+
+    .tech-list {
+      list-style: none;
+    }
+
+    .tech-list li {
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 0.83rem;
+      color: var(--text-primary);
+      padding: 0.28rem 0;
+      border-bottom: 1px solid rgba(0,200,255,0.05);
+      display: flex;
+      align-items: baseline;
+      gap: 0.4rem;
+    }
+
+    .tech-list li:last-child { border-bottom: none; }
+
+    .tech-list li .ti { font-size: 0.9rem; flex-shrink: 0; }
+    .tech-list li .tv {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.72rem;
+      color: var(--text-secondary);
+      margin-left: auto;
+    }
+
+    /* ─── Progress phases ─── */
+    .phase-groups {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.25rem;
+      margin-bottom: 1.5rem;
+    }
+
+    @media (max-width: 600px) {
+      .phase-groups { grid-template-columns: 1fr; }
+    }
+
+    .phase-group {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-card);
+      border-radius: 8px;
+      padding: 1rem 1.1rem;
+    }
+
+    .phase-group-title {
+      font-family: 'Rajdhani', sans-serif;
+      font-size: 0.88rem;
+      font-weight: 700;
+      color: var(--cyan);
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      margin-bottom: 0.7rem;
+    }
+
+    .phase-item {
+      display: flex;
+      align-items: baseline;
+      gap: 0.5rem;
+      padding: 0.22rem 0;
+      border-bottom: 1px solid rgba(0,200,255,0.05);
+      font-size: 0.8rem;
+    }
+
+    .phase-item:last-child { border-bottom: none; }
+
+    .phase-item .ph-tag {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      color: var(--cyan);
+      flex-shrink: 0;
+      min-width: 5.5rem;
+    }
+
+    .phase-item .ph-name {
+      font-family: 'Sarabun', sans-serif;
+      color: var(--text-primary);
+      font-size: 0.8rem;
+      flex: 1;
+    }
+
+    .phase-item .ph-done {
+      color: var(--green);
+      font-size: 0.75rem;
+      flex-shrink: 0;
+    }
+
+    /* ─── Stats bar ─── */
+    .stats-bar {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1rem;
+    }
+
+    @media (max-width: 560px) {
+      .stats-bar { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    .stat-item {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-card);
+      border-radius: 8px;
+      padding: 1rem;
+      text-align: center;
+    }
+
+    .stat-value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 1.75rem;
+      color: var(--cyan);
+      font-weight: 500;
+      display: block;
+      text-shadow: var(--cyan-glow);
+    }
+
+    .stat-label {
+      font-family: 'Sarabun', sans-serif;
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      margin-top: 0.25rem;
+    }
+
+    /* ─── Quick access cards ─── */
+    .cta-wrap {
+      text-align: center;
+      margin-bottom: 1.5rem;
+    }
+
+    .btn-primary {
+      display: inline-block;
+      background: rgba(0,200,255,0.15);
+      color: var(--cyan);
+      border: 1px solid var(--border-bright);
+      padding: 0.75rem 2.5rem;
+      border-radius: 8px;
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-weight: 600;
+      font-size: 1rem;
+      text-decoration: none;
+      transition: background 0.2s, box-shadow 0.2s;
+    }
+
+    .btn-primary:hover {
+      background: rgba(0,200,255,0.25);
+      box-shadow: var(--cyan-glow);
+    }
+
+    .access-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.85rem;
+    }
+
+    @media (max-width: 640px) {
+      .access-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    @media (max-width: 400px) {
+      .access-grid { grid-template-columns: 1fr; }
+    }
+
+    .access-card {
+      display: block;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-card);
+      border-radius: 8px;
+      padding: 0.85rem 1rem;
+      text-decoration: none;
+      transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+    }
+
+    .access-card:hover {
+      border-color: var(--border-bright);
+      box-shadow: var(--cyan-glow);
+      background: rgba(0,200,255,0.06);
+    }
+
+    .access-card .ac-icon { font-size: 1.3rem; display: block; margin-bottom: 0.3rem; }
+
+    .access-card .ac-name {
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text-primary);
+      display: block;
+      margin-bottom: 0.2rem;
+    }
+
+    .access-card .ac-desc {
+      font-family: 'Sarabun', sans-serif;
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      line-height: 1.4;
+    }
+
+    /* ─── Network info ─── */
+    .conn-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.78rem;
+    }
+
+    .conn-table tr {
+      border-bottom: 1px solid rgba(0,200,255,0.07);
+    }
+
+    .conn-table td {
+      padding: 0.55rem 0.5rem;
+      vertical-align: top;
+    }
+
+    .conn-table td:first-child {
+      color: var(--text-secondary);
+      white-space: nowrap;
+      padding-right: 1.5rem;
+      width: 110px;
+    }
+
+    .conn-table td:last-child {
+      color: var(--cyan);
+      word-break: break-all;
+    }
+
+    /* ─── Footer ─── */
+    footer {
+      text-align: center;
+      padding: 2rem 1rem;
+      border-top: 1px solid var(--border-card);
       margin-top: 1rem;
     }
-    .nav a {
-      display: inline-block;
-      padding: 0.6rem 1rem;
-      background: var(--accent);
-      color: #fff;
-      text-decoration: none;
-      border-radius: 6px;
-      font-weight: 500;
-      transition: background .15s;
+
+    footer p {
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 0.82rem;
+      color: var(--text-secondary);
+      margin-bottom: 0.25rem;
     }
-    .nav a:hover { background: var(--accent-hover); }
-    ul { margin: 0.5rem 0; padding-left: 1.25rem; }
-    .arch {
-      font-family: ui-monospace, monospace;
+
+    footer .ft-tagline {
+      font-style: italic;
+      color: var(--cyan);
       font-size: 0.85rem;
-      background: #0d1117;
-      padding: 1rem;
-      border-radius: 6px;
-      overflow-x: auto;
-      margin: 0.75rem 0;
-      border: 1px solid var(--border);
     }
-    .arch span.c { color: #8b949e; }
-    .arch span.p { color: #79c0ff; }
-    .arch span.u { color: #7ee787; }
+
+    footer a {
+      color: var(--cyan);
+      text-decoration: none;
+    }
+
+    footer a:hover { text-decoration: underline; }
+
+    /* ─── Responsive nav ─── */
+    @media (max-width: 480px) {
+      .hero { padding: 2.25rem 1rem 1.75rem; }
+      .hero-title { font-size: 1.75rem; }
+      .flow-steps { flex-direction: column; }
+      .flow-arrow { transform: rotate(90deg); width: 100%; justify-content: center; }
+    }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <h1>LPR Server</h1>
-    <p class="subtitle">AI Camera – ศูนย์รวมข้อมูลและสถานะระบบ</p>
 
+<div class="wrap">
+
+  <!-- ═══════════════════════════════════════════
+       SECTION 1: HERO
+  ══════════════════════════════════════════════ -->
+  <header>
+    <div class="hero">
+      <span class="hero-icon">⬡</span>
+      <h1 class="hero-title">AI Camera LPR System</h1>
+      <p class="hero-subtitle">ระบบตรวจจับป้ายทะเบียนอัตโนมัติด้วย Edge AI</p>
+      <p class="hero-tagline">"Where Visions become Reality" — PWD Vision Works</p>
+      <p class="hero-funded">โครงการวิจัยที่ได้รับการสนับสนุนจากหน่วยงานภาครัฐ</p>
+      <div class="hero-badges">
+        <span class="badge badge-server">lprserver · 100.95.46.128</span>
+        <span class="badge badge-online">● aicamera2 Online</span>
+        <span class="badge badge-network">Tailscale · tail605477.ts.net</span>
+      </div>
+    </div>
+  </header>
+
+  <main>
+
+    <!-- ═══════════════════════════════════════════
+         SECTION 2: OBJECTIVES
+    ══════════════════════════════════════════════ -->
     <section>
-      <h2>สถาปัตยกรรมและวิธีการทำงาน</h2>
-      <p>ระบบแบ่งเป็น <strong>เครื่องลูกข่าย (Edge)</strong> และ <strong>เครื่อง Server นี้</strong>. ลูกข่ายส่งข้อมูล (ข้อความ, ภาพ) ผ่าน <strong>WebSocket</strong> หรือ <strong>MQTT</strong> เข้ามาที่ Microservices บนเครื่องนี้. ข้อมูลถูกจัดเก็บหรือประมวลผลแล้วนำไปแสดงในส่วนแสดงผลจากฐานข้อมูล.</p>
-      <div class="arch">
-<span class="c"># Client (Browser / Edge device)</span><br>
-<span class="p">/</span>           → Landing (หน้านี้)<br>
-<span class="p">/server/</span>   → Detection Dashboard (ข้อมูลจาก DB + สถานะ Services)<br>
-<span class="p">/server/network</span> → Communication Network (สถานะ API, WebSocket, MQTT)<br>
-<span class="p">/server/edge_control</span> → Edge AI Dashboard (สถานะอุปกรณ์ Edge)<br>
-<span class="p">/ws/</span>       → WebSocket (Socket.IO) สำหรับลูกข่าย (ผ่าน Nginx port 80)<br>
-<span class="c"># Microservices (บนเครื่องนี้)</span><br>
-<span class="u">backend-api</span> (port 3000) – REST API, อ่าน/เขียน DB<br>
-<span class="u">ws-service</span> (port 3001 ภายใน) – รับข้อความ/ภาพผ่าน Socket.IO<br>
-<span class="u">mqtt-service</span> – รับข้อมูลผ่าน MQTT broker<br>
-<span class="u">frontend</span> – แสดงผลที่ /server/
+      <div class="card">
+        <h2 class="section-title">🎯 วัตถุประสงค์โครงการวิจัย</h2>
+        <div class="obj-grid">
+          <div class="obj-item">
+            <div class="obj-head">🤖 Edge AI Camera Node</div>
+            <div class="obj-body">พัฒนาระบบตรวจจับยานพาหนะและอ่านป้ายทะเบียน Real-time บน Raspberry Pi 5 + Hailo-8 AI Accelerator</div>
+          </div>
+          <div class="obj-item">
+            <div class="obj-head">📡 ระบบสื่อสาร IoT</div>
+            <div class="obj-body">เชื่อมต่อ Edge กับ Server ส่วนกลางผ่าน WebSocket (Socket.IO) และ MQTT บน Tailscale Private Network</div>
+          </div>
+          <div class="obj-item">
+            <div class="obj-head">📊 Dashboard บริหารจัดการ</div>
+            <div class="obj-body">เฝ้าระวังและวิเคราะห์ข้อมูลการตรวจจับป้ายทะเบียนแบบ Real-time ด้วย Vue 3 SPA</div>
+          </div>
+          <div class="obj-item">
+            <div class="obj-head">🔬 ทดสอบและประเมินผล</div>
+            <div class="obj-body">วัด Reliability, Accuracy และ Performance ในสภาพแวดล้อมจริง ครบทั้ง 6 Phase การทดสอบ</div>
+          </div>
+          <div class="obj-item">
+            <div class="obj-head">🚀 Prototype เชิงพาณิชย์</div>
+            <div class="obj-body">ต่อยอดสู่ระบบจราจร, ความปลอดภัย และ Smart City ที่ขยายขนาดได้ในเชิงพาณิชย์</div>
+          </div>
+        </div>
       </div>
     </section>
 
+    <!-- ═══════════════════════════════════════════
+         SECTION 3: ARCHITECTURE
+    ══════════════════════════════════════════════ -->
     <section>
-      <h2>เมนูเข้าถึงระบบ</h2>
-      <ul>
-        <li><strong>Server (Detection Dashboard)</strong> – แสดงผลการตรวจจับยานพาหนะจาก Edge AI Client และสถานะ Services</li>
-        <li><strong>Network (Communication Network)</strong> – แสดงสถานะ Microservice (REST API, WebSocket, MQTT) และข้อมูลสำหรับ Config Client</li>
-        <li><strong>Edge Control (Edge AI Dashboard)</strong> – แสดงสถานะ Edge Client Device (แบตเตอรี่, ดิสก์, CPU, RAM, อุณหภูมิ, uptime, พิกัด, เครือข่าย) จาก MQTT</li>
-      </ul>
-      <div class="nav">
-        <a href="/server/">Server (Detection)</a>
-        <a href="/server/network/">Network</a>
-        <a href="/server/edge_control/">Edge Control</a>
-        <a href="/server/developer/">For Developer</a>
+      <div class="card">
+        <h2 class="section-title">🏗️ สถาปัตยกรรมระบบ (System Architecture)</h2>
+
+        <div class="arch-block"><span class="c-dim">[Tailscale Private Network — tail605477.ts.net]</span>
+
+<span class="c-cyan">lprserver</span> <span class="c-dim">(100.95.46.128)</span>
+├── <span class="c-amber">Nginx</span> :80
+│   ├── /             → Landing Page (หน้านี้)
+│   ├── /server/      → Vue 3 Dashboard (SPA)
+│   ├── /server/api/  → NestJS REST API :3000
+│   └── /ws/          → Socket.IO Gateway :3001
+├── <span class="c-green">backend-api</span>   :3000  (NestJS + TypeScript)
+├── <span class="c-green">ws-service</span>    :3001  (Socket.IO Gateway)
+├── <span class="c-green">mqtt-service</span>         (MQTT Subscriber)
+├── <span class="c-green">mosquitto</span>     :1883  (MQTT Broker)
+└── <span class="c-green">PostgreSQL</span>    :5432  (aicamera_app DB)
+        ↑ Tailscale (WebSocket + MQTT) ↓
+<span class="c-cyan">aicamera2</span> <span class="c-dim">(100.110.20.53)</span> <span class="c-green">✅ Online</span>
+├── Raspberry Pi 5 (aarch64, kernel 6.12.47)
+├── Hailo-8 AI Chip (FW 4.20.0)
+├── IMX708 NoIR Camera (libcamera v0.5.2)
+└── aicamera_lpr.service (Flask + Gunicorn)
+
+<span class="c-dim">aicamera1 (100.126.178.74)</span>  <span class="c-red">⚠ Offline</span>
+<span class="c-dim">aicamera3 (100.68.95.36)</span>   <span class="c-red">⚠ Offline</span></div>
+
+        <div class="flow-steps">
+          <div class="flow-step">
+            <span class="flow-icon">📷</span>
+            <div class="flow-title">Edge Camera</div>
+            <div class="flow-label">ตรวจจับยานพาหนะ<br>+ OCR ป้ายทะเบียน</div>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-step">
+            <span class="flow-icon">📡</span>
+            <div class="flow-title">ส่งข้อมูล</div>
+            <div class="flow-label">WebSocket + MQTT<br>→ lprserver</div>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-step">
+            <span class="flow-icon">🗄️</span>
+            <div class="flow-title">จัดเก็บข้อมูล</div>
+            <div class="flow-label">PostgreSQL<br>→ REST API</div>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-step">
+            <span class="flow-icon">📊</span>
+            <div class="flow-title">Vue Dashboard</div>
+            <div class="flow-label">แสดงผล Real-time<br>+ วิเคราะห์ข้อมูล</div>
+          </div>
+        </div>
       </div>
     </section>
 
+    <!-- ═══════════════════════════════════════════
+         SECTION 4: TECHNOLOGY STACK
+    ══════════════════════════════════════════════ -->
     <section>
-      <h2>การเชื่อมต่อสำหรับลูกข่าย</h2>
-      <p>ลูกข่าย (Edge) สามารถส่งข้อมูลเข้ามาได้ผ่าน:</p>
-      <ul>
-        <li><strong>WebSocket (Socket.IO)</strong>: ใช้ URL <code>http://lprserver.tail605477.ts.net/ws/</code> (path: <code>/ws/</code>)</li>
-        <li><strong>MQTT</strong>: ตามการตั้งค่า MQTT broker และ topic ที่ Microservice ใช้</li>
-      </ul>
-      <p>รายละเอียดการส่งข้อความและภาพผ่าน WebSocket อยู่ใน <a href="/server/" style="color: var(--accent);">Server</a> และเอกสาร WebSocket Client Guide ในโปรเจกต์</p>
+      <div class="card">
+        <h2 class="section-title">⚙️ Technology Stack</h2>
+        <div class="tech-cols">
+          <div class="tech-group">
+            <div class="tech-group-title">Edge Device</div>
+            <ul class="tech-list">
+              <li><span class="ti">🍓</span> Raspberry Pi 5 (aarch64)<span class="tv">kernel 6.12</span></li>
+              <li><span class="ti">🧠</span> Hailo-8 AI Accelerator<span class="tv">FW 4.20.0</span></li>
+              <li><span class="ti">📸</span> IMX708 NoIR Camera<span class="tv">libcamera 0.5.2</span></li>
+              <li><span class="ti">🐍</span> Python 3.11.2 + Flask + Gunicorn</li>
+              <li><span class="ti">📡</span> python-socketio + paho-mqtt<span class="tv">1.6.1</span></li>
+            </ul>
+          </div>
+          <div class="tech-group">
+            <div class="tech-group-title">Server</div>
+            <ul class="tech-list">
+              <li><span class="ti">🌐</span> Nginx (Web Server + Reverse Proxy)</li>
+              <li><span class="ti">🟢</span> NestJS (TypeScript REST API)<span class="tv">:3000</span></li>
+              <li><span class="ti">⚡</span> Socket.IO WebSocket Gateway<span class="tv">:3001</span></li>
+              <li><span class="ti">📬</span> Mosquitto MQTT Broker<span class="tv">:1883</span></li>
+              <li><span class="ti">🐘</span> PostgreSQL 15 (Database)<span class="tv">:5432</span></li>
+              <li><span class="ti">⚡</span> Vue 3 + Pinia + vue-router 4</li>
+              <li><span class="ti">🔒</span> Tailscale (Private Network VPN)</li>
+            </ul>
+          </div>
+        </div>
+      </div>
     </section>
-  </div>
+
+    <!-- ═══════════════════════════════════════════
+         SECTION 5: PROGRESS
+    ══════════════════════════════════════════════ -->
+    <section>
+      <div class="card">
+        <h2 class="section-title">📈 ความก้าวหน้าในการพัฒนา</h2>
+
+        <div class="phase-groups">
+          <div class="phase-group">
+            <div class="phase-group-title">Dashboard Development (Phase A–I)</div>
+            <div class="phase-item">
+              <span class="ph-tag">Phase A</span>
+              <span class="ph-name">Foundation (Design Tokens, Sidebar, Components)</span>
+              <span class="ph-done">✅</span>
+            </div>
+            <div class="phase-item">
+              <span class="ph-tag">Phase B</span>
+              <span class="ph-name">Main Dashboard (KPI + Hourly Chart)</span>
+              <span class="ph-done">✅</span>
+            </div>
+            <div class="phase-item">
+              <span class="ph-tag">Phase C</span>
+              <span class="ph-name">Camera Management (DataTable + Health)</span>
+              <span class="ph-done">✅</span>
+            </div>
+            <div class="phase-item">
+              <span class="ph-tag">Phase D</span>
+              <span class="ph-name">Detection Management (FilterBar + ImageViewer + CSV)</span>
+              <span class="ph-done">✅</span>
+            </div>
+            <div class="phase-item">
+              <span class="ph-tag">Phase E</span>
+              <span class="ph-name">Analytics Dashboard (Charts + Heatmap)</span>
+              <span class="ph-done">✅</span>
+            </div>
+            <div class="phase-item">
+              <span class="ph-tag">Phase F</span>
+              <span class="ph-name">Route Analysis (Trip Algorithm + Flow SVG)</span>
+              <span class="ph-done">✅</span>
+            </div>
+            <div class="phase-item">
+              <span class="ph-tag">Phase G</span>
+              <span class="ph-name">Convoy Detection (Sliding-Window Algorithm)</span>
+              <span class="ph-done">✅</span>
+            </div>
+            <div class="phase-item">
+              <span class="ph-tag">Phase H</span>
+              <span class="ph-name">Settings + System Events + Edge Control</span>
+              <span class="ph-done">✅</span>
+            </div>
+            <div class="phase-item">
+              <span class="ph-tag">Phase I</span>
+              <span class="ph-name">Responsive Layout + Error States (Mobile Ready)</span>
+              <span class="ph-done">✅</span>
+            </div>
+          </div>
+
+          <div class="phase-group">
+            <div class="phase-group-title">System Test &amp; Debug (Phase 1–6)</div>
+            <div class="phase-item">
+              <span class="ph-tag">Phase 1</span>
+              <span class="ph-name">Infrastructure Check (Tailscale, PostgreSQL, MQTT, Nginx)</span>
+              <span class="ph-done">✅</span>
+            </div>
+            <div class="phase-item">
+              <span class="ph-tag">Phase 2</span>
+              <span class="ph-name">Server Services Check (APIs, WebSocket, MQTT→DB)</span>
+              <span class="ph-done">✅</span>
+            </div>
+            <div class="phase-item">
+              <span class="ph-tag">Phase 3</span>
+              <span class="ph-name">Edge Device Check (aicamera2: Hardware, Camera, Hailo)</span>
+              <span class="ph-done">✅</span>
+            </div>
+            <div class="phase-item">
+              <span class="ph-tag">Phase 4</span>
+              <span class="ph-name">Integration Test (WebSocket + MQTT Full Flow)</span>
+              <span class="ph-done">✅</span>
+            </div>
+            <div class="phase-item">
+              <span class="ph-tag">Phase 5</span>
+              <span class="ph-name">End-to-End Full Flow (Nginx Proxy + SPA + Images)</span>
+              <span class="ph-done">✅</span>
+            </div>
+            <div class="phase-item">
+              <span class="ph-tag">Phase 6</span>
+              <span class="ph-name">Stability Test (WebSocket Reconnect, 6-Service Snapshot)</span>
+              <span class="ph-done">✅</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="stats-bar">
+          <div class="stat-item">
+            <span class="stat-value">6</span>
+            <div class="stat-label">Cameras ลงทะเบียน</div>
+          </div>
+          <div class="stat-item">
+            <span class="stat-value">250+</span>
+            <div class="stat-label">Detections</div>
+          </div>
+          <div class="stat-item">
+            <span class="stat-value">505+</span>
+            <div class="stat-label">Health Records</div>
+          </div>
+          <div class="stat-item">
+            <span class="stat-value">27ms</span>
+            <div class="stat-label">Tailscale Latency</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════
+         SECTION 6: QUICK ACCESS
+    ══════════════════════════════════════════════ -->
+    <section>
+      <div class="card">
+        <h2 class="section-title">🔗 เข้าถึงระบบ</h2>
+
+        <div class="cta-wrap">
+          <a href="/server/" class="btn-primary">เข้าสู่ Dashboard →</a>
+        </div>
+
+        <div class="access-grid">
+          <a href="/server/" class="access-card">
+            <span class="ac-icon">📊</span>
+            <span class="ac-name">Main Dashboard</span>
+            <span class="ac-desc">ภาพรวมระบบ, KPI, Hourly Chart, Detection Feed</span>
+          </a>
+          <a href="/server/cameras" class="access-card">
+            <span class="ac-icon">📷</span>
+            <span class="ac-name">Camera Management</span>
+            <span class="ac-desc">จัดการและตรวจสอบกล้อง + สถานะ Online/Offline</span>
+          </a>
+          <a href="/server/detections" class="access-card">
+            <span class="ac-icon">🔍</span>
+            <span class="ac-name">Detection Log</span>
+            <span class="ac-desc">บันทึกการตรวจจับป้ายทะเบียน + Filter + CSV Export</span>
+          </a>
+          <a href="/server/analytics" class="access-card">
+            <span class="ac-icon">📈</span>
+            <span class="ac-name">Analytics</span>
+            <span class="ac-desc">วิเคราะห์ข้อมูลเชิงลึก, กราฟ 30 วัน, Heatmap</span>
+          </a>
+          <a href="/server/routes" class="access-card">
+            <span class="ac-icon">🗺️</span>
+            <span class="ac-name">Route Analysis</span>
+            <span class="ac-desc">วิเคราะห์เส้นทางยานพาหนะ + Flow Diagram</span>
+          </a>
+          <a href="/server/convoy" class="access-card">
+            <span class="ac-icon">🚗</span>
+            <span class="ac-name">Convoy Detection</span>
+            <span class="ac-desc">ตรวจจับกลุ่มรถที่เดินทางด้วยกัน (Convoy)</span>
+          </a>
+          <a href="/server/edge_control" class="access-card">
+            <span class="ac-icon">🖥️</span>
+            <span class="ac-name">Edge Control</span>
+            <span class="ac-desc">สถานะและควบคุมอุปกรณ์ Edge ทั้งหมด</span>
+          </a>
+          <a href="/server/system" class="access-card">
+            <span class="ac-icon">📋</span>
+            <span class="ac-name">System Events</span>
+            <span class="ac-desc">บันทึก Log เหตุการณ์ระบบ</span>
+          </a>
+          <a href="/server/settings" class="access-card">
+            <span class="ac-icon">⚙️</span>
+            <span class="ac-name">Settings</span>
+            <span class="ac-desc">ตั้งค่าระบบ (Detection threshold, Display, Alerts)</span>
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════
+         SECTION 7: NETWORK INFO
+    ══════════════════════════════════════════════ -->
+    <section>
+      <div class="card">
+        <h2 class="section-title">🌐 ข้อมูลการเชื่อมต่อ (For Edge Devices)</h2>
+        <table class="conn-table">
+          <tbody>
+            <tr>
+              <td>WebSocket</td>
+              <td>http://100.95.46.128/ws/ <span style="color:var(--text-secondary);font-size:0.72rem">(Socket.IO path: /ws/)</span></td>
+            </tr>
+            <tr>
+              <td>MQTT</td>
+              <td>mqtt://100.95.46.128:1883</td>
+            </tr>
+            <tr>
+              <td>REST API</td>
+              <td>http://100.95.46.128/server/api/</td>
+            </tr>
+            <tr>
+              <td>Tailscale</td>
+              <td>lprserver.tail605477.ts.net</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ═══════════════════════════════════════════
+       FOOTER
+  ══════════════════════════════════════════════ -->
+  <footer>
+    <p>© 2026 <strong style="color:var(--text-primary)">PWD Vision Works</strong> — AI Camera LPR Research Project</p>
+    <p class="ft-tagline">"Where Visions become Reality"</p>
+    <p style="margin-top:0.5rem">
+      <a href="mailto:admin@pwdvisionworks.com">admin@pwdvisionworks.com</a>
+      &nbsp;|&nbsp;
+      <a href="https://pwdvisionworks.com" target="_blank" rel="noopener">pwdvisionworks.com</a>
+    </p>
+  </footer>
+
+</div>
+
 </body>
 </html>
