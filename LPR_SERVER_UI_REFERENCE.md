@@ -3,8 +3,8 @@
 **Project**: AI Camera Dashboard (PWD Vision Works)  
 **Server**: lprserver — Tailscale `100.95.46.128`  
 **Live URL**: `http://100.95.46.128/server/`  
-**Last updated**: 2026-04-26  
-**Phases complete**: A (Foundation) · B (Dashboard + Chart) · C (Camera Management) · D (Detection Management) · E (Analytics Dashboard) · F (Route Analysis) · G (Convoy Detection) · H (Settings + System Events)
+**Last updated**: 2026-04-27  
+**Phases complete**: A (Foundation) · B (Dashboard + Chart) · C (Camera Management) · D (Detection Management) · E (Analytics Dashboard) · F (Route Analysis) · G (Convoy Detection) · H (Settings + System Events) · I (Responsive Layout + Error States)
 
 ---
 
@@ -199,6 +199,8 @@ All four loaded from Google Fonts in `public/index.html`.
 | `.badge-cyan/green/amber/red` | Colored badge variants |
 | `.btn` | Ghost button (cyan border, transparent bg) |
 | `.btn-primary` | Filled button (cyan tinted bg) |
+| `.kpi-row` | Responsive KPI grid: `auto-fill minmax(200px,1fr)`, gap 1rem — **do NOT redefine in scoped CSS** |
+| `.page-header` | Flex row, space-between, wrap, gap 0.75rem, padding/border-bottom — **do NOT redefine in scoped CSS** |
 
 ---
 
@@ -231,13 +233,20 @@ const base = window.location.pathname.startsWith('/server') ? '/server/' : '/';
 
 ## 6. Components
 
-### `App.vue`
+### `App.vue` *(updated Phase I)*
 Root shell. Flex row: `Sidebar` (fixed 220px) + `<router-view>` (flex-1, scrollable).  
 Imports `design-tokens.css` globally.
 
+**Mobile sidebar** (≤ 767px):
+- `navOpen: false` data toggle, watcher closes on `$route` change
+- `.nav-overlay` (backdrop) click → `navOpen = false`
+- Sidebar: `position: fixed; transform: translateX(-100%)` → `translateX(0)` when `.nav-open .sidebar`
+- Mobile topbar (`display: none` → `flex` at ≤ 767px): hamburger + `AICAM` brand
+- `Sidebar` emits `close` → handled in App
+
 ---
 
-### `Sidebar.vue` (name: `AppSidebar`)
+### `Sidebar.vue` (name: `AppSidebar`) *(updated Phase I)*
 
 1. Brand — `⬡ AICAM | Control Center`
 2. Connection status — `StatusDot` from `useSocket().connected`
@@ -245,6 +254,7 @@ Imports `design-tokens.css` globally.
 4. Nav Analyse: Analytics · Routes · Convoy
 5. Nav System: Edge Control · System Events · Settings
 6. Footer — "PWD Vision Works"
+7. Mobile close button (`✕`) — `emits: ['close']`; `display: none` → `block` at ≤ 767px
 
 ---
 
@@ -333,6 +343,21 @@ Fields:
 - **Min Confidence** — select: Any / ≥70% / ≥80% / ≥90% / ≥95%
 - **Archived** — checkbox toggle
 - **Clear** — emits `clear`, parent resets all filters + re-fetches
+
+---
+
+### `ErrorBanner.vue` *(Phase I — new)*
+
+```
+Props:
+  message  String   ''    Error message to display; renders nothing when empty
+  retry    Boolean  true  Show "↺ Retry" button
+
+Emits: retry
+```
+
+Shared error banner used in all 10 views. Each view registers it, binds `:message="error"` (or `store.error`),  
+listens `@retry="retry"`, and implements a `retry()` method that re-calls the view's fetch action.
 
 ---
 
@@ -801,7 +826,72 @@ Action:
 
 ---
 
-## 18. Nginx Configuration
+## 18. Phase I — Responsive Layout + Error States *(new)*
+
+### Mobile sidebar
+
+`App.vue` manages `navOpen: false`. At ≤ 767px:
+- Sidebar is `position: fixed; transform: translateX(-100%)` (slides off-screen)
+- `.nav-open .sidebar` toggles to `translateX(0)` (slides in)
+- `.nav-overlay` (semi-transparent backdrop) appears and closes on click
+- Mobile topbar shows hamburger + AICAM brand
+- `$route` watcher auto-closes nav on navigation
+
+### Global responsive classes (design-tokens.css)
+
+```css
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+.page-header {
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: 0.75rem;
+  margin-bottom: 1.5rem; padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border-dim);
+}
+```
+
+**Rule**: views must NOT redefine `.kpi-row` `display`/`grid-template-columns` in scoped CSS.  
+Scoped `[data-v-xxx]` specificity wins over global, overriding the responsive `auto-fill` pattern.
+
+### ErrorBanner pattern
+
+All 10 views (`MainDashboard`, `CameraList`, `CameraDetail`, `DetectionList`, `DetectionDetail`,  
+`AnalyticsDashboard`, `RouteAnalysis`, `RouteDetail`, `ConvoyDetection`, `SystemEvents`) follow:
+
+```javascript
+// 1. Import + register
+import ErrorBanner from '@/components/shared/ErrorBanner.vue';
+components: { ..., ErrorBanner }
+
+// 2. Template — replaces inline <div class="error-banner">
+<ErrorBanner :message="error" @retry="retry" />          // or store.error
+
+// 3. Methods
+retry() { this.fetchXxx(); }   // specific to each view
+```
+
+Retry targets per view:
+
+| View | Retry calls |
+|------|------------|
+| MainDashboard | `loadAll()` |
+| CameraList | `store.fetchEdgeStatus()` |
+| CameraDetail | `loadAll()` |
+| DetectionList | `store.fetchFiltered()` |
+| DetectionDetail | `load()` |
+| AnalyticsDashboard | `store.fetchAll()` |
+| RouteAnalysis | `store.fetchDetections()` |
+| RouteDetail | `store.fetchDetections()` |
+| ConvoyDetection | `fetchDetections()` |
+| SystemEvents | `fetchEvents()` |
+
+---
+
+## 19. Nginx Configuration
 
 **File**: `/etc/nginx/sites-available/lprserver`
 
@@ -850,7 +940,7 @@ server {
 
 ---
 
-## 19. Development Workflow
+## 20. Development Workflow
 
 ### Standard cycle (Mac → GitHub → lprserver)
 
@@ -904,7 +994,7 @@ curl http://localhost:3000/server/api/detections/<uuid>
 
 ---
 
-## 20. Known Issues and Gotchas
+## 21. Known Issues and Gotchas
 
 | Issue | Root cause | Fix applied |
 |-------|-----------|------------|
@@ -921,7 +1011,7 @@ curl http://localhost:3000/server/api/detections/<uuid>
 
 ---
 
-## 21. Phase Roadmap
+## 22. Phase Roadmap
 
 | Phase | View(s) | Key features | Status |
 |-------|---------|-------------|--------|
@@ -933,7 +1023,7 @@ curl http://localhost:3000/server/api/detections/<uuid>
 | F | RouteAnalysis, RouteDetail | Trip algorithm (2h gap), camera flow SVG (F3), node chain SVG (F5), routes.store | ✅ Done |
 | G | ConvoyDetection | Sliding-window convoy algorithm, parallel timeline SVG | ✅ Done |
 | H | Settings, SystemEvents, EdgeControl | 4-tab settings (localStorage), SystemEvents log, EdgeControl/Camera design token migration | ✅ Done |
-| I | All | Responsive layout, error states + retry everywhere | 🔲 |
+| I | All views | Mobile sidebar (hamburger + overlay), global kpi-row + page-header, ErrorBanner + retry in all 10 views | ✅ Done |
 
 ### Stores (all created)
 
