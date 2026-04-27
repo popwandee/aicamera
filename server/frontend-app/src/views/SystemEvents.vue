@@ -112,16 +112,18 @@
 
     </template>
 
-    <div v-if="error" class="error-banner">⚠ {{ error }}</div>
+    <ErrorBanner :message="error" @retry="retry" />
 
   </div>
 </template>
 
 <script>
-import api from '@/api/index.js';
+import api          from '@/api/index.js';
+import ErrorBanner  from '@/components/shared/ErrorBanner.vue';
 
 export default {
   name: 'SystemEvents',
+  components: { ErrorBanner },
 
   data() {
     return {
@@ -161,6 +163,8 @@ export default {
   },
 
   methods: {
+    retry() { this.fetchEvents(); },
+
     async fetchEvents() {
       this.loading = true;
       this.error   = null;
@@ -370,13 +374,4 @@ export default {
 .text-secondary { color: var(--text-secondary); }
 .text-muted     { color: var(--text-muted); }
 
-.error-banner {
-  margin-top: 1rem;
-  padding: 0.75rem 1rem;
-  background: var(--red-dim);
-  border: 1px solid rgba(255,61,87,0.3);
-  border-radius: var(--radius-md);
-  color: var(--red);
-  font-size: 13px;
-}
 </style>

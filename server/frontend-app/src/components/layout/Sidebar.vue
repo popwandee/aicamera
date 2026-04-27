@@ -51,6 +51,9 @@
     <div class="sidebar-footer">
       <span class="footer-text">PWD Vision Works</span>
     </div>
+
+    <!-- Close button: visible only on mobile -->
+    <button class="sidebar-close" @click="$emit('close')" aria-label="Close navigation">✕</button>
   </aside>
 </template>
 
@@ -61,6 +64,7 @@ import { useSocket } from '@/composables/useSocket.js';
 export default {
   name: 'AppSidebar',
   components: { StatusDot },
+  emits: ['close'],
   setup() {
     const { connected } = useSocket();
     return { connected };
@@ -165,4 +169,26 @@ export default {
   border-top: 1px solid var(--border-dim);
 }
 .footer-text { font-size: 10px; color: var(--text-muted); letter-spacing: 0.08em; }
+
+/* Mobile close button */
+.sidebar-close {
+  display: none;
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  background: none;
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 3px 8px;
+  cursor: pointer;
+  transition: color var(--transition), border-color var(--transition);
+}
+.sidebar-close:hover { color: var(--text-primary); border-color: var(--border-card); }
+
+@media (max-width: 767px) {
+  .sidebar { position: relative; }  /* allow absolute positioning of close btn */
+  .sidebar-close { display: block; }
+}
 </style>

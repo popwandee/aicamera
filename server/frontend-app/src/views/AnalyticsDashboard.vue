@@ -120,7 +120,7 @@
       </table>
     </div>
 
-    <div v-if="store.error" class="error-banner">⚠ {{ store.error }}</div>
+    <ErrorBanner :message="store.error" @retry="retry" />
 
   </div>
 </template>
@@ -134,8 +134,9 @@ import {
   BarElement,
   Tooltip,
 } from 'chart.js';
-import MetricCard from '@/components/shared/MetricCard.vue';
-import PlateTag   from '@/components/shared/PlateTag.vue';
+import MetricCard   from '@/components/shared/MetricCard.vue';
+import PlateTag     from '@/components/shared/PlateTag.vue';
+import ErrorBanner  from '@/components/shared/ErrorBanner.vue';
 import { useAnalyticsStore } from '@/stores/analytics.store.js';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip);
@@ -153,7 +154,7 @@ const TIP    = {
 
 export default {
   name: 'AnalyticsDashboard',
-  components: { Bar, MetricCard, PlateTag },
+  components: { Bar, MetricCard, PlateTag, ErrorBanner },
 
   setup() {
     return { store: useAnalyticsStore() };
@@ -301,6 +302,8 @@ export default {
       return { background: `rgba(0,200,255,${alpha})`, border: '1px solid rgba(0,200,255,0.12)' };
     },
 
+    retry() { this.store.fetchAll(); },
+
     // E6: % of loaded detections for top-plates table
     detectionPct(count) {
       const total = this.store.detections.length;
@@ -333,13 +336,6 @@ export default {
 .page-desc { font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
 
 /* KPI row */
-.kpi-row {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 1rem;
-  margin-bottom: 1.5rem;
-}
-
 /* Section panels */
 .section-panel { margin-bottom: 1.5rem; }
 .section-head {
@@ -479,13 +475,7 @@ export default {
   border-radius: 3px;
 }
 
-.error-banner {
-  margin-top: 1rem;
-  padding: 0.75rem 1rem;
-  background: var(--red-dim);
-  border: 1px solid rgba(255,61,87,0.3);
-  border-radius: var(--radius-md);
-  color: var(--red);
-  font-size: 13px;
+@media (max-width: 760px) {
+  .grid-2col { grid-template-columns: 1fr; }
 }
 </style>

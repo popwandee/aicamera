@@ -77,7 +77,7 @@
       <div class="skeleton-row" v-for="n in 4" :key="n" />
     </div>
 
-    <div v-if="error" class="error-banner">⚠ {{ error }}</div>
+    <ErrorBanner :message="error" @retry="retry" />
 
     <!-- Register modal -->
     <RegisterCameraModal
@@ -108,11 +108,12 @@
 <script>
 import StatusDot           from '@/components/shared/StatusDot.vue';
 import RegisterCameraModal from '@/components/cameras/RegisterCameraModal.vue';
+import ErrorBanner         from '@/components/shared/ErrorBanner.vue';
 import { useCamerasStore } from '@/stores/cameras.store.js';
 
 export default {
   name: 'CameraList',
-  components: { StatusDot, RegisterCameraModal },
+  components: { StatusDot, RegisterCameraModal, ErrorBanner },
   data() {
     return {
       search:       '',
@@ -142,6 +143,8 @@ export default {
     this.store.fetchEdgeStatus();
   },
   methods: {
+    retry() { this.store.fetchEdgeStatus(); },
+
     cameraStatus(item) {
       if (!item.latestHealth) return 'unknown';
       const s = (item.latestHealth.status || '').toLowerCase();
@@ -316,13 +319,4 @@ export default {
 .btn-danger:hover { background: var(--red-dim); }
 .btn-danger:disabled { opacity: 0.5; cursor: not-allowed; }
 
-.error-banner {
-  margin-top: 1rem;
-  padding: 0.75rem 1rem;
-  background: var(--red-dim);
-  border: 1px solid rgba(255,61,87,0.3);
-  border-radius: var(--radius-md);
-  color: var(--red);
-  font-size: 13px;
-}
 </style>

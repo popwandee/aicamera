@@ -67,7 +67,7 @@
     </div>
     <div v-else class="skeleton-feed panel" />
 
-    <div v-if="error" class="error-banner">⚠ {{ error }}</div>
+    <ErrorBanner :message="error" @retry="retry" />
   </div>
 </template>
 
@@ -75,12 +75,13 @@
 import MetricCard   from '@/components/shared/MetricCard.vue';
 import StatusDot    from '@/components/shared/StatusDot.vue';
 import HourlyChart  from '@/components/charts/HourlyChart.vue';
+import ErrorBanner  from '@/components/shared/ErrorBanner.vue';
 import api          from '@/api/index.js';
 import { useSocket } from '@/composables/useSocket.js';
 
 export default {
   name: 'MainDashboard',
-  components: { MetricCard, StatusDot, HourlyChart },
+  components: { MetricCard, StatusDot, HourlyChart, ErrorBanner },
   data() {
     return {
       cameras: [],
@@ -116,6 +117,8 @@ export default {
     clearInterval(this.refreshTimer);
   },
   methods: {
+    retry() { this.loadAll(); },
+
     async loadAll() {
       this.loading = true;
       try {
@@ -206,14 +209,6 @@ export default {
   font-size: 1.1rem;
   color: var(--cyan-dim);
   letter-spacing: 0.08em;
-}
-
-/* KPI */
-.kpi-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 1rem;
-  margin-bottom: 1.75rem;
 }
 
 /* Camera grid */
@@ -313,13 +308,4 @@ export default {
 }
 @keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
 
-.error-banner {
-  margin-top: 1rem;
-  padding: 0.75rem 1rem;
-  background: var(--red-dim);
-  border: 1px solid rgba(255,61,87,0.3);
-  border-radius: var(--radius-md);
-  color: var(--red);
-  font-size: 13px;
-}
 </style>

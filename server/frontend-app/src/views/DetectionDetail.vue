@@ -86,7 +86,7 @@
       </div>
     </div>
 
-    <div v-if="error" class="error-banner">⚠ {{ error }}</div>
+    <ErrorBanner :message="error" @retry="retry" />
 
     <!-- Image viewer modal -->
     <ImageViewer
@@ -107,11 +107,12 @@
 import PlateTag      from '@/components/shared/PlateTag.vue';
 import ConfidenceBar from '@/components/shared/ConfidenceBar.vue';
 import ImageViewer   from '@/components/shared/ImageViewer.vue';
+import ErrorBanner   from '@/components/shared/ErrorBanner.vue';
 import api           from '@/api/index.js';
 
 export default {
   name: 'DetectionDetail',
-  components: { PlateTag, ConfidenceBar, ImageViewer },
+  components: { PlateTag, ConfidenceBar, ImageViewer, ErrorBanner },
   props: { id: { type: String, required: true } },
   data() {
     return {
@@ -138,6 +139,8 @@ export default {
     this.load();
   },
   methods: {
+    retry() { this.load(); },
+
     async load() {
       this.loading = true;
       try {
@@ -297,13 +300,4 @@ export default {
   font-size: 12px;
 }
 
-.error-banner {
-  margin-top: 1rem;
-  padding: 0.75rem 1rem;
-  background: var(--red-dim);
-  border: 1px solid rgba(255,61,87,0.3);
-  border-radius: var(--radius-md);
-  color: var(--red);
-  font-size: 13px;
-}
 </style>

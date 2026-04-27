@@ -117,3 +117,31 @@ body {
 }
 .btn:hover { background: rgba(0,200,255,0.08); box-shadow: var(--cyan-glow); }
 .btn-primary { background: rgba(0,200,255,0.15); }
+
+/* ── Responsive Helpers ──────────────────────────────────────── */
+
+/* KPI grid — shared across Dashboard, Analytics, Routes, Convoy, etc.
+   Views must NOT redefine display/grid-template-columns in scoped style
+   so the responsive media queries below take effect. */
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+/* Page headers that carry a right-side action wrap on small screens */
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border-dim);
+}
+
+@media (max-width: 640px) {
+  .page-header { padding-bottom: 0.75rem; }
+}

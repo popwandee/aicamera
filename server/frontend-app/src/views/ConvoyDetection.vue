@@ -219,14 +219,15 @@
       </template>
     </template>
 
-    <div v-if="error" class="error-banner">⚠ {{ error }}</div>
+    <ErrorBanner :message="error" @retry="retry" />
 
   </div>
 </template>
 
 <script>
-import MetricCard from '@/components/shared/MetricCard.vue';
-import api        from '@/api/index.js';
+import MetricCard  from '@/components/shared/MetricCard.vue';
+import ErrorBanner from '@/components/shared/ErrorBanner.vue';
+import api         from '@/api/index.js';
 
 // Timeline SVG layout
 const LABEL_W    = 92;
@@ -310,7 +311,7 @@ function findConvoys(detections, windowMs, minCameras) {
 
 export default {
   name: 'ConvoyDetection',
-  components: { MetricCard },
+  components: { MetricCard, ErrorBanner },
 
   data() {
     return {
@@ -481,6 +482,8 @@ export default {
   },
 
   methods: {
+    retry() { this.fetchDetections(); },
+
     async fetchDetections() {
       this.loading = true;
       this.error   = null;
@@ -606,14 +609,6 @@ export default {
 }
 .ctrl-btn:hover { background: rgba(0,200,255,0.14); }
 
-/* KPI row */
-.kpi-row {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 1rem;
-  margin-bottom: 1.5rem;
-}
-
 /* Section panels */
 .section-panel { margin-bottom: 1.5rem; }
 .empty-panel { padding: 1.2rem 1.25rem; font-size: 13px; }
@@ -700,13 +695,4 @@ export default {
 .text-amber     { color: var(--amber); }
 .text-muted     { color: var(--text-muted); }
 
-.error-banner {
-  margin-top: 1rem;
-  padding: 0.75rem 1rem;
-  background: var(--red-dim);
-  border: 1px solid rgba(255,61,87,0.3);
-  border-radius: var(--radius-md);
-  color: var(--red);
-  font-size: 13px;
-}
 </style>

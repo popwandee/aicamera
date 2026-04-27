@@ -48,7 +48,7 @@
       </div>
     </div>
 
-    <div v-if="error" class="error-banner">⚠ {{ error }}</div>
+    <ErrorBanner :message="error" @retry="retry" />
 
     <!-- Tabs -->
     <div class="tab-bar">
@@ -196,14 +196,15 @@ import {
   LineElement, PointElement, Tooltip, Legend, Filler,
 } from 'chart.js';
 import { Line } from 'vue-chartjs';
-import StatusDot from '@/components/shared/StatusDot.vue';
+import StatusDot    from '@/components/shared/StatusDot.vue';
+import ErrorBanner  from '@/components/shared/ErrorBanner.vue';
 import api from '@/api/index.js';
 
 ChartJS.register(CategoryScale, LinearScale, LineElement, PointElement, Tooltip, Legend, Filler);
 
 export default {
   name: 'CameraDetail',
-  components: { StatusDot, Line },
+  components: { StatusDot, Line, ErrorBanner },
   props: { id: { type: String, required: true } },
   data() {
     return {
@@ -309,6 +310,8 @@ export default {
     this.loadAll();
   },
   methods: {
+    retry() { this.loadAll(); },
+
     async loadAll() {
       this.loading = true;
       try {
@@ -544,13 +547,4 @@ export default {
 }
 @keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
 
-.error-banner {
-  margin-bottom: 1rem;
-  padding: 0.75rem 1rem;
-  background: var(--red-dim);
-  border: 1px solid rgba(255,61,87,0.3);
-  border-radius: var(--radius-md);
-  color: var(--red);
-  font-size: 13px;
-}
 </style>

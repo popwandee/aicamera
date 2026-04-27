@@ -79,7 +79,7 @@
       <button class="page-btn" :disabled="!store.hasNext" @click="store.nextPage()">Next ›</button>
     </div>
 
-    <div v-if="store.error" class="error-banner">⚠ {{ store.error }}</div>
+    <ErrorBanner :message="store.error" @retry="retry" />
   </div>
 </template>
 
@@ -87,6 +87,7 @@
 import FilterBar        from '@/components/shared/FilterBar.vue';
 import PlateTag         from '@/components/shared/PlateTag.vue';
 import ConfidenceBar    from '@/components/shared/ConfidenceBar.vue';
+import ErrorBanner      from '@/components/shared/ErrorBanner.vue';
 import { useDetectionsStore } from '@/stores/detections.store.js';
 import { useCamerasStore }    from '@/stores/cameras.store.js';
 import { useSocket }          from '@/composables/useSocket.js';
@@ -94,7 +95,7 @@ import api from '@/api/index.js';
 
 export default {
   name: 'DetectionList',
-  components: { FilterBar, PlateTag, ConfidenceBar },
+  components: { FilterBar, PlateTag, ConfidenceBar, ErrorBanner },
   data() {
     return {
       cameras:  [],
@@ -117,6 +118,8 @@ export default {
     this.socket.on('message_saved', () => { this.newCount++; });
   },
   methods: {
+    retry() { this.store.fetchFiltered(); },
+
     async loadCameras() {
       try {
         this.cameras = await api.getCameras();
@@ -291,12 +294,4 @@ export default {
 .page-btn:disabled { opacity: 0.35; cursor: not-allowed; }
 .page-info { font-size: 12px; color: var(--text-secondary); }
 
-.error-banner {
-  margin-top: 1rem;
-  padding: 0.75rem 1rem;
-  background: var(--red-dim);
-  border: 1px solid rgba(255,61,87,0.3);
-  border-radius: var(--radius-md);
-  color: var(--red); font-size: 13px;
-}
 </style>

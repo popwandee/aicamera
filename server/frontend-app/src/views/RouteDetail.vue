@@ -154,14 +154,15 @@
 
     </template>
 
-    <div v-if="store.error" class="error-banner">⚠ {{ store.error }}</div>
+    <ErrorBanner :message="store.error" @retry="retry" />
 
   </div>
 </template>
 
 <script>
-import MetricCard from '@/components/shared/MetricCard.vue';
-import PlateTag   from '@/components/shared/PlateTag.vue';
+import MetricCard   from '@/components/shared/MetricCard.vue';
+import PlateTag     from '@/components/shared/PlateTag.vue';
+import ErrorBanner  from '@/components/shared/ErrorBanner.vue';
 import { useRoutesStore } from '@/stores/routes.store.js';
 
 // Node chain layout constants
@@ -172,7 +173,7 @@ const PAD = 30;    // left/right padding
 
 export default {
   name: 'RouteDetail',
-  components: { MetricCard, PlateTag },
+  components: { MetricCard, PlateTag, ErrorBanner },
   props: {
     routeKey: { type: String, required: true },
   },
@@ -247,6 +248,8 @@ export default {
   },
 
   methods: {
+    retry() { this.store.fetchDetections(); },
+
     shortCam(id) {
       if (!id) return '??';
       const m = id.match(/(\d+)$/);
@@ -317,14 +320,6 @@ export default {
   margin-bottom: 6px;
 }
 .page-desc { font-size: 12px; color: var(--text-secondary); }
-
-/* KPI row */
-.kpi-row {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 1rem;
-  margin-bottom: 1.5rem;
-}
 
 /* Panels */
 .section-panel { margin-bottom: 1.5rem; }
@@ -400,16 +395,6 @@ export default {
 .empty-msg { font-size: 12px; padding: 1rem 0; }
 .text-secondary { color: var(--text-secondary); }
 .text-amber     { color: var(--amber); }
-
-.error-banner {
-  margin-top: 1rem;
-  padding: 0.75rem 1rem;
-  background: var(--red-dim);
-  border: 1px solid rgba(255,61,87,0.3);
-  border-radius: var(--radius-md);
-  color: var(--red);
-  font-size: 13px;
-}
 
 .skeleton-chart {
   background: linear-gradient(
