@@ -883,27 +883,23 @@ class CameraHandler:
                 from picamera2.outputs import CircularOutput
                 from picamera2.encoders import H264Encoder
                 
-                try:
-                    # Try H.264 encoder first (more efficient)
-                    #if H264Encoder._hw_encoder_available:
-                    #    self.h264_encoder = H264Encoder(bitrate=1000000, quality=85)  # 1Mbps, quality 85
-                    #    self.h264_output = CircularOutput(size=10)
-                    #    self.h264_encoder.output = self.h264_output
-                    #    self.logger.info("Hardware H.264 encoder initialized successfully")
-                    #    self.primary_encoder = "h264"
-                    if MJPEGEncoder._hw_encoder_available:
-                        self.mjpeg_encoder = MJPEGEncoder(bitrate=2000000, quality=85)  # 2Mbps, quality 85
+                # picamera2 ≥0.3.19 replaced MJPEGEncoder with LibavMjpegEncoder (software).
+                # LibavMjpegEncoder does not have _hw_encoder_available — use hasattr() guard.
+                hw_mjpeg = getattr(MJPEGEncoder, '_hw_encoder_available', False)
+                if hw_mjpeg:
+                    try:
+                        self.mjpeg_encoder = MJPEGEncoder(bitrate=2000000, quality=85)
                         self.mjpeg_output = CircularOutput(size=10)
                         self.mjpeg_encoder.output = self.mjpeg_output
-                        self.logger.info("Hardware MJPEG encoder initialized successfully")
+                        self.logger.info("Hardware MJPEG encoder initialized")
                         self.primary_encoder = "mjpeg"
-                    else:
-                        self.logger.warning("No hardware encoders available, will use software encoding")
+                    except Exception as e:
+                        self.logger.debug(f"Hardware MJPEG encoder unavailable: {e} — using software")
                         self.h264_encoder = None
                         self.mjpeg_encoder = None
                         self.primary_encoder = "software"
-                except Exception as e:
-                    self.logger.warning(f"Failed to initialize hardware encoders: {e}")
+                else:
+                    self.logger.debug("MJPEGEncoder is software-backed (LibavMjpegEncoder) — using software encoding")
                     self.h264_encoder = None
                     self.mjpeg_encoder = None
                     self.primary_encoder = "software"
@@ -1158,12 +1154,13 @@ class CameraHandler:
                 )
                 return True
             
-            self.logger.warning(
-                "Focus health check failed (attempt %s/%s). FoM range %.0f-%.0f, variation=%.1f. Re-triggering autofocus...",
+            self.logger.info(
+                "Focus health attempt %s/%s: FoM %.0f-%.0f (need ≥%d), variation=%.1f. Re-triggering autofocus...",
                 attempt + 1,
                 attempts,
                 metrics.get('fom_min', 0.0),
                 metrics.get('fom_max', 0.0),
+                FOCUS_HEALTH_MIN_FOM,
                 metrics.get('variation', 0.0)
             )
             self._trigger_and_wait_autofocus(

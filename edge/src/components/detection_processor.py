@@ -187,6 +187,7 @@ class DetectionProcessor:
         # State tracking
         self.logger.info("🔍 [DETECTION_PROC] Setting up state tracking...")
         self.models_loaded = False
+        self._hailo_reinit_pending = False  # True while background reinit is in progress
         self.processing_stats = {
             'total_processed': 0,
             'vehicles_detected': 0,
@@ -342,14 +343,15 @@ class DetectionProcessor:
                 self.logger.info("🔧 [DETECTION_PROC] No OCR model configured - skipping")
             
             # Start asynchronous EasyOCR loading (non-blocking)
+            # Skip if already loading or ready (safe to call load_models() multiple times, e.g. after Hailo reinit)
             self.logger.info("🔧 [DETECTION_PROC] Starting asynchronous EasyOCR loading...")
             try:
-                self.logger.info("🔧 [DETECTION_PROC] 🚀 Starting asynchronous EasyOCR loading...")
-                if self.async_ocr_loader.start_loading():
+                if self.async_ocr_loader.is_ready() or self.async_ocr_loader.is_loading():
+                    self.logger.debug("🔧 [DETECTION_PROC] EasyOCR already loaded/loading — skipping")
+                elif self.async_ocr_loader.start_loading():
                     self.logger.info("🔧 [DETECTION_PROC] ✅ EasyOCR loading started in background")
-                    # Don't increment models_loaded here - OCR will be available later
                 else:
-                    self.logger.warning("🔧 [DETECTION_PROC] EasyOCR loading already in progress or failed to start")
+                    self.logger.warning("🔧 [DETECTION_PROC] EasyOCR failed to start loading")
             except Exception as e:
                 self.logger.warning(f"🔧 [DETECTION_PROC] Failed to start EasyOCR loading: {e}")
             
@@ -377,10 +379,47 @@ class DetectionProcessor:
             self.logger.error(f"🔧 [DETECTION_PROC] Error loading models: {e}")
             return False
     
+    def _trigger_hailo_reinit(self):
+        """
+        Recover from HAILO_STREAM_ABORT by reloading all Hailo models in a background thread.
+        The VDMA ring enters an aborted state after an unclean worker exit; closing and
+        reopening the model handles is the only way to get a clean ring without a full
+        service restart. Runs once per abort event — subsequent calls are no-ops while
+        reinit is in progress.
+        """
+        if self._hailo_reinit_pending:
+            return
+
+        self._hailo_reinit_pending = True
+        self.models_loaded = False
+        self.vehicle_model = None
+        self.lp_detection_model = None
+        self.lp_ocr_model = None
+        self.logger.error(
+            "HAILO_STREAM_ABORT detected — Hailo VDMA ring is in aborted state. "
+            "Scheduling model reinitialisation in 10s..."
+        )
+
+        def _reinit():
+            time.sleep(10)
+            try:
+                self.logger.info("Hailo reinit: starting load_models()...")
+                success = self.load_models()
+                if success:
+                    self.logger.info("Hailo reinit: models reloaded successfully — inference resuming")
+                else:
+                    self.logger.error("Hailo reinit: load_models() failed — service restart required")
+            except Exception as exc:
+                self.logger.error(f"Hailo reinit: exception during reload: {exc}")
+            finally:
+                self._hailo_reinit_pending = False
+
+        threading.Thread(target=_reinit, name="HailoReinit", daemon=True).start()
+
     def get_ocr_status(self) -> Dict[str, Any]:
         """
         Get current OCR loading and usage status.
-        
+
         Returns:
             Dict containing OCR status information
         """
@@ -751,13 +790,17 @@ class DetectionProcessor:
             return filtered_boxes, mapping_info
             
         except Exception as e:
-            self.rate_limited.warning_rate_limited(
-                "vehicle_detection_error",
-                f"Vehicle detection error: {e}",
-                interval=30.0
-            )
+            err_str = str(e)
+            if "HAILO_STREAM_ABORT" in err_str or "STREAM_ABORT" in err_str:
+                self._trigger_hailo_reinit()
+            else:
+                self.rate_limited.warning_rate_limited(
+                    "vehicle_detection_error",
+                    f"Vehicle detection error: {e}",
+                    interval=30.0
+                )
             return [], {}
-    
+
     def detect_license_plates(self, frame: np.ndarray, vehicle_boxes: List[Dict], mapping_info: Dict[str, Any] = None) -> List[Dict[str, Any]]:
         """
         Detect license plates within detected vehicles.

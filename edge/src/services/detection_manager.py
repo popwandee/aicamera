@@ -214,7 +214,7 @@ class DetectionManager:
             bool: True if started successfully, False otherwise
         """
         if self.is_running:
-            self.logger.warning("Detection service already running")
+            self.logger.debug("Detection service already running")
             return True
         
         try:

@@ -232,7 +232,23 @@ def streaming_status():
 
 def register_websocket_events(socketio):
     """Register WebSocket events for general WebSocket functionality."""
-    
+
+    # dashboard.js connects to the /dashboard namespace for real-time updates.
+    # Without this handler Engine.IO rejects the namespace with "Unable to connect",
+    # which logs Session is disconnected errors on every startup.
+    @socketio.on('connect', namespace='/dashboard')
+    def handle_dashboard_connect():
+        emit('connection_response', {
+            'success': True,
+            'message': 'Connected to AI Camera dashboard',
+        }, namespace='/dashboard')
+
+    @socketio.on('join_dashboard_room', namespace='/dashboard')
+    def handle_join_dashboard_room():
+        from flask_socketio import join_room
+        join_room('dashboard')
+        emit('dashboard_room_joined', {'success': True}, namespace='/dashboard')
+
     @socketio.on('websocket_status_request')
     def handle_websocket_status_request():
         """Handle WebSocket status request from client."""
