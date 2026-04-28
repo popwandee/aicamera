@@ -161,28 +161,36 @@ export class BackendApiService {
     payload: HealthStatusPayload,
   ): Promise<{ id: string }> {
     const timestamp = payload.timestamp || payload.created_at || new Date().toISOString();
+
+    // Parse details string — edge encodes component metrics inside a JSON 'details' field
+    let parsedDetails: Record<string, unknown> = {};
+    if (typeof payload.details === 'string') {
+      try { parsedDetails = JSON.parse(payload.details) as Record<string, unknown>; } catch { /* ignore */ }
+    } else if (payload.details && typeof payload.details === 'object') {
+      parsedDetails = payload.details as Record<string, unknown>;
+    }
+
+    const cpuUsageVal = typeof parsedDetails.cpu_percent === 'number' ? parsedDetails.cpu_percent : undefined;
+    const memUsageVal = typeof parsedDetails.ram_percent === 'number' ? parsedDetails.ram_percent : undefined;
+    const tempVal     = typeof parsedDetails.cpu_temp === 'number'    ? parsedDetails.cpu_temp    : undefined;
+
     const metadata: Record<string, unknown> = {
       component: payload.component,
       message: payload.message,
-      details: payload.details ?? {},
+      details: Object.keys(parsedDetails).length ? parsedDetails : (payload.details ?? {}),
     };
-    try {
-      if (typeof metadata.details === 'string') {
-        try {
-          metadata.details = JSON.parse(metadata.details as string);
-        } catch {
-          // keep as string
-        }
-      }
-    } catch {
-      // ignore
-    }
-    const { data } = await this.client.post<{ id: string }>('/camera-health', {
+
+    const body: Record<string, unknown> = {
       cameraId: cameraIdUuid,
       timestamp,
       status: payload.status,
       metadata,
-    });
+    };
+    if (cpuUsageVal != null) body['cpuUsage']    = cpuUsageVal;
+    if (memUsageVal != null) body['memoryUsage'] = memUsageVal;
+    if (tempVal     != null) body['temperature'] = tempVal;
+
+    const { data } = await this.client.post<{ id: string }>('/camera-health', body);
     return data;
   }
 }

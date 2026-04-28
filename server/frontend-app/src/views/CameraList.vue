@@ -49,7 +49,7 @@
             </td>
             <td class="font-data cam-id">{{ item.camera.cameraId }}</td>
             <td class="cam-name">{{ item.camera.name || '—' }}</td>
-            <td class="text-secondary">{{ item.camera.location || '—' }}</td>
+            <td class="text-secondary">{{ item.camera.locationAddress || '—' }}</td>
             <td class="font-data text-muted">{{ item.camera.ip || '—' }}</td>
             <td class="col-num font-data" :class="tempClass(item.latestHealth?.temperature)">
               {{ fmtTemp(item.latestHealth?.temperature) }}
@@ -134,8 +134,8 @@ export default {
       const q = this.search.toLowerCase();
       return this.store.edgeStatus.filter(item => {
         if (!q) return true;
-        const { cameraId = '', name = '', location = '' } = item.camera;
-        return (cameraId + name + location).toLowerCase().includes(q);
+        const { cameraId = '', name = '', locationAddress = '' } = item.camera;
+        return (cameraId + name + locationAddress).toLowerCase().includes(q);
       });
     },
   },

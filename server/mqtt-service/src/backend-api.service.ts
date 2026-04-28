@@ -68,12 +68,25 @@ export class BackendApiService {
   ): Promise<{ id: string }> {
     const timestamp = payload.timestamp || new Date().toISOString();
 
-    // Resolve field values — accept both standard and aicamera2 edge field names
-    const cpuUsageVal = payload.cpu_percent ?? payload.cpu_usage;
-    const memUsageVal = payload.memory_percent ?? payload.memory_usage;
-    const tempVal = payload.temperature_c ?? payload.cpu_temp;
+    // Parse details string — edge sends component metrics (cpu_percent, ram_percent, cpu_temp)
+    // inside a JSON-encoded 'details' field rather than as top-level payload fields.
+    let parsedDetails: Record<string, unknown> = {};
+    if (typeof payload.details === 'string') {
+      try { parsedDetails = JSON.parse(payload.details) as Record<string, unknown>; } catch { /* ignore */ }
+    } else if (payload.details && typeof payload.details === 'object') {
+      parsedDetails = payload.details as Record<string, unknown>;
+    }
+
+    // Resolve field values — top-level fields first, then fall back to parsed details
+    const cpuUsageVal = payload.cpu_percent ?? payload.cpu_usage ??
+      (typeof parsedDetails.cpu_percent === 'number' ? parsedDetails.cpu_percent : undefined);
+    const memUsageVal = payload.memory_percent ?? payload.memory_usage ??
+      (typeof parsedDetails.ram_percent === 'number' ? parsedDetails.ram_percent : undefined);
+    const tempVal = payload.temperature_c ?? payload.cpu_temp ??
+      (typeof parsedDetails.cpu_temp === 'number' ? parsedDetails.cpu_temp : undefined);
     const uptimeVal = payload.uptime_seconds ?? payload.uptime;
-    const diskUsageVal = payload.disk_usage;
+    const diskUsageVal = payload.disk_usage ??
+      (typeof parsedDetails.used_percent === 'number' ? parsedDetails.used_percent : undefined);
 
     const status =
       payload.status ||

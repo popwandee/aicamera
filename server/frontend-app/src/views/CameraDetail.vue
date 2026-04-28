@@ -22,7 +22,7 @@
       <div class="header-meta">
         <div class="meta-item">
           <span class="meta-label">Location</span>
-          <span class="meta-val">{{ camera.location || '—' }}</span>
+          <span class="meta-val">{{ camera.locationAddress || '—' }}</span>
         </div>
         <div class="meta-item">
           <span class="meta-label">IP</span>
