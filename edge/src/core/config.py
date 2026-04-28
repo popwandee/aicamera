@@ -67,6 +67,7 @@ WEBSOCKET_SERVER_URL = os.getenv("WEBSOCKET_SERVER_URL")
 # AI Camera Identification - Can be overridden via environment variables
 AICAMERA_ID = os.getenv("AICAMERA_ID", "1")
 CHECKPOINT_ID = os.getenv("CHECKPOINT_ID", "1")
+CAMERA_NAME = os.getenv("CAMERA_NAME", "")
 LOCATION_LAT = os.getenv("LOCATION_LAT", "13.729610")
 LOCATION_LON = os.getenv("LOCATION_LON", "100.501443")
 CAMERA_LOCATION = os.getenv("CAMERA_LOCATION", "Main Entrance")

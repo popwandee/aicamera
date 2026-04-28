@@ -51,7 +51,16 @@ export class DeviceController {
 
   @Post('cameras/register')
   async registerCamera(
-    @Body() body: { camera_id: string; checkpoint_id: string; timestamp?: string },
+    @Body()
+    body: {
+      camera_id: string;
+      checkpoint_id: string;
+      camera_name?: string;
+      camera_location?: string;
+      location_lat?: string;
+      location_lon?: string;
+      timestamp?: string;
+    },
   ) {
     return this.deviceService.registerCameraOrGet(body);
   }

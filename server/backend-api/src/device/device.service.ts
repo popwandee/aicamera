@@ -155,13 +155,31 @@ export class DeviceService {
   async registerCameraOrGet(payload: {
     camera_id: string;
     checkpoint_id: string;
+    camera_name?: string;
+    camera_location?: string;
+    location_lat?: string;
+    location_lon?: string;
     timestamp?: string;
   }): Promise<Camera> {
+    const resolvedName = payload.camera_name?.trim() || payload.checkpoint_id || payload.camera_id;
     const existing = await this.findCameraByCameraId(payload.camera_id);
-    if (existing) return existing;
+    if (existing) {
+      const updates: Partial<Camera> = {};
+      if (resolvedName && resolvedName !== existing.name) updates.name = resolvedName;
+      if (payload.camera_location) updates.locationAddress = payload.camera_location;
+      if (payload.location_lat) updates.locationLat = payload.location_lat;
+      if (payload.location_lon) updates.locationLng = payload.location_lon;
+      if (Object.keys(updates).length > 0) {
+        return this.updateCamera(existing.id, updates);
+      }
+      return existing;
+    }
     return this.createCamera({
       cameraId: payload.camera_id,
-      name: payload.checkpoint_id || payload.camera_id,
+      name: resolvedName,
+      locationAddress: payload.camera_location || null,
+      locationLat: payload.location_lat || null,
+      locationLng: payload.location_lon || null,
     });
   }
 

@@ -14,6 +14,10 @@ function normalizeBackendApiBaseUrl(input: string): string {
 export interface CameraRegisterPayload {
   camera_id: string;
   checkpoint_id: string;
+  camera_name?: string;
+  camera_location?: string;
+  location_lat?: string;
+  location_lon?: string;
   timestamp?: string;
 }
 

@@ -34,7 +34,7 @@ from edge.src.core.config import (
     WEBSOCKET_SERVER_URL, SENDER_INTERVAL,
     WEBSOCKET_SENDER_ENABLED, WEBSOCKET_CONNECTION_TIMEOUT, 
     WEBSOCKET_RETRY_INTERVAL, WEBSOCKET_MAX_RETRIES,
-    AICAMERA_ID, CHECKPOINT_ID
+    AICAMERA_ID, CHECKPOINT_ID, CAMERA_NAME, CAMERA_LOCATION, LOCATION_LAT, LOCATION_LON
 )
 
 # Use dedicated communication logger to write into edge/logs/unified_comm.log
@@ -89,6 +89,10 @@ class WebSocketSender:
         # AI Camera Identification
         self.aicamera_id = AICAMERA_ID
         self.checkpoint_id = CHECKPOINT_ID
+        self.camera_name = CAMERA_NAME or AICAMERA_ID
+        self.camera_location = CAMERA_LOCATION
+        self.location_lat = LOCATION_LAT
+        self.location_lon = LOCATION_LON
         self.logger.info("WebSocketSender Started")
     
     def initialize(self) -> bool:
@@ -311,10 +315,14 @@ class WebSocketSender:
                 self.connected = True
                 self.retry_count = 0
                 
-                # Register camera
+                # Register camera with full metadata so backend can update name/location
                 self.sio.emit('camera_register', {
                     'camera_id': self.aicamera_id,
                     'checkpoint_id': self.checkpoint_id,
+                    'camera_name': self.camera_name,
+                    'camera_location': self.camera_location,
+                    'location_lat': self.location_lat,
+                    'location_lon': self.location_lon,
                     'timestamp': datetime.now().isoformat()
                 })
                 

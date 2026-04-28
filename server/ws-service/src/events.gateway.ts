@@ -59,13 +59,25 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @SubscribeMessage('camera_register')
   async handleCameraRegister(
     @MessageBody()
-    payload: { camera_id: string; checkpoint_id: string; timestamp?: string },
+    payload: {
+      camera_id: string;
+      checkpoint_id: string;
+      camera_name?: string;
+      camera_location?: string;
+      location_lat?: string;
+      location_lon?: string;
+      timestamp?: string;
+    },
     @ConnectedSocket() client: any,
   ) {
     try {
       const camera = await this.backendApi.registerCamera({
         camera_id: payload.camera_id,
         checkpoint_id: payload.checkpoint_id,
+        camera_name: payload.camera_name,
+        camera_location: payload.camera_location,
+        location_lat: payload.location_lat,
+        location_lon: payload.location_lon,
         timestamp: payload.timestamp,
       });
       this.cameraIdToUuid.set(payload.camera_id, camera.id);
