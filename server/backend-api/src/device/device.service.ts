@@ -161,11 +161,12 @@ export class DeviceService {
     location_lon?: string;
     timestamp?: string;
   }): Promise<Camera> {
-    const resolvedName = payload.camera_name?.trim() || payload.checkpoint_id || payload.camera_id;
     const existing = await this.findCameraByCameraId(payload.camera_id);
     if (existing) {
       const updates: Partial<Camera> = {};
-      if (resolvedName && resolvedName !== existing.name) updates.name = resolvedName;
+      // Only update name when camera_name is explicitly provided by the edge (not a fallback)
+      const explicitName = payload.camera_name?.trim();
+      if (explicitName && explicitName !== existing.name) updates.name = explicitName;
       if (payload.camera_location) updates.locationAddress = payload.camera_location;
       if (payload.location_lat) updates.locationLat = payload.location_lat;
       if (payload.location_lon) updates.locationLng = payload.location_lon;
@@ -174,9 +175,10 @@ export class DeviceService {
       }
       return existing;
     }
+    const newName = payload.camera_name?.trim() || payload.checkpoint_id || payload.camera_id;
     return this.createCamera({
       cameraId: payload.camera_id,
-      name: resolvedName,
+      name: newName,
       locationAddress: payload.camera_location || null,
       locationLat: payload.location_lat || null,
       locationLng: payload.location_lon || null,
