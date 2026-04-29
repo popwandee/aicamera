@@ -123,16 +123,34 @@ class ParallelOCRProcessor:
             # Perform Hailo OCR
             hailo_results = self.hailo_ocr_model(plate_image)
             
-            if hailo_results and len(hailo_results) > 0:
-                # Extract the best result (highest confidence)
-                best_result = max(hailo_results, key=lambda x: x.confidence)
-                
+            if hailo_results:
+                if isinstance(hailo_results, dict):
+                    hailo_results = [hailo_results]
+
+                def _get_confidence(item):
+                    if hasattr(item, 'confidence'):
+                        return float(item.confidence)
+                    if isinstance(item, dict):
+                        return float(item.get('confidence', 0.0))
+                    return 0.0
+
+                def _get_text(item):
+                    if hasattr(item, 'text'):
+                        return str(item.text)
+                    if isinstance(item, dict):
+                        return str(item.get('text', ''))
+                    return str(item)
+
+                best_result = max(hailo_results, key=_get_confidence)
+                best_text = _get_text(best_result)
+                best_confidence = _get_confidence(best_result)
+
                 processing_time = time.time() - start_time
-                
+
                 return {
                     'success': True,
-                    'text': best_result.text,
-                    'confidence': float(best_result.confidence),
+                    'text': best_text,
+                    'confidence': best_confidence,
                     'processing_time': processing_time,
                     'method': 'hailo'
                 }

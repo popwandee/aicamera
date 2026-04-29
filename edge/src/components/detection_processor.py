@@ -931,13 +931,32 @@ class DetectionProcessor:
                 if self.lp_ocr_model:
                     try:
                         ocr_result = self.lp_ocr_model(plate_region)
-                        # Extract text from Hailo OCR result
-                        hailo_ocr_text = str(ocr_result)  # Adapt based on actual model output format
-                        hailo_ocr_confidence = 0.8  # Placeholder - extract actual confidence
-                        hailo_ocr_success = True
+                        hailo_ocr_text = ""
+                        hailo_ocr_confidence = 0.0
+
+                        if isinstance(ocr_result, dict):
+                            hailo_ocr_text = str(ocr_result.get('text', ''))
+                            hailo_ocr_confidence = float(ocr_result.get('confidence', 0.0))
+                        elif hasattr(ocr_result, 'text') and hasattr(ocr_result, 'confidence'):
+                            hailo_ocr_text = str(ocr_result.text)
+                            hailo_ocr_confidence = float(ocr_result.confidence)
+                        elif hasattr(ocr_result, '__iter__'):
+                            try:
+                                first_item = next(iter(ocr_result))
+                                if isinstance(first_item, dict):
+                                    hailo_ocr_text = str(first_item.get('text', ''))
+                                    hailo_ocr_confidence = float(first_item.get('confidence', 0.0))
+                                else:
+                                    hailo_ocr_text = str(first_item)
+                            except Exception:
+                                hailo_ocr_text = str(ocr_result)
+                        else:
+                            hailo_ocr_text = str(ocr_result)
+
+                        hailo_ocr_success = bool(hailo_ocr_text)
                     except Exception as e:
                         self.logger.debug(f"Hailo OCR failed for plate {i}: {e}")
-                
+
                 # Use parallel OCR processing (Hailo + EasyOCR simultaneously)
                 parallel_results = None
                 if self.parallel_ocr_processor:
@@ -991,11 +1010,28 @@ class DetectionProcessor:
                     else:
                         self.logger.debug(f"EasyOCR not available - skipping OCR for plate {i}")
                 
-                # Determine final OCR result (prefer Hailo OCR if available)
-                final_ocr_text = hailo_ocr_text if hailo_ocr_success else easyocr_text
-                final_ocr_confidence = hailo_ocr_confidence if hailo_ocr_success else easyocr_confidence
-                ocr_method = "hailo" if hailo_ocr_success else "easyocr" if easyocr_success else "none"
-                
+                # Determine final OCR result
+                final_ocr_text = ""
+                final_ocr_confidence = 0.0
+                ocr_method = "none"
+
+                if parallel_results:
+                    best_result = parallel_results.get('best_result', {})
+                    if best_result and best_result.get('success'):
+                        final_ocr_text = str(best_result.get('text', '')).strip()
+                        final_ocr_confidence = float(best_result.get('confidence', 0.0))
+                        ocr_method = best_result.get('method', 'parallel')
+
+                if not final_ocr_text:
+                    if hailo_ocr_success and hailo_ocr_text:
+                        final_ocr_text = hailo_ocr_text.strip()
+                        final_ocr_confidence = hailo_ocr_confidence
+                        ocr_method = "hailo"
+                    elif easyocr_success and easyocr_text:
+                        final_ocr_text = easyocr_text.strip()
+                        final_ocr_confidence = easyocr_confidence
+                        ocr_method = "easyocr"
+
                 if final_ocr_text:
                     self.logger.debug(f"🔧 [DETECTION_PROCESSOR] perform_ocr: plate {i} OCR successful with method: {ocr_method}, text: '{final_ocr_text.strip()}', confidence: {final_ocr_confidence:.3f}")
                     
