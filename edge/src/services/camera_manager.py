@@ -35,6 +35,25 @@ from edge.src.core.config import AUTO_START_CAMERA, AUTO_START_STREAMING, STARTU
 
 logger = get_logger(__name__)
 
+# ---------------------------------------------------------------------------
+# Picamera2 control constants (libcamera values – no import needed at runtime
+# because we pass these as plain ints through camera_handler.update_configuration)
+# ---------------------------------------------------------------------------
+# AfMode
+_AF_MODE_MANUAL     = 0
+_AF_MODE_AUTO       = 1
+_AF_MODE_CONTINUOUS = 2   # Continuous Autofocus – best for moving vehicles
+ 
+# AfSpeed
+_AF_SPEED_NORMAL = 0
+_AF_SPEED_FAST   = 1      # Faster AF convergence
+ 
+# AeMeteringMode
+_AE_METERING_CENTRE_WEIGHTED = 0   # Good default for road-centre LPR
+ 
+# AeExposureMode
+_AE_EXPOSURE_NORMAL = 0
+_AE_EXPOSURE_SPORT  = 1   # Prefers shorter shutter → less motion blur on plates
 
 class CameraManager:
     """
@@ -47,6 +66,7 @@ class CameraManager:
     - Status monitoring
     - Auto-start functionality (NEW)
     - Metadata tracking (NEW)
+    - LPR-optimised ISP auto-control setup (REFACTORED)
     
     Thread-safe: Uses CameraHandler's singleton pattern for safe camera access
     """
@@ -66,6 +86,79 @@ class CameraManager:
         self.manual_capture_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'manual_capture')
         os.makedirs(self.manual_capture_dir, exist_ok=True)
         self.logger.info(f"Manual capture directory: {self.manual_capture_dir}")
+    
+    # ------------------------------------------------------------------
+    # ISP Auto-Control helpers  (REFACTORED)
+    # ------------------------------------------------------------------
+ 
+    def _apply_lpr_auto_controls(self) -> bool:
+        """
+        Apply a minimal, LPR-optimised control set that hands image tuning
+        back to the camera's 3A (Auto-Exposure, Auto-White-Balance, AutoFocus)
+        algorithms.
+ 
+        Called once after the camera has started streaming.  All values are
+        passed through camera_handler.update_configuration() so the existing
+        reconfiguration path is fully preserved.
+ 
+        What we set and WHY:
+          AeEnable=True           Re-enable AE in case any prior code disabled it.
+          AwbEnable=True          Re-enable AWB; fixes colour casts from manual
+                                  ColourGains that were set previously.
+          AeMeteringMode=0        CentreWeighted – weights exposure toward the
+                                  road/lane where plates appear.
+          AeExposureMode=1        Sport mode – ISP biases toward shorter shutter
+                                  speeds, reducing motion blur on moving plates
+                                  while keeping everything else automatic.
+          AfMode=2                Continuous AF – CM3 tracks focus in real time.
+          AfSpeed=1               Fast AF convergence for vehicles entering frame.
+ 
+        Returns:
+            bool: True if controls applied successfully, False otherwise.
+        """
+        lpr_controls = {
+            "controls": {
+                # --- Auto Exposure & Gain ---
+                "AeEnable": True,
+                "AeMeteringMode": _AE_METERING_CENTRE_WEIGHTED,
+                "AeExposureMode": _AE_EXPOSURE_SPORT,   # short shutter → less blur
+ 
+                # --- Auto White Balance ---
+                "AwbEnable": True,
+ 
+                # --- Continuous Autofocus (CM3 lens) ---
+                "AfMode": _AF_MODE_CONTINUOUS,
+                "AfSpeed": _AF_SPEED_FAST,
+            }
+        }
+ 
+        self.logger.info(
+            "📷 [CAMERA_MANAGER] Applying LPR auto-controls: "
+            "AE=auto/sport, AWB=auto, AF=continuous/fast"
+        )
+ 
+        try:
+            success = self.camera_handler.update_configuration(lpr_controls)
+            if success:
+                self.logger.info(
+                    "✅ [CAMERA_MANAGER] LPR auto-controls applied successfully – "
+                    "ISP is now managing exposure, white-balance and focus."
+                )
+            else:
+                self.logger.warning(
+                    "⚠️  [CAMERA_MANAGER] update_configuration returned False "
+                    "when applying LPR auto-controls."
+                )
+            return success
+        except Exception as e:
+            self.logger.error(
+                f"❌ [CAMERA_MANAGER] Error applying LPR auto-controls: {e}"
+            )
+            return False
+ 
+    # ------------------------------------------------------------------
+    # Initialization
+    # ------------------------------------------------------------------
         
     def initialize(self):
         """
@@ -219,11 +312,19 @@ class CameraManager:
             except Exception as e:
                 self.logger.error(f"❌ Error in camera availability monitor: {e}")
                 time.sleep(10.0)  # Wait longer on error
+    # ------------------------------------------------------------------
+    # Start / Stop / Restart
+    # ------------------------------------------------------------------
     
     def start(self):
         """
-        Start camera streaming.
-        
+        Start camera streaming and apply LPR-optimised ISP auto-controls.
+ 
+        The auto-controls call replaces all previous hardcoded ISP overrides
+        (manual ExposureTime, AnalogueGain, DigitalGain, ColourGains,
+        manual focus step sequences) that caused stuttering, blur, and
+        colour distortion.
+ 
         Returns:
             bool: True if camera started successfully, False otherwise
         """
@@ -239,7 +340,12 @@ class CameraManager:
                 
                 # Skip metadata update during initialization to prevent hanging
                 self.logger.info("📊 Skipping metadata update during initialization to prevent hang")
-                
+                # --------------------------------------------------------
+                # REFACTORED: Apply LPR auto-controls once after start.
+                # The ISP is already running at this point so the controls
+                # are accepted without a full stop/configure/start cycle.
+                # --------------------------------------------------------
+                self._apply_lpr_auto_controls()
                 return True
             else:
                 self.logger.error("Failed to start camera")
@@ -290,7 +396,9 @@ class CameraManager:
         except Exception as e:
             self.logger.error(f"Error restarting camera: {e}")
             return False
-    
+    # ------------------------------------------------------------------
+    # Metadata
+    # ------------------------------------------------------------------
     def _update_metadata(self):
         """
         Update camera metadata from camera handler.
@@ -310,13 +418,20 @@ class CameraManager:
         except Exception as e:
             self.logger.warning(f"Error updating metadata: {e}")
     
-
+    # ------------------------------------------------------------------
+    # Configuration
+    # ------------------------------------------------------------------
     
     def reconfigure_camera_safely(self, new_config: Dict[str, Any]) -> bool:
         """
         Safely reconfigure camera by stopping, adjusting config, and restarting.
         This prevents conflicts during detection processing.
-        
+
+        NOTE: Do NOT pass manual ISP overrides (ExposureTime, AnalogueGain,
+        DigitalGain, ColourGains) via new_config. Those fight the ISP and
+        cause stuttering / colour distortion. Use only structural parameters
+        (resolution, format, buffer_count, etc.) here.
+
         Args:
             new_config: New camera configuration parameters
             
@@ -335,7 +450,10 @@ class CameraManager:
             
             if success:
                 self.logger.info("🔄 [CAMERA_MANAGER] ✅ Safe camera reconfiguration completed successfully")
-                # Update manager status
+                 # Re-apply LPR auto-controls after a structural reconfigure,
+                # because reconfigure triggers a stop/start cycle which may
+                # reset runtime controls to libcamera defaults.
+                self._apply_lpr_auto_controls()
                 self.camera_status = self.camera_handler.get_camera_status()
             else:
                 self.logger.error("🔄 [CAMERA_MANAGER] Safe camera reconfiguration failed")
@@ -345,7 +463,9 @@ class CameraManager:
         except Exception as e:
             self.logger.error(f"🔄 [CAMERA_MANAGER] Safe reconfiguration error: {e}")
             return False
-    
+    # ------------------------------------------------------------------
+    # Status & Health
+    # ------------------------------------------------------------------
     def get_status(self):
         """
         Get comprehensive camera status.
@@ -494,7 +614,9 @@ class CameraManager:
             }
             self.logger.debug(f"🔧 [CAMERA_MANAGER] health_check: returning error health: {error_health}")
             return error_health
-    
+    # ------------------------------------------------------------------
+    # Settings / Config accessors
+    # ------------------------------------------------------------------
     def get_available_settings(self):
         """
         Get available camera settings.
@@ -536,7 +658,9 @@ class CameraManager:
         except Exception as e:
             self.logger.error(f"Error getting configuration: {e}")
             return {}
-    
+    # ------------------------------------------------------------------
+    # Stream / Frame helpers
+    # ------------------------------------------------------------------
     def ensure_camera_streaming(self):
         """
         Ensure camera is initialized and streaming.
@@ -728,7 +852,9 @@ class CameraManager:
         except Exception as e:
             self.logger.error(f"Error getting stream generator: {e}")
             return None
-    
+    # ------------------------------------------------------------------
+    # Misc helpers
+    # ------------------------------------------------------------------
     def set_auto_start(self, enabled):
         """
         Set auto-start configuration.

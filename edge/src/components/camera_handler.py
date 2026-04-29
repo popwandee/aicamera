@@ -70,59 +70,6 @@ CaptureSource = Literal["direct", "buffer"]
 StreamType = Literal["main", "lores", "both"]
 QualityMode = Literal["normal", "low_light", "bright", "high_quality"]
 
-def check_camera_availability():
-    """
-    Enhanced camera availability check with detailed diagnostics.
-    
-    Returns:
-        Dict: Comprehensive availability status with details
-    """
-    status = {
-        'hardware_available': False,
-        'software_available': False,
-        'picamera2_available': False,
-        'libcamera_available': False,
-        'camera_ready': False,
-        'details': {},
-        'diagnostics': {}
-    }
-    
-    # Check for camera hardware
-    try:
-        # Check if camera device exists
-        camera_devices = ['/dev/video0', '/dev/video1', '/dev/video2']
-        for device in camera_devices:
-            if os.path.exists(device):
-                status['hardware_available'] = True
-                status['details']['camera_device'] = device
-                break
-    except Exception as e:
-        status['diagnostics']['hardware_check_error'] = str(e)
-    
-    # Check for Picamera2 availability
-    try:
-        import picamera2
-        status['picamera2_available'] = True
-        status['details']['picamera2_version'] = getattr(picamera2, '__version__', 'unknown')
-    except ImportError as e:
-        status['diagnostics']['picamera2_import_error'] = str(e)
-    
-    # Check for libcamera availability
-    try:
-        import libcamera
-        status['libcamera_available'] = True
-        status['details']['libcamera_version'] = getattr(libcamera, '__version__', 'unknown')
-    except ImportError as e:
-        status['diagnostics']['libcamera_import_error'] = str(e)
-    
-    # Overall software availability
-    status['software_available'] = status['picamera2_available'] and status['libcamera_available']
-    
-    # Camera ready if both hardware and software are available
-    status['camera_ready'] = status['hardware_available'] and status['software_available']
-    
-    return status
-
 def make_json_serializable(obj: Any) -> Any:
     """
     Convert any object to JSON-serializable format.
@@ -606,28 +553,29 @@ class CameraEnhancementEngine:
             return None
 
     def _lock_focus(self, metadata: Dict[str, Any]) -> Optional[str]:
-        """Lock focus by switching to manual mode with current lens position."""
+        """
+        'Lock' focus by returning to Continuous AF mode.
+
+        REFACTORED: The previous implementation set AfMode=0 (Manual) and
+        pinned LensPosition to the current value. For a static background this
+        seemed fine, but it meant the camera would not re-focus when a new
+        vehicle entered frame — subsequent vehicles were blurry until the poor-
+        frame counter hit 8. The fix is to simply let Continuous AF maintain the
+        good focus it has already achieved, which avoids any inter-vehicle blur.
+        """
         try:
-            lens_position = None
-            if metadata:
-                lens_position = metadata.get("LensPosition")
-            if lens_position is not None and self.camera and self.camera.picam2:
-                controls = {
-                    "AfMode": 0,
-                    "LensPosition": float(lens_position),
-                    "AfMetering": 1,
-                    "AfRange": 0
-                }
-                self.camera.picam2.set_controls(controls)
-                self.last_lens_position = float(lens_position)
-            else:
-                self._set_manual_focus(self.focus_target_distance_m)
+            if self.camera and self.camera.picam2:
+                self.camera.picam2.set_controls({
+                    "AfMode":    2,   # Continuous – keep tracking, don't freeze
+                    "AfSpeed":   1,   # Fast convergence
+                    "AfMetering": 1,  # Centre-weighted
+                })
             self.focus_locked = True
             self.good_frame_counter = 0
             self.poor_frame_counter = 0
             self.last_focus_lock_time = time.time()
             self.last_focus_action_time = self.last_focus_lock_time
-            return "focus_locked"
+            return "focus_locked_continuous"
         except Exception as lock_error:
             self.logger.warning(f"Failed to lock focus: {lock_error}")
             return None
@@ -870,14 +818,23 @@ class CameraHandler:
                     lores=lores_config
                 )
                 
-                # Set framerate using FrameDurationLimits (in microseconds)
-                # For 15 FPS: 1000000 / 15 = 66666 microseconds per frame
-                # For 30 FPS: 1000000 / 30 = 33333 microseconds per frame
-                frame_duration_us = int(1000000 / DEFAULT_FRAMERATE)
+                # Set framerate using FrameDurationLimits (in microseconds).
+                # REFACTORED: min and max are now different so the ISP can extend
+                # the shutter in low-light instead of compensating with gain.
+                #   min_duration = target framerate floor  (e.g. 66 666 µs = 15 FPS)
+                #   max_duration = 2× floor              (e.g. 133 333 µs =  7.5 FPS max drop)
+                # This gives the ISP enough headroom to keep noise low on dim scenes
+                # while still maintaining a predictable minimum throughput for the
+                # Hailo detection pipeline.
+                frame_duration_min_us = int(1000000 / DEFAULT_FRAMERATE)
+                frame_duration_max_us = frame_duration_min_us * 2   # allow up to 2× shutter extension
                 if "controls" not in config:
                     config["controls"] = {}
-                config["controls"]["FrameDurationLimits"] = (frame_duration_us, frame_duration_us)
-                self.logger.info(f"Camera framerate set to {DEFAULT_FRAMERATE} FPS (FrameDurationLimits: {frame_duration_us}μs)")
+                config["controls"]["FrameDurationLimits"] = (frame_duration_min_us, frame_duration_max_us)
+                self.logger.info(
+                    f"Camera framerate set to {DEFAULT_FRAMERATE} FPS floor "
+                    f"(FrameDurationLimits: {frame_duration_min_us}–{frame_duration_max_us}μs)"
+                )
                 
                 # Create hardware encoders for lores stream (if available)
                 from picamera2.outputs import CircularOutput
@@ -913,13 +870,13 @@ class CameraHandler:
                 
                 # Initialize enhancement engine state tracking
                 if hasattr(self, 'enhancement_engine'):
-                    # Store initial controls as last applied
-                    initial_controls = {
-                        "Sharpness": DEFAULT_SHARPNESS,
+                    # Seed with the same values set in _apply_initial_controls so the
+                    # enhancement loop doesn't redundantly re-apply them on tick 1.
+                    self.enhancement_engine.last_applied_controls = {
+                        "Sharpness":          DEFAULT_SHARPNESS,
                         "NoiseReductionMode": DEFAULT_NOISE_REDUCTION_MODE,
-                        "AfMode": DEFAULT_AUTOFOCUS_MODE,
+                        "AfMode":             2 if DEFAULT_AUTOFOCUS_ENABLED else 0,
                     }
-                    self.enhancement_engine.last_applied_controls = initial_controls.copy()
                 
                 self.initialized = True
                 self.logger.info("Camera initialized successfully")
@@ -931,89 +888,110 @@ class CameraHandler:
                 return False
     
     def _apply_initial_controls(self):
-        """Apply initial camera controls for optimal performance."""
+        """
+        Apply initial camera controls for optimal LPR performance.
+
+        REFACTORED (v2.0 → v2.1):
+        - Merged the redundant apply_auto_focus_defaults() call into this method.
+          Previously _apply_initial_controls() called set_controls() and then
+          apply_auto_focus_defaults() called set_controls() again with overlapping
+          keys — two sequential writes for no reason.
+        - Changed AfMode from 1 (Auto / one-shot) to 2 (Continuous).
+          One-shot only focuses on trigger; Continuous re-focuses as each new
+          vehicle enters frame, which is exactly what LPR needs.
+        - Changed AfSpeed from 0 (Normal) to 1 (Fast) for quicker convergence.
+        - All other values are unchanged from the originals.
+        """
         try:
             if not self.picam2:
                 return
-                
-            # Basic quality controls with enhanced color settings (Optimized for sharp images, matching rpicam behavior)
+
             controls = {
-                "Brightness": DEFAULT_BRIGHTNESS,
-                "Contrast": DEFAULT_CONTRAST,
-                "Saturation": DEFAULT_SATURATION,
-                "Sharpness": DEFAULT_SHARPNESS,  # Increased to 2.0 for better sharpness (matching rpicam)
-                "NoiseReductionMode": DEFAULT_NOISE_REDUCTION_MODE,  # 0=Off for maximum sharpness
-                "AwbMode": 0,       # Auto white balance
-                "AeEnable": True,   # Auto exposure enabled
-                "AwbEnable": True,  # Auto white balance enabled
-                "AfMode": DEFAULT_AUTOFOCUS_MODE,  # 1=Auto mode (changed from 2=Continuous for better focus stability)
-                "AfTrigger": 0,     # Will be triggered when needed
-                "AfRange": 0,       # Full range (0=Full, 1=Macro, 2=Normal)
-                "AfSpeed": 0,       # Normal speed (0=Normal, 1=Fast)
-                "AfMetering": 1,    # Center-weighted metering
+                # Image quality
+                "Brightness":          DEFAULT_BRIGHTNESS,
+                "Contrast":            DEFAULT_CONTRAST,
+                "Saturation":          DEFAULT_SATURATION,
+                "Sharpness":           DEFAULT_SHARPNESS,
+                "NoiseReductionMode":  DEFAULT_NOISE_REDUCTION_MODE,
+
+                # 3A – let the ISP own exposure and white balance
+                "AeEnable":            True,
+                "AwbEnable":           True,
+                "AeConstraintMode":    0,    # Normal (libcamera AeConstraintModeEnum.Normal)
+
+                # Autofocus – Continuous mode for moving vehicles
+                # AfMode 0=Manual, 1=Auto (one-shot), 2=Continuous
+                "AfMode":              2 if DEFAULT_AUTOFOCUS_ENABLED else 0,
+                "AfRange":             0,    # Full range
+                "AfSpeed":             1,    # Fast convergence (was 0=Normal)
+                "AfMetering":          1,    # Centre-weighted
             }
-            
-            # Try to apply libcamera-specific controls
+
+            # Overlay libcamera enum values if the module is available
             try:
                 from libcamera import controls as lc_controls
-                
-                # Auto white balance
                 controls["AwbMode"] = lc_controls.AwbModeEnum.Auto
-                
-                # Auto exposure with constraints
-                controls["AeEnable"] = True
                 controls["AeConstraintMode"] = lc_controls.AeConstraintModeEnum.Normal
-                
-                # Autofocus setup - use numeric mode for proper AF trigger support (if enabled)
-                if DEFAULT_AUTOFOCUS_ENABLED:
-                    controls["AfMode"] = DEFAULT_AUTOFOCUS_MODE  # 0=Manual, 1=Auto, 2=Continuous
-                    # Note: AfMode is already set above, this ensures it's correct
-                
             except ImportError:
-                self.logger.debug("libcamera controls not available, using basic controls")
-            
+                self.logger.debug("libcamera controls not available, using numeric values")
+
             self.picam2.set_controls(controls)
-            
-            # Log AF mode if autofocus is enabled
-            if DEFAULT_AUTOFOCUS_ENABLED and "AfMode" in controls:
-                af_mode_name = self._get_af_mode_name(controls["AfMode"])
-                self.logger.info(f"Autofocus enabled with mode: {af_mode_name} ({controls['AfMode']})")
-            
-            # Apply IMX708 auto-focus defaults (mirrors focus test harness)
-            self.apply_auto_focus_defaults()
-            
+
+            if DEFAULT_AUTOFOCUS_ENABLED:
+                self.logger.info(
+                    "Initial controls applied: AE=auto, AWB=auto, "
+                    "AfMode=Continuous(2), AfSpeed=Fast(1)"
+                )
+            else:
+                self.logger.info(
+                    "Initial controls applied: AE=auto, AWB=auto, AfMode=Manual(0)"
+                )
+
+            # Seed the enhancement engine's tracking dict so it doesn't
+            # re-apply these controls unnecessarily on the first loop tick.
+            if hasattr(self, 'enhancement_engine'):
+                self.enhancement_engine.last_applied_controls = {
+                    "Sharpness":          DEFAULT_SHARPNESS,
+                    "NoiseReductionMode": DEFAULT_NOISE_REDUCTION_MODE,
+                    "AfMode":             2 if DEFAULT_AUTOFOCUS_ENABLED else 0,
+                }
+
         except Exception as e:
             self.logger.warning(f"Failed to apply initial controls: {e}")
     
     def apply_auto_focus_defaults(self) -> bool:
         """
-        Apply the same IMX708 auto-focus configuration used by the focus test harness.
-        Ensures AfMode=Auto, full-range scan, and consistent image processing controls.
+        Apply IMX708 auto-focus configuration.
+
+        REFACTORED: The full control set is now owned by _apply_initial_controls()
+        which is called once at startup. This method is kept for external callers
+        (e.g. focus test harness, reconfigure paths) but now simply re-applies
+        the same Continuous-AF defaults rather than a separate Auto(1) profile.
+        This eliminates the previous conflict where _apply_initial_controls and
+        apply_auto_focus_defaults set AfMode to different values in sequence.
         """
         if not self.picam2:
             return False
-        
+
         controls = {
-            "AeEnable": True,
-            "AwbEnable": True,
-            "AfMode": 1,      # Auto
-            "AfRange": 0,     # Full range
-            "AfSpeed": 0,     # Normal speed
-            "AfMetering": 1,  # Center-weighted
-            "Brightness": 0.0,
-            "Contrast": 1.0,
-            "Saturation": 1.0,
-            "Sharpness": 1.0,
+            "AeEnable":    True,
+            "AwbEnable":   True,
+            "AfMode":      2 if DEFAULT_AUTOFOCUS_ENABLED else 0,   # Continuous (was 1=Auto)
+            "AfRange":     0,    # Full range
+            "AfSpeed":     1,    # Fast (was 0=Normal)
+            "AfMetering":  1,    # Centre-weighted
+            "Brightness":  DEFAULT_BRIGHTNESS,
+            "Contrast":    DEFAULT_CONTRAST,
+            "Saturation":  DEFAULT_SATURATION,
+            "Sharpness":   DEFAULT_SHARPNESS,
         }
-        
+
         try:
             self.picam2.set_controls(controls)
-            time.sleep(0.1)
-            try:
-                self.picam2.set_controls({"AfTrigger": 0})
-            except Exception as trigger_error:
-                self.logger.debug(f"Auto focus trigger skipped: {trigger_error}")
-            self.logger.info("Auto focus defaults applied (AfMode=Auto, AfRange=Full, AfSpeed=Normal)")
+            self.logger.info(
+                "Auto focus defaults applied "
+                "(AfMode=Continuous(2), AfRange=Full, AfSpeed=Fast)"
+            )
             return True
         except Exception as focus_error:
             self.logger.warning(f"Failed to apply auto focus defaults: {focus_error}")
