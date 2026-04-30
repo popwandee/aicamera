@@ -95,13 +95,13 @@ DEFAULT_NOISE_REDUCTION_MODE = int(os.getenv("CAMERA_NOISE_REDUCTION_MODE", "0")
 DEFAULT_AUTOFOCUS_MODE = int(os.getenv("DEFAULT_AUTOFOCUS_MODE", "1"))  # 0=Manual, 1=Auto, 2=Continuous (Changed from 2 to 1 for better focus stability, matching rpicam)
 DEFAULT_AUTOFOCUS_ENABLED = os.getenv("DEFAULT_AUTOFOCUS_ENABLED", "true").lower() == "true"
 AUTOFOCUS_TRIGGER_BEFORE_CAPTURE = os.getenv("AUTOFOCUS_TRIGGER_BEFORE_CAPTURE", "false").lower() == "true"  # Trigger AF before important captures
-FOCUS_QUALITY_MIN_THRESHOLD = int(os.getenv("FOCUS_QUALITY_MIN_THRESHOLD", "800"))  # Minimum FocusFoM for acceptable focus quality
+FOCUS_QUALITY_MIN_THRESHOLD = int(os.getenv("FOCUS_QUALITY_MIN_THRESHOLD", "150"))  # Minimum FocusFoM; IMX708 outdoor max ≈230
 DEFAULT_QUALITY_MONITORING = os.getenv("DEFAULT_QUALITY_MONITORING", "enabled")
 FOCUS_HEALTH_ENABLED = os.getenv("FOCUS_HEALTH_ENABLED", "true").lower() == "true"
 FOCUS_HEALTH_DURATION = float(os.getenv("FOCUS_HEALTH_DURATION", "3.0"))
 FOCUS_HEALTH_MIN_SAMPLES = int(os.getenv("FOCUS_HEALTH_MIN_SAMPLES", "20"))
-FOCUS_HEALTH_VARIATION_THRESHOLD = float(os.getenv("FOCUS_HEALTH_VARIATION_THRESHOLD", "50.0"))
-FOCUS_HEALTH_MIN_FOM = int(os.getenv("FOCUS_HEALTH_MIN_FOM", "700"))
+FOCUS_HEALTH_VARIATION_THRESHOLD = float(os.getenv("FOCUS_HEALTH_VARIATION_THRESHOLD", "5.0"))
+FOCUS_HEALTH_MIN_FOM = int(os.getenv("FOCUS_HEALTH_MIN_FOM", "150"))  # IMX708 outdoor max ≈230; 150 allows healthy settled focus
 FOCUS_HEALTH_RETRY_ATTEMPTS = int(os.getenv("FOCUS_HEALTH_RETRY_ATTEMPTS", "2"))
 
 # Detection Settings - Can be overridden via environment variables

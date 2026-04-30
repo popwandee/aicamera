@@ -1102,8 +1102,8 @@ class CameraHandler:
     def _is_focus_health_good(self, metrics: Dict[str, Any]) -> bool:
         if not metrics or metrics.get('samples', 0) < FOCUS_HEALTH_MIN_SAMPLES:
             return False
-        if metrics.get('variation', 0.0) < FOCUS_HEALTH_VARIATION_THRESHOLD:
-            return False
+        # Variation check removed: a settled (properly focused) camera has LOW variation.
+        # Requiring variation >= threshold incorrectly rejects AfState=Focused (locked) cameras.
         if metrics.get('fom_max', 0.0) < FOCUS_HEALTH_MIN_FOM:
             return False
         return True
