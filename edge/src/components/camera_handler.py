@@ -1831,6 +1831,40 @@ class CameraHandler:
         except Exception as e:
             self.logger.error(f"Error releasing resources: {e}")
     
+    def update_configuration(self, config: Dict[str, Any]) -> bool:
+        """
+        Apply runtime camera controls without restarting the camera.
+
+        Accepts a config dict with a "controls" key containing picamera2 control
+        names and values (e.g. {"controls": {"AeEnable": True, "AfMode": 2}}).
+        Use reconfigure_camera_safely() when hardware-level changes are needed.
+
+        Returns:
+            bool: True if controls applied successfully, False otherwise.
+        """
+        try:
+            if not self.picam2:
+                self.logger.warning("update_configuration called but picam2 not available")
+                return False
+
+            controls = config.get("controls", {}) if isinstance(config, dict) else {}
+            if not controls:
+                self.logger.debug("update_configuration: no controls in config, nothing to apply")
+                return True
+
+            self.picam2.set_controls(controls)
+
+            # Keep enhancement engine state in sync
+            if hasattr(self, 'enhancement_engine'):
+                self.enhancement_engine.last_applied_controls.update(controls)
+
+            self.logger.debug(f"update_configuration applied: {list(controls.keys())}")
+            return True
+
+        except Exception as e:
+            self.logger.warning(f"update_configuration failed: {e}")
+            return False
+
     def reconfigure_camera_safely(self, new_config: Dict[str, Any]) -> bool:
         """
         Safely reconfigure camera following best practices:
