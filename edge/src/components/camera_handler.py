@@ -277,13 +277,14 @@ class CameraEnhancementEngine:
         self.low_light_threshold = 50000  # ExposureTime microseconds
         self.bright_light_threshold = 1000  # ExposureTime microseconds
         self.focus_scan_range = (0.0, 10.0)  # Focus range in diopters
-        self.focus_good_threshold = 900
-        self.focus_poor_threshold = 350
+        # Relaxed thresholds for dynamic backgrounds (wind, trees) — reduces AF hunting
+        self.focus_good_threshold = int(os.getenv("FOCUS_GOOD_THRESHOLD", "700"))
+        self.focus_poor_threshold = int(os.getenv("FOCUS_POOR_THRESHOLD", "300"))
         self.low_light_focus_poor_threshold = 250
-        self.good_frames_required = 60
-        self.poor_frames_required = 8
-        self.focus_check_interval = 90.0  # seconds between re-evaluations
-        self.post_focus_cooldown = 10.0  # seconds to wait after triggering AF
+        self.good_frames_required = int(os.getenv("FOCUS_GOOD_FRAMES", "10"))
+        self.poor_frames_required = int(os.getenv("FOCUS_POOR_FRAMES", "15"))
+        self.focus_check_interval = float(os.getenv("FOCUS_CHECK_INTERVAL", "30.0"))
+        self.post_focus_cooldown = float(os.getenv("FOCUS_POST_COOLDOWN", "5.0"))
         self.focus_distance_range = (1.0, 5.0)  # meters
         self.focus_target_distance_m = 3.0
         self.focus_locked = False
@@ -399,33 +400,36 @@ class CameraEnhancementEngine:
         return enhancements
     
     def _enhance_for_low_light(self, enhancements: Dict[str, Any], metadata: Dict[str, Any]):
-        """Apply low-light specific optimizations only if needed."""
+        """Apply low-light specific optimizations — conservative to preserve OCR sharpness."""
         try:
             if not self.camera or not self.camera.picam2:
                 return
-            
+
             controls = {}
             needs_update = False
-            
-            # Check current NoiseReductionMode
+
+            # Use Normal NR (1) instead of High Quality (2) — HQ blurs edges, hurts OCR
             current_nr = self.last_applied_controls.get("NoiseReductionMode")
-            if self.noise_reduction_enabled and current_nr != 2:
-                controls["NoiseReductionMode"] = 2  # High quality
+            if self.noise_reduction_enabled and current_nr != 1:
+                controls["NoiseReductionMode"] = 1  # Normal
                 needs_update = True
-            
-            # Don't override ExposureTime/AnalogueGain if Auto Exposure is enabled
-            # Let Auto Exposure handle it, but we can set limits if needed
-            # Only apply lens shading correction
+
+            # Maintain configured sharpness — do not let it drop in low-light
+            current_sharpness = self.last_applied_controls.get("Sharpness")
+            if current_sharpness is None or current_sharpness < DEFAULT_SHARPNESS:
+                controls["Sharpness"] = DEFAULT_SHARPNESS
+                needs_update = True
+
             current_lsm = self.last_applied_controls.get("LensShadingMapMode")
             if current_lsm != 1:
                 controls["LensShadingMapMode"] = 1
                 needs_update = True
-            
+
             if needs_update and controls:
                 self.camera.picam2.set_controls(controls)
                 self.last_applied_controls.update(controls)
                 enhancements['applied'].append("low_light_optimization")
-                
+
         except Exception as e:
             self.logger.warning(f"Low light enhancement failed: {e}")
     
@@ -870,14 +874,18 @@ class CameraHandler:
                     lores=lores_config
                 )
                 
-                # Set framerate using FrameDurationLimits (in microseconds)
-                # For 15 FPS: 1000000 / 15 = 66666 microseconds per frame
-                # For 30 FPS: 1000000 / 30 = 33333 microseconds per frame
+                # Set framerate using FrameDurationLimits (in microseconds).
+                # Use a range (min < max) so AE can extend exposure in low-light
+                # without being forced to drop frames.
                 frame_duration_us = int(1000000 / DEFAULT_FRAMERATE)
+                max_frame_duration_us = frame_duration_us * 2  # allow up to 2x slower in low-light
                 if "controls" not in config:
                     config["controls"] = {}
-                config["controls"]["FrameDurationLimits"] = (frame_duration_us, frame_duration_us)
-                self.logger.info(f"Camera framerate set to {DEFAULT_FRAMERATE} FPS (FrameDurationLimits: {frame_duration_us}μs)")
+                config["controls"]["FrameDurationLimits"] = (frame_duration_us, max_frame_duration_us)
+                self.logger.info(
+                    f"Camera framerate set to {DEFAULT_FRAMERATE} FPS "
+                    f"(FrameDurationLimits: {frame_duration_us}–{max_frame_duration_us}μs)"
+                )
                 
                 # Create hardware encoders for lores stream (if available)
                 from picamera2.outputs import CircularOutput
@@ -987,25 +995,25 @@ class CameraHandler:
     
     def apply_auto_focus_defaults(self) -> bool:
         """
-        Apply the same IMX708 auto-focus configuration used by the focus test harness.
-        Ensures AfMode=Auto, full-range scan, and consistent image processing controls.
+        Apply IMX708 auto-focus configuration using config values (not hardcoded).
         """
         if not self.picam2:
             return False
-        
+
         controls = {
             "AeEnable": True,
             "AwbEnable": True,
-            "AfMode": 1,      # Auto
+            "AfMode": DEFAULT_AUTOFOCUS_MODE,
             "AfRange": 0,     # Full range
             "AfSpeed": 0,     # Normal speed
             "AfMetering": 1,  # Center-weighted
-            "Brightness": 0.0,
-            "Contrast": 1.0,
-            "Saturation": 1.0,
-            "Sharpness": 1.0,
+            "Brightness": DEFAULT_BRIGHTNESS,
+            "Contrast": DEFAULT_CONTRAST,
+            "Saturation": DEFAULT_SATURATION,
+            "Sharpness": DEFAULT_SHARPNESS,
+            "NoiseReductionMode": DEFAULT_NOISE_REDUCTION_MODE,
         }
-        
+
         try:
             self.picam2.set_controls(controls)
             time.sleep(0.1)
@@ -1013,7 +1021,10 @@ class CameraHandler:
                 self.picam2.set_controls({"AfTrigger": 0})
             except Exception as trigger_error:
                 self.logger.debug(f"Auto focus trigger skipped: {trigger_error}")
-            self.logger.info("Auto focus defaults applied (AfMode=Auto, AfRange=Full, AfSpeed=Normal)")
+            self.logger.info(
+                f"Auto focus defaults applied (AfMode={DEFAULT_AUTOFOCUS_MODE}, "
+                f"Sharpness={DEFAULT_SHARPNESS}, NR={DEFAULT_NOISE_REDUCTION_MODE})"
+            )
             return True
         except Exception as focus_error:
             self.logger.warning(f"Failed to apply auto focus defaults: {focus_error}")

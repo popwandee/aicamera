@@ -513,14 +513,14 @@ class DetectionManager:
                     'easyocr_error': easyocr_error
                 })
             
-            # Only insert into DB if the image was actually saved
+            # Always insert into DB; image save failure only means no image path
             if not original_path:
-                self.logger.warning("Skipping DB insert: image save failed; detection record has no image path")
+                self.logger.warning("Image save failed — inserting detection record without image path")
             elif not os.path.exists(original_path):
-                self.logger.warning(f"Skipping DB insert: image path does not exist on disk: {original_path}")
-            else:
-                if self.database_manager:
-                    self.database_manager.insert_detection_result(detection_record)
+                self.logger.warning(f"Image path missing on disk after save: {original_path} — inserting record without image")
+                detection_record['original_image_path'] = ''
+            if self.database_manager:
+                self.database_manager.insert_detection_result(detection_record)
             
             # Update statistics
             self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: updating processing statistics")

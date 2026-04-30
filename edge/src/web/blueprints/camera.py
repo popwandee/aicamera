@@ -27,7 +27,7 @@ from flask_socketio import emit, join_room, leave_room
 from edge.src.core.dependency_container import get_service
 from edge.src.core.utils.logging_config import get_logger
 from edge.src.components.camera_handler import make_json_serializable
-from edge.src.core.config import MAIN_RESOLUTION
+from edge.src.core.config import MAIN_RESOLUTION, DEFAULT_FRAMERATE
 from edge.src.services.browser_connection_manager import BrowserConnectionManager
 
 # Create blueprint
@@ -467,11 +467,14 @@ def generate_frames():
             return
         
         logger.info("Starting video stream generation using camera manager")
-        
+
+        _frame_interval = 1.0 / DEFAULT_FRAMERATE  # match capture FPS (e.g. 0.067s @ 15 FPS)
+
         while True:
             try:
-                current_time = time.time()
-                
+                loop_start = time.time()
+                current_time = loop_start
+
                 # Periodic health check
                 if current_time - last_health_check > HEALTH_CHECK_INTERVAL:
                     try:
@@ -572,8 +575,12 @@ def generate_frames():
                     time.sleep(RETRY_DELAY)
                     continue
                 
-                # Control frame rate - IMPORTANT: This prevents CPU overload
-                time.sleep(0.033)  # ~30 FPS (1/30 = 0.033 seconds)
+                # Rate-limit to match the capture FPS so the stream doesn't spin faster
+                # than the buffer updates (avoids repeated/skipped frames)
+                elapsed = time.time() - loop_start
+                sleep_time = _frame_interval - elapsed
+                if sleep_time > 0:
+                    time.sleep(sleep_time)
                 
             except Exception as frame_error:
                 consecutive_errors += 1

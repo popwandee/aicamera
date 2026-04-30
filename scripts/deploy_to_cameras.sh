@@ -7,7 +7,7 @@
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 REMOTE_PATH="/home/camuser/aicamera"
 
-CAMERAS=("aicamera2")   # aicamera1 and aicamera3 are offline
+CAMERAS=("aicamera1" , "aicamera2")   # aicamera3 is offline
 LPR_SERVER="lprserver"
 LPR_PATH="/home/lpruser/aicamera"
 

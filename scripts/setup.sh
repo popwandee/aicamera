@@ -63,16 +63,16 @@ if ! grep -q "aicamera2" "$SSH_CONFIG" 2>/dev/null; then
 cat >> "$SSH_CONFIG" << 'SSHCONF'
 
 # ============ PWD Vision Works — Edge AI Cameras ============
-Host aicamera2
-    HostName aicamera2.tail605477.ts.net
+Host aicamera1
+    HostName aicamera1.tail605477.ts.net
     User camuser
     IdentityFile ~/.ssh/id_rsa
     StrictHostKeyChecking no
     ServerAliveInterval 30
     ServerAliveCountMax 3
 
-Host aicamera3
-    HostName aicamera3.tail605477.ts.net
+Host aicamera2
+    HostName aicamera2.tail605477.ts.net
     User camuser
     IdentityFile ~/.ssh/id_rsa
     StrictHostKeyChecking no
@@ -130,6 +130,7 @@ echo "=============================================="
 echo "  Setup complete! Next steps:"
 echo "  1. cd $PROJECT_DIR"
 echo "  2. source .venv/bin/activate   (if Python project)"
-echo "  3. ssh aicamera2               (test remote camera)"
-echo "  4. ssh lprserver               (test LPR server)"
+echo "  3. ssh aicamera1               (test remote camera)"
+echo "  4. ssh aicamera2               (test remote camera)"
+echo "  5. ssh lprserver               (test LPR server)"
 echo "=============================================="

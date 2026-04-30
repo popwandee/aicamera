@@ -78,6 +78,7 @@ class DatabaseManager:
             # Create tables
             self.logger.debug(f"🔧 [DATABASE_MANAGER] initialize: creating database tables")
             self._create_tables()
+            self._migrate_schema()
             self.logger.debug(f"🔧 [DATABASE_MANAGER] initialize: database tables created successfully")
             
             self.logger.info(f"🔧 [DATABASE_MANAGER] Database initialized successfully: {self.database_path}")
@@ -169,7 +170,33 @@ class DatabaseManager:
         except Exception as e:
             self.logger.error(f"Error creating database tables: {e}")
             raise
-    
+
+    def _migrate_schema(self):
+        """Add columns introduced after the initial schema so existing DBs stay compatible."""
+        migrations = [
+            ('detection_results', 'hailo_ocr_results',          'TEXT'),
+            ('detection_results', 'easyocr_results',            'TEXT'),
+            ('detection_results', 'best_ocr_method',            'TEXT'),
+            ('detection_results', 'ocr_processing_time_ms',     'REAL DEFAULT 0.0'),
+            ('detection_results', 'parallel_ocr_success',       'BOOLEAN DEFAULT 0'),
+            ('detection_results', 'hailo_ocr_confidence',       'REAL DEFAULT 0.0'),
+            ('detection_results', 'easyocr_confidence',         'REAL DEFAULT 0.0'),
+            ('detection_results', 'hailo_processing_time_ms',   'REAL DEFAULT 0.0'),
+            ('detection_results', 'easyocr_processing_time_ms', 'REAL DEFAULT 0.0'),
+            ('detection_results', 'hailo_ocr_error',            'TEXT DEFAULT ""'),
+            ('detection_results', 'easyocr_error',              'TEXT DEFAULT ""'),
+        ]
+        try:
+            cursor = self.connection.cursor()
+            for table, col, typedef in migrations:
+                existing = [r[1] for r in cursor.execute(f'PRAGMA table_info({table})').fetchall()]
+                if col not in existing:
+                    cursor.execute(f'ALTER TABLE {table} ADD COLUMN {col} {typedef}')
+                    self.logger.info(f"Schema migration: added {table}.{col}")
+            self.connection.commit()
+        except Exception as e:
+            self.logger.error(f"Schema migration error: {e}")
+
     def insert_detection_result(self, detection_data: Dict[str, Any]) -> Optional[int]:
         """
         Insert detection result into database.

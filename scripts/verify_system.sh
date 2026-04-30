@@ -19,7 +19,8 @@ QUICK="${1:-}"
 LPR_USER="devuser"
 LPR_IP="100.95.46.128"
 CAM_USER="camuser"
-CAM_IP="100.110.20.53"
+CAM_IP_1="100.126.178.74"
+CAM_IP_2="100.110.20.53"
 PASS="admin88366"
 API_BASE="http://${LPR_IP}/server/api"
 
@@ -128,14 +129,57 @@ else
   warn "Dashboard: unexpected response body"
 fi
 
-# ── [D] aicamera2 ────────────────────────────────────────────────────────────
+# ── [D] aicamera1 ────────────────────────────────────────────────────────────
 
 echo ""
-echo "--- [D] aicamera2 Edge Device ---"
+echo "--- [D] aicamera1 Edge Device ---"
 
-if ping -c 2 -W 2 "$CAM_IP" &>/dev/null 2>&1; then
-  LATENCY=$(ping -c 2 -W 2 "$CAM_IP" 2>/dev/null | tail -1 | awk -F'/' '{printf "%.1f", $5}' 2>/dev/null || echo "?")
-  pass "Tailscale ping ${CAM_IP}: ${LATENCY}ms"
+if ping -c 2 -W 2 "$CAM_IP_1" &>/dev/null 2>&1; then
+  LATENCY=$(ping -c 2 -W 2 "$CAM_IP_1" 2>/dev/null | tail -1 | awk -F'/' '{printf "%.1f", $5}' 2>/dev/null || echo "?")
+  pass "Tailscale ping ${CAM_IP_1}: ${LATENCY}ms"
+else
+  fail "Tailscale ping ${CAM_IP}: UNREACHABLE"
+fi
+
+if [ "$QUICK" != "--quick" ]; then
+  # SSH access
+  SSH_TEST=$(ssh_cam "echo ok" 2>/dev/null || echo "fail")
+  if [ "$SSH_TEST" = "ok" ]; then
+    pass "SSH to aicamera1: ok"
+  else
+    fail "SSH to aicamera1: failed"
+  fi
+
+  # aicamera_lpr service
+  SVC_CAM=$(ssh_cam "systemctl is-active aicamera_lpr 2>/dev/null || echo unknown" 2>/dev/null || echo "ssh-fail")
+  if [ "$SVC_CAM" = "active" ]; then
+    pass "aicamera_lpr service: active"
+  elif [ "$SVC_CAM" = "ssh-fail" ]; then
+    warn "aicamera_lpr service: SSH unreachable (already checked above)"
+  else
+    warn "aicamera_lpr service: $SVC_CAM (start before field test)"
+  fi
+
+  # API reachability from edge
+  API_FROM_EDGE=$(ssh_cam \
+    "curl -s -o /dev/null -w '%{http_code}' --max-time 8 'http://100.95.46.128/server/api/cameras' 2>/dev/null || echo 000" \
+    2>/dev/null || echo "000")
+  if [ "$API_FROM_EDGE" = "200" ]; then
+    pass "API reachable from aicamera1: HTTP 200"
+  else
+    fail "API reachable from aicamera1: HTTP $API_FROM_EDGE"
+  fi
+else
+  warn "aicamera1 SSH checks: skipped (--quick)"
+fi
+# ── [E] aicamera2 ────────────────────────────────────────────────────────────
+
+echo ""
+echo "--- [E] aicamera2 Edge Device ---"
+
+if ping -c 2 -W 2 "$CAM_IP_2" &>/dev/null 2>&1; then
+  LATENCY=$(ping -c 2 -W 2 "$CAM_IP_2" 2>/dev/null | tail -1 | awk -F'/' '{printf "%.1f", $5}' 2>/dev/null || echo "?")
+  pass "Tailscale ping ${CAM_IP_2}: ${LATENCY}ms"
 else
   fail "Tailscale ping ${CAM_IP}: UNREACHABLE"
 fi
@@ -172,10 +216,10 @@ else
   warn "aicamera2 SSH checks: skipped (--quick)"
 fi
 
-# ── [E] Database Row Counts ──────────────────────────────────────────────────
+# ── [F] Database Row Counts ──────────────────────────────────────────────────
 
 echo ""
-echo "--- [E] Database ---"
+echo "--- [F] Database ---"
 
 if [ "$QUICK" = "--quick" ]; then
   warn "Database check: skipped (--quick)"
@@ -232,7 +276,8 @@ echo ""
 if [ "$FAIL_COUNT" -gt 0 ]; then
   echo "Common fixes:"
   echo "  Services down   : ssh ${LPR_USER}@${LPR_IP} 'sudo systemctl restart <service>'"
-  echo "  aicamera2 down  : bash scripts/edge_health_check.sh"
+  echo "  aicamera1 down  : bash scripts/edge_health_check.sh aicamera1"
+  echo "  aicamera2 down  : bash scripts/edge_health_check.sh aicamera2"
   echo "  Camera config   : bash scripts/configure_camera.sh"
 fi
 echo "============================================"

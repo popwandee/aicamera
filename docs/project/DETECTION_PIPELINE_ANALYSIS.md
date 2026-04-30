@@ -440,3 +440,161 @@ curl http://100.110.20.53:5000/api/v1/detection/status | python3 -m json.tool
 | #4 สีผิด RGB/BGR | conversion ถูก comment | restore `cv2.cvtColor` | ✅ Code committed |
 
 **อัปเดตสถานะ:** 2026-04-28 — Code fix committed, ENV fix scripts ready, pending deploy
+
+Log 
+(.venv) camuser@aicamera2:~/aicamera $ python edge/scripts/test_image_detection.py --images edge/captured_images/detection_20260428_180250_039.jpg 
+2026-04-29 16:47:32,221 [INFO] Starting static image detection test
+2026-04-29 16:47:32,221 [INFO] Models: vehicle=yolov8n_relu6_car--640x640_quant_hailort_hailo8_1, plate=yolov8n_relu6_lp--640x640_quant_hailort_hailo8_1, ocr=yolov8n_relu6_lp_ocr--256x128_quant_hailort_hailo8_1
+2026-04-29 16:47:32,221 [INFO] Images to process: 1
+2026-04-29 16:47:32,221 [INFO] [DETECTION] Starting Detection Processor initialization...
+2026-04-29 16:47:32,221 [INFO] 🔍 [DETECTION_PROC] Initializing model instances...
+2026-04-29 16:47:32,221 [INFO] 🔍 [DETECTION_PROC] Model instances initialized
+2026-04-29 16:47:32,221 [INFO] 🔍 [DETECTION_PROC] Creating AsyncOCRLoader...
+2026-04-29 16:47:32,221 [INFO] AsyncOCRLoader initialized
+2026-04-29 16:47:32,221 [INFO] 🔍 [DETECTION_PROC] AsyncOCRLoader created successfully
+2026-04-29 16:47:32,221 [INFO] 🔍 [DETECTION_PROC] Initializing parallel OCR processor...
+2026-04-29 16:47:32,222 [INFO] 🔍 [DETECTION_PROC] Parallel OCR processor initialized
+2026-04-29 16:47:32,222 [INFO] 🔍 [DETECTION_PROC] Setting up state tracking...
+2026-04-29 16:47:32,222 [INFO] 🔍 [DETECTION_PROC] State tracking initialized
+2026-04-29 16:47:32,222 [INFO] DetectionProcessor initialized
+2026-04-29 16:47:32,222 [INFO] 🔧 [ENHANCED_DETECTION] Initializing enhanced detection pipeline...
+2026-04-29 16:47:32,222 [INFO] 🔧 [ENHANCED_DETECTION] Enhanced detection pipeline initialized successfully
+2026-04-29 16:47:32,222 [INFO] 🔧 [DETECTION_PROC] Starting model loading process...
+2026-04-29 16:47:32,222 [INFO] 🔧 [DETECTION_PROC] Loading detection models...
+2026-04-29 16:47:32,222 [INFO] 🔧 [DETECTION_PROC] Checking model configuration...
+2026-04-29 16:47:32,222 [INFO] 🔧 [DETECTION_PROC] Model configuration validated
+2026-04-29 16:47:32,222 [INFO] 🔧 [DETECTION_PROC] Configuring HailoRT logging...
+✅ Created symlink: /home/camuser/aicamera/hailort.log -> /home/camuser/aicamera/edge/logs/hailort.log
+✅ HailoRT logging configured to: /home/camuser/aicamera/edge/logs/hailort.log (with rotation)
+2026-04-29 16:47:32,223 [INFO] 🔧 [DETECTION_PROC] HailoRT logging configured
+2026-04-29 16:47:32,223 [INFO] 🔧 [DETECTION_PROC] Importing degirum...
+2026-04-29 16:47:33,093 [INFO] 🔧 [DETECTION_PROC] ✅ Degirum available for Hailo AI model loading
+2026-04-29 16:47:33,093 [INFO] 🔧 [DETECTION_PROC] Loading vehicle detection model...
+2026-04-29 16:47:33,093 [INFO] 🔧 [DETECTION_PROC] Loading vehicle detection model: yolov8n_relu6_car--640x640_quant_hailort_hailo8_1
+2026-04-29 16:47:33,093 [INFO] Local inference with local zoo from '/home/camuser/aicamera/resources' dir
+2026-04-29 16:47:33,953 [INFO] 🔧 [DETECTION_PROC] ✅ Vehicle detection model loaded successfully
+2026-04-29 16:47:33,953 [INFO] 🔧 [DETECTION_PROC] Loading license plate detection model...
+2026-04-29 16:47:33,953 [INFO] 🔧 [DETECTION_PROC] Loading license plate detection model: yolov8n_relu6_lp--640x640_quant_hailort_hailo8_1
+2026-04-29 16:47:33,953 [INFO] Local inference with local zoo from '/home/camuser/aicamera/resources' dir
+2026-04-29 16:47:33,984 [INFO] 🔧 [DETECTION_PROC] ✅ License plate detection model loaded successfully
+2026-04-29 16:47:33,985 [INFO] 🔧 [DETECTION_PROC] Checking for optional OCR model...
+2026-04-29 16:47:33,985 [INFO] 🔧 [DETECTION_PROC] Loading license plate OCR model...
+2026-04-29 16:47:33,985 [INFO] 🔧 [DETECTION_PROC] Loading license plate OCR model: yolov8n_relu6_lp_ocr--256x128_quant_hailort_hailo8_1
+2026-04-29 16:47:33,985 [INFO] Local inference with local zoo from '/home/camuser/aicamera/resources' dir
+2026-04-29 16:47:34,037 [INFO] 🔧 [DETECTION_PROC] ✅ License plate OCR model loaded successfully
+2026-04-29 16:47:34,040 [INFO] 🔧 [DETECTION_PROC] Starting asynchronous EasyOCR loading...
+2026-04-29 16:47:34,042 [INFO] Loading EasyOCR Reader with languages: ['en', 'th']
+2026-04-29 16:47:34,043 [INFO] 🚀 Started asynchronous EasyOCR loading...
+2026-04-29 16:47:34,044 [INFO] 🔧 [DETECTION_PROC] ✅ EasyOCR loading started in background
+2026-04-29 16:47:34,044 [INFO] 🔧 [DETECTION_PROC] Initializing parallel OCR processor...
+2026-04-29 16:47:34,044 [INFO] ✅ Parallel OCR Processor initialized
+2026-04-29 16:47:34,044 [INFO] 🔧 [DETECTION_PROC] ✅ Parallel OCR processor initialized
+2026-04-29 16:47:34,044 [INFO] 🔧 [DETECTION_PROC] Model loading process completed successfully
+2026-04-29 16:47:34,044 [INFO] Detection models loaded successfully
+2026-04-29 16:47:34,044 [INFO] Processing image: /home/camuser/aicamera/edge/captured_images/detection_20260428_180250_039.jpg
+2026-04-29 16:47:34,154 [WARNING] Vehicle detection error: Failed to perform model 'yolov8n_relu6_car--640x640_quant_hailort_hailo8_1' inference: [ERROR]Functionality is not supported
+License does not allow usage of runtime agent 'HAILORT': Token is not installed: /home/camuser/.local/share/DeGirum/pysdk_cloud_token.json
+dg_task_runner.cpp: 104 [DG::CoreTaskRunner::processorCreate]
+
+2026-04-29 16:47:34,154 [INFO]   Vehicles detected: 0
+2026-04-29 16:47:34,154 [INFO]   License plates detected: 0
+2026-04-29 16:47:34,154 [INFO] Static image detection test completed
+2026-04-29 16:47:42,230 [WARNING] Neither CUDA nor MPS are available - defaulting to CPU. Note: This module is much faster with a GPU.
+2026-04-29 16:47:48,926 [INFO] ✅ EasyOCR loaded successfully in 6.70 seconds
+2026-04-29 16:47:48,927 [ERROR] Error during cleanup: cannot join current thread
+(.venv) camuser@aicamera2:~/aicamera $ sudo systemctl status aicamera_lpr.service
+● aicamera_lpr.service - AI Camera v2.0.0 Flask Application
+     Loaded: loaded (/etc/systemd/system/aicamera_lpr.service; enabled; preset: enabled)
+     Active: active (running) since Tue 2026-04-28 18:17:23 +07; 22h ago
+    Process: 886 ExecStartPre=/bin/bash -lc source /home/camuser/aicamera/edge/installation/venv_hailo/bin/activate && /home/camuser/aicamera/ed>
+   Main PID: 914 (gunicorn: maste)
+     Status: "Gunicorn arbiter booted"
+      Tasks: 316 (limit: 19364)
+        CPU: 5min 38.330s
+     CGroup: /system.slice/aicamera_lpr.service
+             ├─ 914 "gunicorn: master [aicamera_lpr]"
+             └─1163 "gunicorn: worker [aicamera_lpr]"
+
+Apr 29 16:56:55 aicamera2 aicamera_lpr[1163]: ✅ Created symlink: /home/camuser/aicamera/hailort.log -> /home/camuser/aicamera/edge/logs/hailort>
+Apr 29 16:56:55 aicamera2 aicamera_lpr[1163]: ✅ HailoRT logging configured to: /home/camuser/aicamera/edge/logs/hailort.log (with rotation)
+Apr 29 16:56:55 aicamera2 aicamera_lpr[1163]: ERROR HAILO_STREAM_ABORT detected — Hailo VDMA ring is in aborted state. Scheduling model reinitia>
+Apr 29 16:56:59 aicamera2 aicamera_lpr[1163]: WARNING Vehicle detection model not loaded: models_loaded=False, vehicle_model=False (logged 87 ti>
+Apr 29 16:57:05 aicamera2 aicamera_lpr[1163]: ✅ Created symlink: /home/camuser/aicamera/hailort.log -> /home/camuser/aicamera/edge/logs/hailort>
+Apr 29 16:57:05 aicamera2 aicamera_lpr[1163]: ✅ HailoRT logging configured to: /home/camuser/aicamera/edge/logs/hailort.log (with rotation)
+Apr 29 16:57:05 aicamera2 aicamera_lpr[1163]: ERROR HAILO_STREAM_ABORT detected — Hailo VDMA ring is in aborted state. Scheduling model reinitia>
+Apr 29 16:57:15 aicamera2 aicamera_lpr[1163]: ✅ Created symlink: /home/camuser/aicamera/hailort.log -> /home/camuser/aicamera/edge/logs/hailort>
+Apr 29 16:57:15 aicamera2 aicamera_lpr[1163]: ✅ HailoRT logging configured to: /home/camuser/aicamera/edge/logs/hailort.log (with rotation)
+Apr 29 16:57:15 aicamera2 aicamera_lpr[1163]: ERROR HAILO_STREAM_ABORT detected — Hailo VDMA ring is in aborted state. Scheduling model reinitia>
+
+(.venv) camuser@aicamera2:~/aicamera $ find /home/camuser -name "pysdk_cloud_token.json" 2>/dev/null
+(.venv) camuser@aicamera2:~/aicamera $ find /root -name "pysdk_cloud_token.json" 2>/dev/null
+(.venv) camuser@aicamera2:~/aicamera $ cd ..
+(.venv) camuser@aicamera2:~ $ find /root -name "pysdk_cloud_token.json" 2>/dev/null
+(.venv) camuser@aicamera2:~ $ cd aicamera
+(.venv) camuser@aicamera2:~/aicamera $ ls -la /home/camuser/.local/share/DeGirum/
+total 12
+drwxrwxrwx  3 camuser camuser 4096 Jun  4  2025 .
+drwxr-xr-x 12 camuser camuser 4096 Apr 25 22:39 ..
+drwxrwxrwx  2 camuser camuser 4096 Apr 29 16:47 traces
+(.venv) camuser@aicamera2:~/aicamera $ deactivate
+camuser@aicamera2:~/aicamera $ souce venv_hailo/bin/activate
+bash: souce: command not found
+camuser@aicamera2:~/aicamera $ source edge/venv_hailo/bin/activate
+(venv_hailo) camuser@aicamera2:~/aicamera $ python edge/scripts/test_image_detection.py --images edge/captured_images/detection_20260428_180250_039.jpg 
+2026-04-29 17:03:31,028 [INFO] Starting static image detection test
+2026-04-29 17:03:31,028 [INFO] Models: vehicle=yolov8n_relu6_car--640x640_quant_hailort_hailo8_1, plate=yolov8n_relu6_lp--640x640_quant_hailort_hailo8_1, ocr=yolov8n_relu6_lp_ocr--256x128_quant_hailort_hailo8_1
+2026-04-29 17:03:31,028 [INFO] Images to process: 1
+2026-04-29 17:03:31,028 [INFO] [DETECTION] Starting Detection Processor initialization...
+2026-04-29 17:03:31,028 [INFO] 🔍 [DETECTION_PROC] Initializing model instances...
+2026-04-29 17:03:31,028 [INFO] 🔍 [DETECTION_PROC] Model instances initialized
+2026-04-29 17:03:31,028 [INFO] 🔍 [DETECTION_PROC] Creating AsyncOCRLoader...
+2026-04-29 17:03:31,028 [INFO] AsyncOCRLoader initialized
+2026-04-29 17:03:31,028 [INFO] 🔍 [DETECTION_PROC] AsyncOCRLoader created successfully
+2026-04-29 17:03:31,028 [INFO] 🔍 [DETECTION_PROC] Initializing parallel OCR processor...
+2026-04-29 17:03:31,028 [INFO] 🔍 [DETECTION_PROC] Parallel OCR processor initialized
+2026-04-29 17:03:31,028 [INFO] 🔍 [DETECTION_PROC] Setting up state tracking...
+2026-04-29 17:03:31,028 [INFO] 🔍 [DETECTION_PROC] State tracking initialized
+2026-04-29 17:03:31,028 [INFO] DetectionProcessor initialized
+2026-04-29 17:03:31,028 [INFO] 🔧 [ENHANCED_DETECTION] Initializing enhanced detection pipeline...
+2026-04-29 17:03:31,028 [INFO] 🔧 [ENHANCED_DETECTION] Enhanced detection pipeline initialized successfully
+2026-04-29 17:03:31,028 [INFO] 🔧 [DETECTION_PROC] Starting model loading process...
+2026-04-29 17:03:31,028 [INFO] 🔧 [DETECTION_PROC] Loading detection models...
+2026-04-29 17:03:31,028 [INFO] 🔧 [DETECTION_PROC] Checking model configuration...
+2026-04-29 17:03:31,028 [INFO] 🔧 [DETECTION_PROC] Model configuration validated
+2026-04-29 17:03:31,028 [INFO] 🔧 [DETECTION_PROC] Configuring HailoRT logging...
+✅ Created symlink: /home/camuser/aicamera/hailort.log -> /home/camuser/aicamera/edge/logs/hailort.log
+✅ HailoRT logging configured to: /home/camuser/aicamera/edge/logs/hailort.log (with rotation)
+2026-04-29 17:03:31,029 [INFO] 🔧 [DETECTION_PROC] HailoRT logging configured
+2026-04-29 17:03:31,029 [INFO] 🔧 [DETECTION_PROC] Importing degirum...
+2026-04-29 17:03:31,860 [INFO] 🔧 [DETECTION_PROC] ✅ Degirum available for Hailo AI model loading
+2026-04-29 17:03:31,860 [INFO] 🔧 [DETECTION_PROC] Loading vehicle detection model...
+2026-04-29 17:03:31,861 [INFO] 🔧 [DETECTION_PROC] Loading vehicle detection model: yolov8n_relu6_car--640x640_quant_hailort_hailo8_1
+2026-04-29 17:03:31,861 [INFO] Local inference with local zoo from '/home/camuser/aicamera/resources' dir
+2026-04-29 17:03:32,625 [INFO] 🔧 [DETECTION_PROC] ✅ Vehicle detection model loaded successfully
+2026-04-29 17:03:32,625 [INFO] 🔧 [DETECTION_PROC] Loading license plate detection model...
+2026-04-29 17:03:32,625 [INFO] 🔧 [DETECTION_PROC] Loading license plate detection model: yolov8n_relu6_lp--640x640_quant_hailort_hailo8_1
+2026-04-29 17:03:32,625 [INFO] Local inference with local zoo from '/home/camuser/aicamera/resources' dir
+2026-04-29 17:03:32,668 [INFO] 🔧 [DETECTION_PROC] ✅ License plate detection model loaded successfully
+2026-04-29 17:03:32,669 [INFO] 🔧 [DETECTION_PROC] Checking for optional OCR model...
+2026-04-29 17:03:32,669 [INFO] 🔧 [DETECTION_PROC] Loading license plate OCR model...
+2026-04-29 17:03:32,669 [INFO] 🔧 [DETECTION_PROC] Loading license plate OCR model: yolov8n_relu6_lp_ocr--256x128_quant_hailort_hailo8_1
+2026-04-29 17:03:32,669 [INFO] Local inference with local zoo from '/home/camuser/aicamera/resources' dir
+2026-04-29 17:03:32,697 [INFO] 🔧 [DETECTION_PROC] ✅ License plate OCR model loaded successfully
+2026-04-29 17:03:32,697 [INFO] 🔧 [DETECTION_PROC] Starting asynchronous EasyOCR loading...
+2026-04-29 17:03:32,697 [INFO] Loading EasyOCR Reader with languages: ['en', 'th']
+2026-04-29 17:03:32,697 [INFO] 🚀 Started asynchronous EasyOCR loading...
+2026-04-29 17:03:32,697 [INFO] 🔧 [DETECTION_PROC] ✅ EasyOCR loading started in background
+2026-04-29 17:03:32,698 [INFO] 🔧 [DETECTION_PROC] Initializing parallel OCR processor...
+2026-04-29 17:03:32,698 [INFO] ✅ Parallel OCR Processor initialized
+2026-04-29 17:03:32,698 [INFO] 🔧 [DETECTION_PROC] ✅ Parallel OCR processor initialized
+2026-04-29 17:03:32,698 [INFO] 🔧 [DETECTION_PROC] Model loading process completed successfully
+2026-04-29 17:03:32,698 [INFO] Detection models loaded successfully
+2026-04-29 17:03:32,699 [INFO] Processing image: /home/camuser/aicamera/edge/captured_images/detection_20260428_180250_039.jpg
+2026-04-29 17:03:36,672 [INFO] 🚗 Vehicles detected: 1 (filtered from 1)
+2026-04-29 17:03:36,672 [INFO]   Vehicles detected: 1
+2026-04-29 17:03:37,930 [INFO]   License plates detected: 1
+2026-04-29 17:03:39,349 [INFO]   OCR results: 0
+2026-04-29 17:03:39,350 [INFO] Static image detection test completed
+2026-04-29 17:03:41,320 [WARNING] Neither CUDA nor MPS are available - defaulting to CPU. Note: This module is much faster with a GPU.
+2026-04-29 17:03:47,651 [INFO] ✅ EasyOCR loaded successfully in 6.33 seconds
+2026-04-29 17:03:47,651 [ERROR] Error during cleanup: cannot join current thread
