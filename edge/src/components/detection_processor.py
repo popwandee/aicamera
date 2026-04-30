@@ -950,7 +950,7 @@ class DetectionProcessor:
                             hailo_ocr_success = False
                     except Exception as e:
                         self.logger.debug(f"Hailo OCR failed for plate {i}: {e}")
-                
+
                 # Use parallel OCR processing (Hailo + EasyOCR simultaneously)
                 parallel_results = None
                 if self.parallel_ocr_processor:
@@ -1000,7 +1000,7 @@ class DetectionProcessor:
                             self.logger.debug(f"ThaiLPROCR fallback failed for plate {i}: {e}")
                     else:
                         self.logger.debug(f"ThaiLPROCR not available - skipping Thai OCR for plate {i}")
-                
+
                 # Determine final OCR result.
                 # Prefer Tesseract ONLY when it produces a structurally valid Thai plate
                 # (letters + digits pattern matched). Garbage output from sparse-text PSM
