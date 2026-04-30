@@ -28,8 +28,8 @@ Client Browser
 
 | User | Purpose | Password |
 |------|---------|---------|
-| `devuser` | application owner, deploy, npm, build | `admin88366` |
-| `lpruser` | PostgreSQL owner | `admin88366` |
+| `devuser` | application owner, deploy, npm, build |  |
+| `lpruser` | PostgreSQL owner |  |
 
 ### Key paths on lprserver
 
@@ -936,7 +936,7 @@ server {
 }
 ```
 
-**Reload**: `echo 'admin88366' | sudo -S nginx -s reload`
+**Reload**: sudo -S nginx -s reload`
 
 ---
 
