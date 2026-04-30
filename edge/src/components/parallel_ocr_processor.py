@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
 """
-Parallel OCR Processor for AI Camera v1.3
+Parallel OCR Processor for AI Camera v1.4
 
-This module provides parallel execution of both Hailo OCR and EasyOCR
+This module provides parallel execution of both Hailo OCR and PaddleOCR (Thai)
 for better Thai alphabet recognition. Both OCR engines run simultaneously
 to maximize accuracy and coverage for license plate recognition.
 
 Features:
-- Parallel execution of Hailo OCR and EasyOCR
+- Parallel execution of Hailo OCR and ThaiLPROCR (PaddleOCR)
 - Thread-safe OCR processing
 - Confidence scoring and result comparison
 - Fallback handling when one OCR fails
 - Performance monitoring and statistics
 
 Author: AI Camera Team
-Version: 1.3
-Date: August 2025
+Version: 1.4
+Date: April 2026
 """
 
 import time
@@ -34,17 +34,17 @@ class ParallelOCRProcessor:
     compared and the best result is selected based on confidence scores.
     """
     
-    def __init__(self, hailo_ocr_model, async_ocr_loader, logger=None):
+    def __init__(self, hailo_ocr_model, thai_lp_ocr, logger=None):
         """
         Initialize the parallel OCR processor.
-        
+
         Args:
             hailo_ocr_model: Hailo OCR model for license plate recognition
-            async_ocr_loader: AsyncOCRLoader instance for EasyOCR
+            thai_lp_ocr: ThaiLPROCR instance (PaddleOCR) for Thai alphabet recognition
             logger: Logger instance for debugging
         """
         self.hailo_ocr_model = hailo_ocr_model
-        self.async_ocr_loader = async_ocr_loader
+        self.thai_lp_ocr = thai_lp_ocr
         self.logger = logger or logging.getLogger(__name__)
         self.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ParallelOCR")
         
@@ -67,40 +67,40 @@ class ParallelOCRProcessor:
         try:
             # Submit both OCR tasks to thread pool
             hailo_future = self.executor.submit(self._hailo_ocr_worker, plate_image, plate_idx)
-            easyocr_future = self.executor.submit(self._easyocr_worker, plate_image, plate_idx)
-            
+            thai_future = self.executor.submit(self._thai_ocr_worker, plate_image, plate_idx)
+
             # Wait for both results with timeout
             hailo_result = None
-            easyocr_result = None
-            
+            thai_result = None
+
             try:
                 hailo_result = hailo_future.result(timeout=timeout)
             except FutureTimeoutError:
                 self.logger.warning(f"Hailo OCR timed out for plate {plate_idx}")
             except Exception as e:
                 self.logger.warning(f"Hailo OCR failed for plate {plate_idx}: {e}")
-            
+
             try:
-                easyocr_result = easyocr_future.result(timeout=timeout)
+                thai_result = thai_future.result(timeout=timeout)
             except FutureTimeoutError:
-                self.logger.warning(f"EasyOCR timed out for plate {plate_idx}")
+                self.logger.warning(f"Thai OCR timed out for plate {plate_idx}")
             except Exception as e:
-                self.logger.warning(f"EasyOCR failed for plate {plate_idx}: {e}")
-            
+                self.logger.warning(f"Thai OCR failed for plate {plate_idx}: {e}")
+
             # Determine best result
-            best_result = self._select_best_result(hailo_result, easyocr_result, plate_idx)
-            
+            best_result = self._select_best_result(hailo_result, thai_result, plate_idx)
+
             processing_time = time.time() - start_time
-            
+
             return {
                 'parallel_success': best_result['success'],
                 'processing_time': processing_time,
                 'best_result': best_result,
                 'hailo': hailo_result or {'success': False, 'error': 'No result'},
-                'easyocr': easyocr_result or {'success': False, 'error': 'No result'},
+                'easyocr': thai_result or {'success': False, 'error': 'No result'},
                 'plate_idx': plate_idx
             }
-            
+
         except Exception as e:
             self.logger.error(f"Parallel OCR processing failed for plate {plate_idx}: {e}")
             return {
@@ -115,72 +115,88 @@ class ParallelOCRProcessor:
     def _hailo_ocr_worker(self, plate_image, plate_idx: int) -> Dict[str, Any]:
         """Worker function for Hailo OCR processing."""
         start_time = time.time()
-        
+
         try:
             if not self.hailo_ocr_model:
                 return {'success': False, 'error': 'Hailo OCR model not available'}
-            
-            # Perform Hailo OCR
-            hailo_results = self.hailo_ocr_model(plate_image)
-            
-            if hailo_results and len(hailo_results) > 0:
-                # Extract the best result (highest confidence)
-                best_result = max(hailo_results, key=lambda x: x.confidence)
-                
-                processing_time = time.time() - start_time
-                
-                return {
-                    'success': True,
-                    'text': best_result.text,
-                    'confidence': float(best_result.confidence),
-                    'processing_time': processing_time,
-                    'method': 'hailo'
-                }
-            else:
+
+            # Perform Hailo OCR — returns DeGirum DetectionResults
+            hailo_result_obj = self.hailo_ocr_model(plate_image)
+
+            # DeGirum OCR model detects individual characters; access via .results list
+            char_list = getattr(hailo_result_obj, 'results', [])
+            if not char_list:
                 return {'success': False, 'error': 'No Hailo OCR results'}
-                
+
+            # Filter by minimum confidence, then sort left-to-right by x1
+            min_conf = 0.25
+            valid = [r for r in char_list if r.get('score', 0) >= min_conf]
+            if not valid:
+                return {'success': False, 'error': 'All characters below confidence threshold'}
+
+            valid.sort(key=lambda r: r.get('bbox', [0])[0])
+            plate_text = ''.join(r.get('label', '') for r in valid)
+            avg_conf = sum(r.get('score', 0) for r in valid) / len(valid)
+
+            processing_time = time.time() - start_time
+            self.logger.debug(f"Hailo OCR plate {plate_idx}: '{plate_text}' (conf={avg_conf:.3f}, chars={len(valid)})")
+
+            return {
+                'success': True,
+                'text': plate_text,
+                'confidence': float(avg_conf),
+                'processing_time': processing_time,
+                'method': 'hailo'
+            }
+
         except Exception as e:
             return {
-                'success': False, 
+                'success': False,
                 'error': str(e),
                 'processing_time': time.time() - start_time
             }
     
-    def _easyocr_worker(self, plate_image, plate_idx: int) -> Dict[str, Any]:
-        """Worker function for EasyOCR processing."""
+    def _thai_ocr_worker(self, plate_image, plate_idx: int) -> Dict[str, Any]:
+        """Worker function for Thai PaddleOCR processing."""
         start_time = time.time()
-        
+
         try:
-            if not self.async_ocr_loader.is_ready():
-                if self.async_ocr_loader.is_loading():
-                    return {'success': False, 'error': 'EasyOCR still loading'}
-                else:
-                    return {'success': False, 'error': 'EasyOCR not available'}
-            
-            # Perform EasyOCR
-            easyocr_results = self.async_ocr_loader.read_text(plate_image)
-            
-            if easyocr_results and len(easyocr_results) > 0:
-                # Extract the best result (highest confidence)
-                best_result = max(easyocr_results, key=lambda x: x[2])
-                
-                processing_time = time.time() - start_time
-                
+            if not self.thai_lp_ocr or not self.thai_lp_ocr.is_ready():
+                return {'success': False, 'error': 'ThaiLPROCR not ready'}
+
+            # Preprocess specifically for PaddleOCR (resize, deskew, CLAHE)
+            from edge.src.components.thai_lp_ocr import preprocess_plate_crop
+            preprocessed = preprocess_plate_crop(plate_image.copy())
+
+            result = self.thai_lp_ocr.read_plate(preprocessed)
+
+            processing_time = time.time() - start_time
+
+            if result.get('success'):
+                self.logger.debug(
+                    f"Thai OCR plate {plate_idx}: '{result['text']}' "
+                    f"(conf={result['confidence']:.3f})"
+                )
                 return {
                     'success': True,
-                    'text': best_result[1],
-                    'confidence': float(best_result[2]),
+                    'text': result['text'],
+                    'confidence': result['confidence'],
                     'processing_time': processing_time,
-                    'method': 'easyocr'
+                    'method': 'paddleocr',
+                    'validation': result.get('validation', {}),
                 }
             else:
-                return {'success': False, 'error': 'No EasyOCR results'}
-                
+                return {
+                    'success': False,
+                    'error': result.get('error', 'No text detected'),
+                    'processing_time': processing_time,
+                }
+
         except Exception as e:
             return {
-                'success': False, 
+                'success': False,
                 'error': str(e),
-                'processing_time': time.time() - start_time
+                'processing_time': time.time() - start_time,
             }
     
     def _select_best_result(self, hailo_result: Optional[Dict], easyocr_result: Optional[Dict], plate_idx: int) -> Dict[str, Any]:
@@ -216,32 +232,35 @@ class ParallelOCRProcessor:
         
         # Both successful - compare confidence
         hailo_conf = hailo_result.get('confidence', 0.0)
-        easyocr_conf = easyocr_result.get('confidence', 0.0)
-        
-        # Prefer EasyOCR for Thai characters (if confidence is close)
-        thai_chars = any(ord(c) > 127 for c in easyocr_result.get('text', ''))
-        confidence_threshold = 0.1  # EasyOCR gets preference if within 10%
-        
-        if thai_chars and (easyocr_conf - hailo_conf) > -confidence_threshold:
-            self.logger.debug(f"Plate {plate_idx}: Selected EasyOCR for Thai characters (conf: {easyocr_conf:.3f} vs {hailo_conf:.3f})")
+        thai_conf = easyocr_result.get('confidence', 0.0)
+
+        # Prefer Thai OCR ONLY when it passed validate_thai_plate (structural check).
+        # Raw PSM-11 output can contain Thai chars but still be garbage — validation
+        # confirms the letters+digits format is present.
+        thai_validated = easyocr_result.get('validation', {}).get('valid', False)
+        confidence_threshold = 0.1
+
+        if thai_validated and (thai_conf - hailo_conf) > -confidence_threshold:
+            self.logger.debug(
+                f"Plate {plate_idx}: Selected Thai OCR (valid plate format, "
+                f"conf: {thai_conf:.3f} vs hailo: {hailo_conf:.3f})"
+            )
             return {
                 **easyocr_result,
-                'selection_reason': 'Thai characters detected, EasyOCR preferred'
+                'selection_reason': 'Valid Thai plate format detected',
             }
-        
-        # Otherwise, prefer higher confidence
-        if hailo_conf >= easyocr_conf:
-            self.logger.debug(f"Plate {plate_idx}: Selected Hailo OCR (conf: {hailo_conf:.3f} vs {easyocr_conf:.3f})")
-            return {
-                **hailo_result,
-                'selection_reason': 'Higher confidence'
-            }
+
+        # Otherwise prefer higher confidence
+        if hailo_conf >= thai_conf:
+            self.logger.debug(
+                f"Plate {plate_idx}: Selected Hailo OCR (conf: {hailo_conf:.3f} vs thai: {thai_conf:.3f})"
+            )
+            return {**hailo_result, 'selection_reason': 'Higher confidence'}
         else:
-            self.logger.debug(f"Plate {plate_idx}: Selected EasyOCR (conf: {easyocr_conf:.3f} vs {hailo_conf:.3f})")
-            return {
-                **easyocr_result,
-                'selection_reason': 'Higher confidence'
-            }
+            self.logger.debug(
+                f"Plate {plate_idx}: Selected Thai OCR (conf: {thai_conf:.3f} vs hailo: {hailo_conf:.3f})"
+            )
+            return {**easyocr_result, 'selection_reason': 'Higher confidence'}
     
     def cleanup(self):
         """Clean up resources."""

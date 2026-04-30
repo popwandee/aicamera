@@ -50,6 +50,7 @@ from edge.src.core.config import (
 )
 from edge.src.components.async_ocr_loader import AsyncOCRLoader
 from edge.src.components.parallel_ocr_processor import ParallelOCRProcessor
+from edge.src.components.thai_lp_ocr import ThaiLPROCR, preprocess_plate_crop, validate_thai_plate
 
 logger = get_logger(__name__)
 
@@ -179,7 +180,10 @@ class DetectionProcessor:
         self.async_ocr_loader = AsyncOCRLoader(languages=EASYOCR_LANGUAGES, logger=self.logger)
         self.logger.info("🔍 [DETECTION_PROC] AsyncOCRLoader created successfully")
         
-        # Parallel OCR processor for simultaneous Hailo + EasyOCR
+        # Thai PaddleOCR instance (replaces EasyOCR as secondary OCR engine)
+        self.thai_lp_ocr = None
+
+        # Parallel OCR processor for simultaneous Hailo + ThaiLPROCR
         self.logger.info("🔍 [DETECTION_PROC] Initializing parallel OCR processor...")
         self.parallel_ocr_processor = None
         self.logger.info("🔍 [DETECTION_PROC] Parallel OCR processor initialized")
@@ -342,26 +346,28 @@ class DetectionProcessor:
             else:
                 self.logger.info("🔧 [DETECTION_PROC] No OCR model configured - skipping")
             
-            # Start asynchronous EasyOCR loading (non-blocking)
-            # Skip if already loading or ready (safe to call load_models() multiple times, e.g. after Hailo reinit)
-            self.logger.info("🔧 [DETECTION_PROC] Starting asynchronous EasyOCR loading...")
+            # Load ThaiLPROCR (PaddleOCR) — replaces EasyOCR as secondary OCR engine
+            self.logger.info("🔧 [DETECTION_PROC] Loading ThaiLPROCR (PaddleOCR)...")
             try:
-                if self.async_ocr_loader.is_ready() or self.async_ocr_loader.is_loading():
-                    self.logger.debug("🔧 [DETECTION_PROC] EasyOCR already loaded/loading — skipping")
-                elif self.async_ocr_loader.start_loading():
-                    self.logger.info("🔧 [DETECTION_PROC] ✅ EasyOCR loading started in background")
+                if self.thai_lp_ocr is None:
+                    self.thai_lp_ocr = ThaiLPROCR(logger=self.logger)
+                if not self.thai_lp_ocr.is_ready():
+                    if self.thai_lp_ocr.load():
+                        self.logger.info("🔧 [DETECTION_PROC] ✅ ThaiLPROCR loaded successfully")
+                    else:
+                        self.logger.warning("🔧 [DETECTION_PROC] ThaiLPROCR load failed — Thai OCR disabled")
                 else:
-                    self.logger.warning("🔧 [DETECTION_PROC] EasyOCR failed to start loading")
+                    self.logger.debug("🔧 [DETECTION_PROC] ThaiLPROCR already loaded — skipping")
             except Exception as e:
-                self.logger.warning(f"🔧 [DETECTION_PROC] Failed to start EasyOCR loading: {e}")
-            
-            # Initialize parallel OCR processor
+                self.logger.warning(f"🔧 [DETECTION_PROC] Failed to load ThaiLPROCR: {e}")
+                self.thai_lp_ocr = None
+
+            # Initialize parallel OCR processor (Hailo + ThaiLPROCR)
             self.logger.info("🔧 [DETECTION_PROC] Initializing parallel OCR processor...")
             try:
-                from edge.src.components.parallel_ocr_processor import ParallelOCRProcessor
                 self.parallel_ocr_processor = ParallelOCRProcessor(
                     hailo_ocr_model=self.lp_ocr_model,
-                    async_ocr_loader=self.async_ocr_loader,
+                    thai_lp_ocr=self.thai_lp_ocr,
                     logger=self.logger
                 )
                 self.logger.info("🔧 [DETECTION_PROC] ✅ Parallel OCR processor initialized")
@@ -931,10 +937,17 @@ class DetectionProcessor:
                 if self.lp_ocr_model:
                     try:
                         ocr_result = self.lp_ocr_model(plate_region)
-                        # Extract text from Hailo OCR result
-                        hailo_ocr_text = str(ocr_result)  # Adapt based on actual model output format
-                        hailo_ocr_confidence = 0.8  # Placeholder - extract actual confidence
-                        hailo_ocr_success = True
+                        char_list = getattr(ocr_result, 'results', [])
+                        valid = [r for r in char_list if r.get('score', 0) >= 0.25]
+                        if valid:
+                            valid.sort(key=lambda r: r.get('bbox', [0])[0])
+                            hailo_ocr_text = ''.join(r.get('label', '') for r in valid)
+                            hailo_ocr_confidence = sum(r.get('score', 0) for r in valid) / len(valid)
+                            hailo_ocr_success = bool(hailo_ocr_text)
+                        else:
+                            hailo_ocr_text = ''
+                            hailo_ocr_confidence = 0.0
+                            hailo_ocr_success = False
                     except Exception as e:
                         self.logger.debug(f"Hailo OCR failed for plate {i}: {e}")
                 
@@ -974,28 +987,46 @@ class DetectionProcessor:
                     easyocr_text = ""
                     easyocr_confidence = 0.0
                     easyocr_success = False
-                    
-                    if self.async_ocr_loader.is_ready():
+
+                    if self.thai_lp_ocr and self.thai_lp_ocr.is_ready():
                         try:
-                            easyocr_results = self.async_ocr_loader.read_text(plate_region)
-                            if easyocr_results:
-                                # Take the result with highest confidence
-                                best_result = max(easyocr_results, key=lambda x: x[2])
-                                easyocr_text = best_result[1]
-                                easyocr_confidence = best_result[2]
+                            preprocessed = preprocess_plate_crop(plate_region.copy())
+                            thai_result = self.thai_lp_ocr.read_plate(preprocessed)
+                            if thai_result.get('success'):
+                                easyocr_text = thai_result['text']
+                                easyocr_confidence = thai_result['confidence']
                                 easyocr_success = True
                         except Exception as e:
-                            self.logger.debug(f"Async EasyOCR failed for plate {i}: {e}")
-                    elif self.async_ocr_loader.is_loading():
-                        self.logger.debug(f"EasyOCR still loading - skipping OCR for plate {i}")
+                            self.logger.debug(f"ThaiLPROCR fallback failed for plate {i}: {e}")
                     else:
-                        self.logger.debug(f"EasyOCR not available - skipping OCR for plate {i}")
+                        self.logger.debug(f"ThaiLPROCR not available - skipping Thai OCR for plate {i}")
                 
-                # Determine final OCR result (prefer Hailo OCR if available)
-                final_ocr_text = hailo_ocr_text if hailo_ocr_success else easyocr_text
-                final_ocr_confidence = hailo_ocr_confidence if hailo_ocr_success else easyocr_confidence
-                ocr_method = "hailo" if hailo_ocr_success else "easyocr" if easyocr_success else "none"
-                
+                # Determine final OCR result.
+                # Prefer Tesseract ONLY when it produces a structurally valid Thai plate
+                # (letters + digits pattern matched). Garbage output from sparse-text PSM
+                # must not beat clean digit-only Hailo results.
+                thai_ocr_validation = validate_thai_plate(easyocr_text) if easyocr_success and easyocr_text else {'valid': False}
+                thai_plate_valid = thai_ocr_validation.get('valid', False)
+
+                if thai_plate_valid:
+                    final_ocr_text = thai_ocr_validation['formatted']
+                    final_ocr_confidence = easyocr_confidence
+                    ocr_method = "paddleocr"
+                elif hailo_ocr_success:
+                    final_ocr_text = hailo_ocr_text
+                    final_ocr_confidence = hailo_ocr_confidence
+                    ocr_method = "hailo"
+                else:
+                    final_ocr_text = easyocr_text
+                    final_ocr_confidence = easyocr_confidence
+                    ocr_method = "paddleocr" if easyocr_success else "none"
+
+                # Reformat Hailo-only result if it contains Thai chars
+                if final_ocr_text and ocr_method == "hailo":
+                    plate_validation = validate_thai_plate(final_ocr_text)
+                    if plate_validation['valid']:
+                        final_ocr_text = plate_validation['formatted']
+
                 if final_ocr_text:
                     self.logger.debug(f"🔧 [DETECTION_PROCESSOR] perform_ocr: plate {i} OCR successful with method: {ocr_method}, text: '{final_ocr_text.strip()}', confidence: {final_ocr_confidence:.3f}")
                     
