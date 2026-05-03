@@ -1558,7 +1558,7 @@ class CameraHandler:
                 request.release()
     
     def _apply_quality_mode(self, quality_mode: QualityMode):
-        """Apply quality-specific camera settings."""
+        """Apply quality-specific camera settings — uses config defaults, no hardcoded overrides."""
         try:
             if not self.picam2:
                 return
@@ -1567,22 +1567,23 @@ class CameraHandler:
             
             if quality_mode == "high_quality":
                 controls.update({
-                    "NoiseReductionMode": 2,  # High quality
-                    "Sharpness": 1.25,
+                    "NoiseReductionMode": DEFAULT_NOISE_REDUCTION_MODE,  # config (0=Off) — NR=2 blurs OCR edges
+                    "Sharpness": DEFAULT_SHARPNESS,                      # config (2.0) — do not reduce for "quality"
                     "Contrast": 1.1
                 })
             elif quality_mode == "low_light":
                 controls.update({
-                    "NoiseReductionMode": 2,
+                    "NoiseReductionMode": 1,  # Normal (not High Quality=2 which blurs text)
+                    "Sharpness": DEFAULT_SHARPNESS,  # maintain sharpness for OCR
                     "ExposureTime": min(50000, 100000),
                     "AnalogueGain": min(8.0, 12.0)
                 })
             elif quality_mode == "bright":
                 controls.update({
-                    "NoiseReductionMode": 0,
+                    "NoiseReductionMode": DEFAULT_NOISE_REDUCTION_MODE,  # config (0=Off)
                     "ExposureTime": max(100, 1000),
                     "AnalogueGain": 1.0,
-                    "Sharpness": 1.5
+                    "Sharpness": DEFAULT_SHARPNESS  # config (2.0) — maintain for OCR
                 })
             
             if controls:

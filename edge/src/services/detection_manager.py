@@ -348,9 +348,9 @@ class DetectionManager:
             
             self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: Step 1 completed - enhanced frame shape: {enhanced_frame.shape}")
             
-            # Step 2: Vehicle detection (ใช้ภาพต้นฉบับ และได้ mapping_info กลับมา)
+            # Step 2: Vehicle detection — pass enhanced_frame (BGR) so detect_vehicles COLOR_BGR2RGB is correct
             self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: Step 2 - calling detection_processor.detect_vehicles()")
-            vehicle_boxes, mapping_info = self.detection_processor.detect_vehicles(frame)  # ใช้ frame ต้นฉบับ
+            vehicle_boxes, mapping_info = self.detection_processor.detect_vehicles(enhanced_frame)  # BGR: validate_and_enhance_frame converts RGB→BGR
             self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: Step 2 completed - vehicles detected: {len(vehicle_boxes)}")
             
             if not vehicle_boxes:
@@ -391,9 +391,9 @@ class DetectionManager:
                     self.logger.warning(f"🔧 [DETECTION_MANAGER] Tracking error, falling back to non-tracking mode: {e}")
                     tracks_to_save = None  # Fall back to non-tracking mode
             
-            # Step 3: License plate detection (ส่ง mapping_info ไปด้วย)
+            # Step 3: License plate detection — pass enhanced_frame (BGR) for correct internal color ops
             self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: Step 3 - calling detection_processor.detect_license_plates()")
-            plate_boxes = self.detection_processor.detect_license_plates(frame, vehicle_boxes, mapping_info)
+            plate_boxes = self.detection_processor.detect_license_plates(enhanced_frame, vehicle_boxes, mapping_info)
             self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: Step 3 completed - plates detected: {len(plate_boxes)}")
             
             if not plate_boxes:
@@ -406,7 +406,7 @@ class DetectionManager:
             self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: Step 4 - calling detection_processor.perform_ocr()")
             ocr_results = []
             if plate_boxes:
-                ocr_results = self.detection_processor.perform_ocr(frame, plate_boxes)
+                ocr_results = self.detection_processor.perform_ocr(enhanced_frame, plate_boxes)  # BGR: internal OCR preprocessing uses COLOR_BGR2GRAY / COLOR_BGR2LAB
                 self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: Step 4 completed - OCR results: {len(ocr_results)}")
                 if ocr_results:
                     self.detection_stats['successful_ocr'] += len(ocr_results)

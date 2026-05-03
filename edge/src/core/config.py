@@ -94,6 +94,14 @@ DEFAULT_AWB_MODE = int(os.getenv("CAMERA_AWB_MODE", "0"))      # 0=auto, 1=fluor
 DEFAULT_NOISE_REDUCTION_MODE = int(os.getenv("CAMERA_NOISE_REDUCTION_MODE", "0"))  # 0=Off, 1=Normal, 2=HighQuality (0=Off for maximum sharpness)
 DEFAULT_AUTOFOCUS_MODE = int(os.getenv("DEFAULT_AUTOFOCUS_MODE", "1"))  # 0=Manual, 1=Auto, 2=Continuous (Changed from 2 to 1 for better focus stability, matching rpicam)
 DEFAULT_AUTOFOCUS_ENABLED = os.getenv("DEFAULT_AUTOFOCUS_ENABLED", "true").lower() == "true"
+# Camera sensor type — controls NoIR IR compensation
+# "imx708"      = standard sensor with IR cut filter (aicamera1)
+# "imx708_noir" = no IR cut filter, needs software colour correction (aicamera2)
+CAMERA_SENSOR_TYPE = os.getenv("CAMERA_SENSOR_TYPE", "imx708")
+# NoIR software colour correction via picamera2 ColourGains — only used when CAMERA_SENSOR_TYPE=imx708_noir
+NOIR_AWB_ENABLED = os.getenv("NOIR_AWB_ENABLED", "false").lower() == "true"
+NOIR_COLOUR_GAIN_RED = float(os.getenv("NOIR_COLOUR_GAIN_RED", "1.8"))
+NOIR_COLOUR_GAIN_BLUE = float(os.getenv("NOIR_COLOUR_GAIN_BLUE", "2.6"))
 AUTOFOCUS_TRIGGER_BEFORE_CAPTURE = os.getenv("AUTOFOCUS_TRIGGER_BEFORE_CAPTURE", "false").lower() == "true"  # Trigger AF before important captures
 FOCUS_QUALITY_MIN_THRESHOLD = int(os.getenv("FOCUS_QUALITY_MIN_THRESHOLD", "150"))  # Minimum FocusFoM; IMX708 outdoor max ≈230
 DEFAULT_QUALITY_MONITORING = os.getenv("DEFAULT_QUALITY_MONITORING", "enabled")
