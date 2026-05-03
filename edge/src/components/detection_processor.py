@@ -1115,9 +1115,7 @@ class DetectionProcessor:
                     self.logger.error("Failed to convert frame to uint8 for saving")
                     return "", "", "", []
 
-            # Camera outputs RGB888; cv2.imwrite expects BGR — convert before saving
-            if frame_to_save.ndim == 3 and frame_to_save.shape[2] == 3:
-                frame_to_save = cv2.cvtColor(frame_to_save, cv2.COLOR_RGB2BGR)
+            # Pi5/PiSP: picamera2 "RGB888" make_array() delivers BGR in memory → cv2.imwrite expects BGR, no conversion
 
             success = cv2.imwrite(original_path, frame_to_save)
             if not success or (not os.path.exists(original_path)):

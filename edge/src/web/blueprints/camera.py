@@ -539,10 +539,9 @@ def generate_frames():
                     continue
                 
                 # Encode frame with error handling
-                # Camera outputs RGB888; cv2.imencode expects BGR — convert before encoding
+                # Pi5/PiSP: picamera2 "RGB888" make_array() delivers BGR in memory → pass directly
                 try:
-                    frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-                    ret, buffer = cv2.imencode('.jpg', frame_bgr, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                    ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
                     if not ret or buffer is None:
                         consecutive_errors += 1
                         logger.warning("Frame encoding failed")
@@ -742,10 +741,9 @@ def generate_lores_frames():
                     continue
                 
                 # Encode frame with error handling
-                # Camera outputs RGB888; cv2.imencode expects BGR — convert before encoding
+                # Pi5/PiSP: picamera2 "RGB888" make_array() delivers BGR in memory → pass directly
                 try:
-                    frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-                    ret, buffer = cv2.imencode('.jpg', frame_bgr, [cv2.IMWRITE_JPEG_QUALITY, 70])
+                    ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
                     if not ret or buffer is None:
                         consecutive_errors += 1
                         logger.warning("Lores frame encoding failed")
@@ -1371,9 +1369,8 @@ def get_ml_frame():
             main_frame = frame_data['main_frame']
             if main_frame is not None:
                 # Convert to base64 for JSON response
-                # Camera outputs RGB888; cv2.imencode expects BGR
-                main_frame_bgr = cv2.cvtColor(main_frame, cv2.COLOR_RGB2BGR)
-                ret, buffer = cv2.imencode('.jpg', main_frame_bgr)
+                # Pi5/PiSP: picamera2 "RGB888" make_array() is BGR in memory → pass directly
+                ret, buffer = cv2.imencode('.jpg', main_frame)
                 if ret:
                     import base64
                     frame_base64 = base64.b64encode(buffer).decode('utf-8')

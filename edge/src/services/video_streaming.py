@@ -167,9 +167,9 @@ class VideoStreamingService:
                             try:
                                 # Ensure frame has correct shape and color format
                                 if len(frame.shape) == 3 and frame.shape[2] == 3:
-                                    # Convert RGB to BGR for OpenCV (Picamera2 outputs RGB888, cv2.imencode needs BGR)
-                                    # FIX 2026-04-28: was commented out causing red/blue channel swap
-                                    frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                                    # On Pi5/PiSP, picamera2 "RGB888" make_array() delivers BGR in memory.
+                                    # cv2.imencode expects BGR → pass directly, no conversion needed.
+                                    frame_bgr = frame
                                 else:
                                     # Handle grayscale or other formats
                                     if len(frame.shape) == 2:
