@@ -536,7 +536,7 @@ class CameraEnhancementEngine:
             if not self.camera or not getattr(self.camera, "picam2", None):
                 return None
             
-            min_fom = max(self.focus_good_threshold, FOCUS_QUALITY_MIN_THRESHOLD)
+            min_fom = FOCUS_QUALITY_MIN_THRESHOLD  # use minimum acceptable, not "good" threshold (NoIR FoM peaks at ~594, below default good=700)
             autofocus_success = self.camera._trigger_and_wait_autofocus(
                 timeout=3.0,
                 min_fom=min_fom
