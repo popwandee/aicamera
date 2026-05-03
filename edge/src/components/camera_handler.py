@@ -227,7 +227,8 @@ class CameraEnhancementEngine:
         # Relaxed thresholds for dynamic backgrounds (wind, trees) — reduces AF hunting
         self.focus_good_threshold = int(os.getenv("FOCUS_GOOD_THRESHOLD", "700"))
         self.focus_poor_threshold = int(os.getenv("FOCUS_POOR_THRESHOLD", "300"))
-        self.low_light_focus_poor_threshold = 250
+        self.low_light_focus_poor_threshold = int(os.getenv("LOW_LIGHT_FOCUS_POOR_THRESHOLD", "250"))
+        self._lens_shading_mode_supported = True  # set False on first Pi5/PiSP failure
         self.good_frames_required = int(os.getenv("FOCUS_GOOD_FRAMES", "10"))
         self.poor_frames_required = int(os.getenv("FOCUS_POOR_FRAMES", "15"))
         self.focus_check_interval = float(os.getenv("FOCUS_CHECK_INTERVAL", "30.0"))
@@ -367,15 +368,22 @@ class CameraEnhancementEngine:
                 controls["Sharpness"] = DEFAULT_SHARPNESS
                 needs_update = True
 
-            current_lsm = self.last_applied_controls.get("LensShadingMapMode")
-            if current_lsm != 1:
-                controls["LensShadingMapMode"] = 1
-                needs_update = True
-
             if needs_update and controls:
                 self.camera.picam2.set_controls(controls)
                 self.last_applied_controls.update(controls)
                 enhancements['applied'].append("low_light_optimization")
+
+            # LensShadingMapMode: try once; Pi5/PiSP does not advertise it — disable on first failure
+            if self._lens_shading_mode_supported:
+                current_lsm = self.last_applied_controls.get("LensShadingMapMode")
+                if current_lsm != 1:
+                    try:
+                        self.camera.picam2.set_controls({"LensShadingMapMode": 1})
+                        self.last_applied_controls["LensShadingMapMode"] = 1
+                    except Exception as lsm_err:
+                        self._lens_shading_mode_supported = False
+                        self.last_applied_controls["LensShadingMapMode"] = 1  # don't retry
+                        self.logger.debug(f"LensShadingMapMode not supported (Pi5/PiSP), disabled: {lsm_err}")
 
         except Exception as e:
             self.logger.warning(f"Low light enhancement failed: {e}")
@@ -515,9 +523,13 @@ class CameraEnhancementEngine:
                     return self._trigger_autofocus("locked_degraded")
                 return "focus_locked"
             
-            # Trigger autofocus if poor quality sustained
+            # Trigger autofocus if poor quality sustained — but skip when scene is too dark
+            # for AF to have any chance (FoM below absolute minimum means no contrast to lock on)
             if (self.poor_frame_counter >= self.poor_frames_required and
                     (current_time - self.last_focus_action_time) >= self.post_focus_cooldown):
+                if current_fom < FOCUS_QUALITY_MIN_THRESHOLD:
+                    self.poor_frame_counter = 0  # reset; no point scanning in near-darkness
+                    return None
                 return self._trigger_autofocus("poor_quality")
             
             # Lock focus when quality sustained
