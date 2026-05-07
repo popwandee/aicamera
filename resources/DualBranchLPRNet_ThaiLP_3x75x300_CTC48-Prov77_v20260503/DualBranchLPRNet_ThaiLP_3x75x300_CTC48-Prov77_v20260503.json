@@ -1,0 +1,17 @@
+{
+  "timestamp": "2026-05-03T21:44:29.135257",
+  "model_checkpoint": "best_model_20260503_0937PM.pth",
+  "onnx_model": "lprnet_dual_branch_20260503_0937PM.onnx",
+  "input_size": [
+    1,
+    3,
+    75,
+    300
+  ],
+  "model_architecture": "DualBranchLPRNet",
+  "output_names": [
+    "lpr_logits",
+    "province_logits"
+  ],
+  "notes": "Exported ONNX model from LPRNet family. For dual-branch checkpoints, outputs are lpr_logits and province_logits."
+}

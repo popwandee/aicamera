@@ -5,7 +5,7 @@ Enhanced Detection Processor Component for AI Camera v2.0
 This component provides enhanced AI detection operations using Hailo AI models:
 - Vehicle detection using Hailo accelerator with tracking and deduplication
 - License plate detection with best frame selection
-- License plate OCR with parallel processing (Hailo + EasyOCR)
+- License plate OCR with parallel processing (Hailo + Tesseract OCR)
 - Advanced image preprocessing (motion detection, illumination/contrast/denoise)
 - Post-processing for natural color preservation
 - Pre-OCR processing for optimal text recognition
@@ -27,6 +27,7 @@ Date: September 2025
 """
 
 import os
+import gc
 import cv2
 import numpy as np
 import logging
@@ -125,7 +126,7 @@ class DetectionProcessor:
     - Advanced image preprocessing (illumination/contrast/denoise)
     - Vehicle detection with tracking and deduplication
     - License plate detection with best frame selection
-    - Parallel OCR processing (Hailo + EasyOCR)
+    - Parallel OCR processing (Hailo + Tesseract OCR)
     - Post-processing for natural color preservation
     - Pre-OCR processing for optimal text recognition
     - Event-driven pipeline orchestration
@@ -398,9 +399,7 @@ class DetectionProcessor:
 
         self._hailo_reinit_pending = True
         self.models_loaded = False
-        self.vehicle_model = None
-        self.lp_detection_model = None
-        self.lp_ocr_model = None
+        self._cleanup_hailo_models()
         self.logger.error(
             "HAILO_STREAM_ABORT detected — Hailo VDMA ring is in aborted state. "
             "Scheduling model reinitialisation in 10s..."
@@ -412,15 +411,56 @@ class DetectionProcessor:
                 self.logger.info("Hailo reinit: starting load_models()...")
                 success = self.load_models()
                 if success:
+                    self._hailo_reinit_attempts = 0
                     self.logger.info("Hailo reinit: models reloaded successfully — inference resuming")
                 else:
-                    self.logger.error("Hailo reinit: load_models() failed — service restart required")
+                    self._hailo_reinit_attempts += 1
+                    self.logger.error(
+                        f"Hailo reinit: load_models() failed ({self._hailo_reinit_attempts}/3)"
+                    )
+                    if self._hailo_reinit_attempts >= 3:
+                        self.logger.critical(
+                            "Hailo reinit failed 3 times. Exiting to allow systemd to restart the service."
+                        )
+                        os._exit(1)
             except Exception as exc:
+                self._hailo_reinit_attempts += 1
                 self.logger.error(f"Hailo reinit: exception during reload: {exc}")
+                if self._hailo_reinit_attempts >= 3:
+                    self.logger.critical(
+                        "Hailo reinit exception 3 times. Exiting to allow systemd to restart the service."
+                    )
+                    os._exit(1)
             finally:
                 self._hailo_reinit_pending = False
 
         threading.Thread(target=_reinit, name="HailoReinit", daemon=True).start()
+
+    def _cleanup_hailo_models(self):
+        """Cleanup Hailo model objects and release any underlying resources."""
+        for model_attr, model_name in [
+            ('vehicle_model', 'vehicle_model'),
+            ('lp_detection_model', 'lp_detection_model'),
+            ('lp_ocr_model', 'lp_ocr_model')
+        ]:
+            model_obj = getattr(self, model_attr, None)
+            if model_obj is None:
+                continue
+            try:
+                if hasattr(model_obj, 'cleanup'):
+                    model_obj.cleanup()
+                    self.logger.debug(f"🔧 [DETECTION_PROC] Cleaned up {model_name} via cleanup()")
+                elif hasattr(model_obj, 'close'):
+                    model_obj.close()
+                    self.logger.debug(f"🔧 [DETECTION_PROC] Closed {model_name} via close()")
+                elif hasattr(model_obj, 'shutdown'):
+                    model_obj.shutdown()
+                    self.logger.debug(f"🔧 [DETECTION_PROC] Shutdown {model_name} via shutdown()")
+            except Exception as e:
+                self.logger.warning(f"🔧 [DETECTION_PROC] Failed to cleanup {model_name}: {e}")
+            finally:
+                setattr(self, model_attr, None)
+        gc.collect()
 
     def get_ocr_status(self) -> Dict[str, Any]:
         """
@@ -502,9 +542,7 @@ class DetectionProcessor:
             
             # Step 3: Clean up model references
             try:
-                self.vehicle_model = None
-                self.lp_detection_model = None  
-                self.lp_ocr_model = None
+                self._cleanup_hailo_models()
                 self.ocr_reader = None
                 self.models_loaded = False
                 self.logger.debug("Model references cleaned up")
