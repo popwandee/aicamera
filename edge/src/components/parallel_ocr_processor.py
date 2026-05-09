@@ -2,12 +2,12 @@
 """
 Parallel OCR Processor for AI Camera v1.4
 
-This module provides parallel execution of both Hailo OCR and PaddleOCR (Thai)
+This module provides parallel execution of both Hailo OCR and Tesseract (Thai)
 for better Thai alphabet recognition. Both OCR engines run simultaneously
 to maximize accuracy and coverage for license plate recognition.
 
 Features:
-- Parallel execution of Hailo OCR and ThaiLPROCR (PaddleOCR)
+- Parallel execution of Hailo OCR and ThaiLPROCR (Tesseract)
 - Thread-safe OCR processing
 - Confidence scoring and result comparison
 - Fallback handling when one OCR fails
@@ -27,8 +27,8 @@ import logging
 
 class ParallelOCRProcessor:
     """
-    Parallel OCR Processor for simultaneous Hailo and EasyOCR execution.
-    
+    Parallel OCR Processor for simultaneous Hailo and Tesseract execution.
+
     This processor runs both OCR engines in parallel to maximize accuracy
     for Thai license plate recognition. Results from both engines are
     compared and the best result is selected based on confidence scores.
@@ -40,7 +40,7 @@ class ParallelOCRProcessor:
 
         Args:
             hailo_ocr_model: Hailo OCR model for license plate recognition
-            thai_lp_ocr: ThaiLPROCR instance (PaddleOCR) for Thai alphabet recognition
+            thai_lp_ocr: ThaiLPROCR instance (Tesseract) for Thai alphabet recognition
             logger: Logger instance for debugging
         """
         self.hailo_ocr_model = hailo_ocr_model
@@ -52,7 +52,7 @@ class ParallelOCRProcessor:
     
     def process_plate_parallel(self, plate_image, plate_idx: int, timeout: float = 10.0) -> Dict[str, Any]:
         """
-        Process a license plate image using both Hailo and EasyOCR in parallel.
+        Process a license plate image using both Hailo and Tesseract in parallel.
         
         Args:
             plate_image: License plate image to process
@@ -97,7 +97,7 @@ class ParallelOCRProcessor:
                 'processing_time': processing_time,
                 'best_result': best_result,
                 'hailo': hailo_result or {'success': False, 'error': 'No result'},
-                'easyocr': thai_result or {'success': False, 'error': 'No result'},
+                'tesseract': thai_result or {'success': False, 'error': 'No result'},
                 'plate_idx': plate_idx
             }
 
@@ -108,7 +108,7 @@ class ParallelOCRProcessor:
                 'processing_time': time.time() - start_time,
                 'best_result': {'success': False, 'error': str(e)},
                 'hailo': {'success': False, 'error': str(e)},
-                'easyocr': {'success': False, 'error': str(e)},
+                'tesseract': {'success': False, 'error': str(e)},
                 'plate_idx': plate_idx
             }
     
@@ -157,14 +157,14 @@ class ParallelOCRProcessor:
             }
     
     def _thai_ocr_worker(self, plate_image, plate_idx: int) -> Dict[str, Any]:
-        """Worker function for Thai PaddleOCR processing."""
+        """Worker function for Thai Tesseract processing."""
         start_time = time.time()
 
         try:
             if not self.thai_lp_ocr or not self.thai_lp_ocr.is_ready():
                 return {'success': False, 'error': 'ThaiLPROCR not ready'}
 
-            # Preprocess specifically for PaddleOCR (resize, deskew, CLAHE)
+            # Preprocess for Tesseract (resize, deskew, CLAHE)
             from edge.src.components.thai_lp_ocr import preprocess_plate_crop
             preprocessed = preprocess_plate_crop(plate_image.copy())
 
@@ -182,7 +182,7 @@ class ParallelOCRProcessor:
                     'text': result['text'],
                     'confidence': result['confidence'],
                     'processing_time': processing_time,
-                    'method': 'paddleocr',
+                    'method': 'tesseract',
                     'validation': result.get('validation', {}),
                 }
             else:
@@ -199,54 +199,54 @@ class ParallelOCRProcessor:
                 'processing_time': time.time() - start_time,
             }
     
-    def _select_best_result(self, hailo_result: Optional[Dict], easyocr_result: Optional[Dict], plate_idx: int) -> Dict[str, Any]:
+    def _select_best_result(self, hailo_result: Optional[Dict], tesseract_result: Optional[Dict], plate_idx: int) -> Dict[str, Any]:
         """
-        Select the best OCR result from Hailo and EasyOCR.
-        
+        Select the best OCR result from Hailo and Tesseract.
+
         Selection criteria:
         1. Higher confidence score
         2. Text quality (length, character patterns)
-        3. Method preference (Hailo for speed, EasyOCR for Thai)
+        3. Method preference (Hailo for speed, Tesseract for Thai)
         """
-        if not hailo_result and not easyocr_result:
+        if not hailo_result and not tesseract_result:
             return {'success': False, 'error': 'No OCR results available'}
-        
+
         if not hailo_result:
-            return easyocr_result
-        
-        if not easyocr_result:
+            return tesseract_result
+
+        if not tesseract_result:
             return hailo_result
-        
+
         # Both results available - compare
         hailo_success = hailo_result.get('success', False)
-        easyocr_success = easyocr_result.get('success', False)
-        
-        if not hailo_success and not easyocr_success:
+        tesseract_success = tesseract_result.get('success', False)
+
+        if not hailo_success and not tesseract_success:
             return {'success': False, 'error': 'Both OCR methods failed'}
-        
+
         if not hailo_success:
-            return easyocr_result
-        
-        if not easyocr_success:
+            return tesseract_result
+
+        if not tesseract_success:
             return hailo_result
-        
+
         # Both successful - compare confidence
         hailo_conf = hailo_result.get('confidence', 0.0)
-        thai_conf = easyocr_result.get('confidence', 0.0)
+        thai_conf = tesseract_result.get('confidence', 0.0)
 
         # Prefer Thai OCR ONLY when it passed validate_thai_plate (structural check).
         # Raw PSM-11 output can contain Thai chars but still be garbage — validation
         # confirms the letters+digits format is present.
-        thai_validated = easyocr_result.get('validation', {}).get('valid', False)
+        thai_validated = tesseract_result.get('validation', {}).get('valid', False)
         confidence_threshold = 0.1
 
         if thai_validated and (thai_conf - hailo_conf) > -confidence_threshold:
             self.logger.debug(
-                f"Plate {plate_idx}: Selected Thai OCR (valid plate format, "
+                f"Plate {plate_idx}: Selected Tesseract (valid plate format, "
                 f"conf: {thai_conf:.3f} vs hailo: {hailo_conf:.3f})"
             )
             return {
-                **easyocr_result,
+                **tesseract_result,
                 'selection_reason': 'Valid Thai plate format detected',
             }
 
@@ -258,9 +258,9 @@ class ParallelOCRProcessor:
             return {**hailo_result, 'selection_reason': 'Higher confidence'}
         else:
             self.logger.debug(
-                f"Plate {plate_idx}: Selected Thai OCR (conf: {thai_conf:.3f} vs hailo: {hailo_conf:.3f})"
+                f"Plate {plate_idx}: Selected Tesseract (conf: {thai_conf:.3f} vs hailo: {hailo_conf:.3f})"
             )
-            return {**easyocr_result, 'selection_reason': 'Higher confidence'}
+            return {**tesseract_result, 'selection_reason': 'Higher confidence'}
     
     def cleanup(self):
         """Clean up resources."""

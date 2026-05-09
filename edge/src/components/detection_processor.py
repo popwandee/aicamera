@@ -5,7 +5,7 @@ Enhanced Detection Processor Component for AI Camera v2.0
 This component provides enhanced AI detection operations using Hailo AI models:
 - Vehicle detection using Hailo accelerator with tracking and deduplication
 - License plate detection with best frame selection
-- License plate OCR with parallel processing (Hailo + EasyOCR)
+- License plate OCR with parallel processing (Hailo + Tesseract)
 - Advanced image preprocessing (motion detection, illumination/contrast/denoise)
 - Post-processing for natural color preservation
 - Pre-OCR processing for optimal text recognition
@@ -125,7 +125,7 @@ class DetectionProcessor:
     - Advanced image preprocessing (illumination/contrast/denoise)
     - Vehicle detection with tracking and deduplication
     - License plate detection with best frame selection
-    - Parallel OCR processing (Hailo + EasyOCR)
+    - Parallel OCR processing (Hailo + Tesseract)
     - Post-processing for natural color preservation
     - Pre-OCR processing for optimal text recognition
     - Event-driven pipeline orchestration
@@ -175,12 +175,12 @@ class DetectionProcessor:
         self.ocr_reader = None  # Legacy - will be replaced by async_ocr_loader
         self.logger.info("🔍 [DETECTION_PROC] Model instances initialized")
         
-        # Async OCR loader for non-blocking EasyOCR initialization
+        # Async OCR loader (legacy EasyOCR — kept as last-resort fallback)
         self.logger.info("🔍 [DETECTION_PROC] Creating AsyncOCRLoader...")
         self.async_ocr_loader = AsyncOCRLoader(languages=EASYOCR_LANGUAGES, logger=self.logger)
         self.logger.info("🔍 [DETECTION_PROC] AsyncOCRLoader created successfully")
         
-        # Thai PaddleOCR instance (replaces EasyOCR as secondary OCR engine)
+        # ThaiLPROCR (Tesseract) instance — secondary OCR engine
         self.thai_lp_ocr = None
 
         # Parallel OCR processor for simultaneous Hailo + ThaiLPROCR
@@ -346,8 +346,8 @@ class DetectionProcessor:
             else:
                 self.logger.info("🔧 [DETECTION_PROC] No OCR model configured - skipping")
             
-            # Load ThaiLPROCR (PaddleOCR) — replaces EasyOCR as secondary OCR engine
-            self.logger.info("🔧 [DETECTION_PROC] Loading ThaiLPROCR (PaddleOCR)...")
+            # Load ThaiLPROCR (Tesseract) — secondary OCR engine for Thai plates
+            self.logger.info("🔧 [DETECTION_PROC] Loading ThaiLPROCR (Tesseract)...")
             try:
                 if self.thai_lp_ocr is None:
                     self.thai_lp_ocr = ThaiLPROCR(logger=self.logger)
@@ -435,8 +435,8 @@ class DetectionProcessor:
             'vehicle_model_name': VEHICLE_DETECTION_MODEL,
             'lp_detection_model_name': LICENSE_PLATE_DETECTION_MODEL,
             'lp_ocr_model_name': LICENSE_PLATE_OCR_MODEL or '',
-            'easyocr_available': bool(status.get('is_ready', False)),
-            'easyocr_ready': bool(status.get('is_ready', False))
+            'tesseract_available': bool(self.thai_lp_ocr.is_ready() if self.thai_lp_ocr else False),
+            'tesseract_ready': bool(self.thai_lp_ocr.is_ready() if self.thai_lp_ocr else False)
         })
         return status
     
@@ -951,7 +951,7 @@ class DetectionProcessor:
                     except Exception as e:
                         self.logger.debug(f"Hailo OCR failed for plate {i}: {e}")
 
-                # Use parallel OCR processing (Hailo + EasyOCR simultaneously)
+                # Use parallel OCR processing (Hailo + Tesseract simultaneously)
                 parallel_results = None
                 if self.parallel_ocr_processor:
                     try:
@@ -972,30 +972,30 @@ class DetectionProcessor:
                     
                     # Extract individual results for database storage
                     hailo_result = parallel_results.get('hailo', {})
-                    easyocr_result = parallel_results.get('easyocr', {})
-                    
+                    tesseract_result = parallel_results.get('tesseract', {})
+
                     hailo_ocr_text = hailo_result.get('text', '') if hailo_result.get('success') else ''
                     hailo_ocr_confidence = hailo_result.get('confidence', 0.0)
                     hailo_ocr_success = hailo_result.get('success', False)
-                    
-                    easyocr_text = easyocr_result.get('text', '') if easyocr_result.get('success') else ''
-                    easyocr_confidence = easyocr_result.get('confidence', 0.0)
-                    easyocr_success = easyocr_result.get('success', False)
-                    
+
+                    tesseract_text = tesseract_result.get('text', '') if tesseract_result.get('success') else ''
+                    tesseract_confidence = tesseract_result.get('confidence', 0.0)
+                    tesseract_success = tesseract_result.get('success', False)
+
                 else:
                     # Fallback to individual OCR methods if parallel processing failed
-                    easyocr_text = ""
-                    easyocr_confidence = 0.0
-                    easyocr_success = False
+                    tesseract_text = ""
+                    tesseract_confidence = 0.0
+                    tesseract_success = False
 
                     if self.thai_lp_ocr and self.thai_lp_ocr.is_ready():
                         try:
                             preprocessed = preprocess_plate_crop(plate_region.copy())
                             thai_result = self.thai_lp_ocr.read_plate(preprocessed)
                             if thai_result.get('success'):
-                                easyocr_text = thai_result['text']
-                                easyocr_confidence = thai_result['confidence']
-                                easyocr_success = True
+                                tesseract_text = thai_result['text']
+                                tesseract_confidence = thai_result['confidence']
+                                tesseract_success = True
                         except Exception as e:
                             self.logger.debug(f"ThaiLPROCR fallback failed for plate {i}: {e}")
                     else:
@@ -1005,21 +1005,21 @@ class DetectionProcessor:
                 # Prefer Tesseract ONLY when it produces a structurally valid Thai plate
                 # (letters + digits pattern matched). Garbage output from sparse-text PSM
                 # must not beat clean digit-only Hailo results.
-                thai_ocr_validation = validate_thai_plate(easyocr_text) if easyocr_success and easyocr_text else {'valid': False}
+                thai_ocr_validation = validate_thai_plate(tesseract_text) if tesseract_success and tesseract_text else {'valid': False}
                 thai_plate_valid = thai_ocr_validation.get('valid', False)
 
                 if thai_plate_valid:
                     final_ocr_text = thai_ocr_validation['formatted']
-                    final_ocr_confidence = easyocr_confidence
-                    ocr_method = "paddleocr"
+                    final_ocr_confidence = tesseract_confidence
+                    ocr_method = "tesseract"
                 elif hailo_ocr_success:
                     final_ocr_text = hailo_ocr_text
                     final_ocr_confidence = hailo_ocr_confidence
                     ocr_method = "hailo"
                 else:
-                    final_ocr_text = easyocr_text
-                    final_ocr_confidence = easyocr_confidence
-                    ocr_method = "paddleocr" if easyocr_success else "none"
+                    final_ocr_text = tesseract_text
+                    final_ocr_confidence = tesseract_confidence
+                    ocr_method = "tesseract" if tesseract_success else "none"
 
                 # Reformat Hailo-only result if it contains Thai chars
                 if final_ocr_text and ocr_method == "hailo":
@@ -1044,20 +1044,20 @@ class DetectionProcessor:
                             'confidence': hailo_ocr_confidence,
                             'success': hailo_ocr_success
                         },
-                        'easyocr': {
-                            'text': easyocr_text.strip() if easyocr_success else "",
-                            'confidence': easyocr_confidence,
-                            'success': easyocr_success
+                        'tesseract': {
+                            'text': tesseract_text.strip() if tesseract_success else "",
+                            'confidence': tesseract_confidence,
+                            'success': tesseract_success
                         }
                     }
-                    
+
                     # Add parallel processing metadata if available
                     if parallel_results:
                         ocr_result['parallel_processing'] = {
                             'parallel_success': parallel_results.get('parallel_success', False),
                             'processing_time': parallel_results.get('processing_time', 0.0),
                             'hailo_time': parallel_results.get('hailo', {}).get('processing_time', 0.0),
-                            'easyocr_time': parallel_results.get('easyocr', {}).get('processing_time', 0.0),
+                            'tesseract_time': parallel_results.get('tesseract', {}).get('processing_time', 0.0),
                             'selection_reason': parallel_results.get('best_result', {}).get('selection_reason', '')
                         }
                     
@@ -1162,16 +1162,16 @@ class DetectionProcessor:
             # Get OCR status
             self.logger.debug(f"🔧 [DETECTION_PROCESSOR] get_status: getting OCR status")
             ocr_status = self.get_ocr_status()
-            easyocr_available = ocr_status.get('easyocr_ready', False)
-            
-            self.logger.debug(f"🔧 [DETECTION_PROCESSOR] get_status: OCR status - easyocr_available: {easyocr_available}")
-            
+            tesseract_available = ocr_status.get('tesseract_ready', False)
+
+            self.logger.debug(f"🔧 [DETECTION_PROCESSOR] get_status: OCR status - tesseract_available: {tesseract_available}")
+
             status = {
                 'models_loaded': self.models_loaded,
                 'vehicle_model_available': vehicle_model_available,
                 'lp_detection_model_available': lp_detection_model_available,
                 'lp_ocr_model_available': lp_ocr_model_available,
-                'easyocr_available': easyocr_available,
+                'tesseract_available': tesseract_available,
                 'detection_resolution': self.detection_resolution,
                 'confidence_threshold': self.confidence_threshold,
                 'plate_confidence_threshold': self.plate_confidence_threshold,
@@ -1189,7 +1189,7 @@ class DetectionProcessor:
                 'vehicle_model_available': False,
                 'lp_detection_model_available': False,
                 'lp_ocr_model_available': False,
-                'easyocr_available': False,
+                'tesseract_available': False,
                 'detection_resolution': self.detection_resolution,
                 'confidence_threshold': self.confidence_threshold,
                 'plate_confidence_threshold': self.plate_confidence_threshold,
@@ -2306,7 +2306,7 @@ class DetectionProcessor:
                         except Exception as e:
                             self.logger.debug(f"Hailo OCR failed for enhanced plate {i}: {e}")
                     
-                    # Try EasyOCR
+                    # Try legacy EasyOCR via async_ocr_loader (last-resort fallback)
                     easyocr_text = ""
                     easyocr_confidence = 0.0
                     easyocr_success = False
