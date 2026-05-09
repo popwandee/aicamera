@@ -477,7 +477,7 @@ const DetectionManager = {
                 vehicle_model_available: false,
                 lp_detection_model_available: false,
                 lp_ocr_model_available: false,
-                easyocr_available: false
+                tesseract_available: false
             },
             detection_interval: 0.1,
             confidence_threshold: 0.5
@@ -556,7 +556,7 @@ const DetectionManager = {
         this.updateModelStatus('vehicle-model-status', processorStatus.vehicle_model_available, processorStatus.vehicle_model_name);
         this.updateModelStatus('lp-detection-model-status', processorStatus.lp_detection_model_available, processorStatus.lp_detection_model_name);
         this.updateModelStatus('lp-ocr-model-status', processorStatus.lp_ocr_model_available, processorStatus.lp_ocr_model_name);
-        this.updateModelStatus('easyocr-status', processorStatus.easyocr_available, processorStatus.easyocr_available ? 'EasyOCR' : '');
+        this.updateModelStatus('tesseract-status', processorStatus.tesseract_available, processorStatus.tesseract_available ? 'Tesseract' : '');
         
         // Update detection configuration display with fallbacks
         const resolution = processorStatus.detection_resolution || [640, 640];
@@ -2179,7 +2179,7 @@ displayDetailModal: function(result) {
 formatOcrResultsForDetail: function(result) {
     const ocrResults = result.ocr_results || [];
     const hailoResults = result.hailo_ocr_results || result.hailoOcrResults || [];
-    const easyResults = result.easyocr_results || result.easyOcrResults || [];
+    const tesseractResults = result.tesseract_results || result.tesseractResults || [];
     const plateDetections = result.plate_detections || [];
     
     if (ocrResults.length > 0) {
@@ -2230,8 +2230,8 @@ formatOcrResultsForDetail: function(result) {
                         ${this.formatOcrEngineResults(hailoResults)}
                     </div>
                     <div class="col-md-6">
-                        <h6 class="text-success">EasyOCR</h6>
-                        ${this.formatOcrEngineResults(easyResults)}
+                        <h6 class="text-success">Tesseract</h6>
+                        ${this.formatOcrEngineResults(tesseractResults)}
                     </div>
                 </div>
             </div>
@@ -2633,14 +2633,14 @@ updatePerformanceAnalytics: function() {
     
     // OCR method comparison (optional fields)
     const hailoSuccess = status.hailo_ocr_success_rate || 0;
-    const easyocrSuccess = status.easyocr_success_rate || 0;
-    const bestMethod = hailoSuccess > easyocrSuccess ? 'Hailo' : 'EasyOCR';
-    
+    const tesseractSuccess = status.tesseract_success_rate || 0;
+    const bestMethod = hailoSuccess > tesseractSuccess ? 'Hailo' : 'Tesseract';
+
     this.updateElement('detection-throughput', fps.toFixed(1) + ' FPS');
     this.updateElement('total-frames-processed', totalFrames);
     this.updateElement('detection-errors-count', errors);
     this.updateElement('hailo-ocr-success', hailoSuccess + '%');
-    this.updateElement('easyocr-success', easyocrSuccess + '%');
+    this.updateElement('tesseract-success', tesseractSuccess + '%');
     this.updateElement('best-ocr-method', bestMethod);
 },
 

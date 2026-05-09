@@ -546,7 +546,7 @@ def get_models_status():
             'vehicle_model_available': processor_status.get('vehicle_model_available', False),
             'lp_detection_model_available': processor_status.get('lp_detection_model_available', False),
             'lp_ocr_model_available': processor_status.get('lp_ocr_model_available', False),
-            'easyocr_available': processor_status.get('easyocr_available', False),
+            'tesseract_available': processor_status.get('tesseract_available', False),
             'detection_resolution': processor_status.get('detection_resolution', [0, 0]),
             'confidence_thresholds': {
                 'vehicle': processor_status.get('confidence_threshold', 0.0),

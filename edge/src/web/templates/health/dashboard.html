@@ -684,8 +684,8 @@ const HealthDashboard = {
                         <div class="metric-label"></div>
                     </div>
                     <div class="metric-item">
-                        <div class="metric-value">${data.easyocr_available ? 'READY' : 'NOT READY'}</div>
-                        <div class="metric-label">EASY OCR</div>
+                        <div class="metric-value">${data.tesseract_available ? 'READY' : 'NOT READY'}</div>
+                        <div class="metric-label">TESSERACT OCR</div>
                     </div>
                     <div class="metric-item">
                         <div class="metric-value">${data.detection_active ? 'ACTIVE' : 'NOT ACTIVE'}</div>
@@ -947,7 +947,7 @@ const HealthDashboard = {
                 
             case 'detection':
                 if (!component.models_loaded) return 'AI models not loaded';
-                if (!component.easyocr_available) return 'EasyOCR not available';
+                if (!component.tesseract_available) return 'Tesseract not available';
                 if (!component.detection_active) return 'Detection service not active';
                 if (!component.service_running) return 'Detection service not running';
                 if (!component.thread_alive) return 'Detection thread not alive';
