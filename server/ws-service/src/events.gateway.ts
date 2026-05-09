@@ -63,6 +63,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       camera_id: string;
       checkpoint_id: string;
       camera_name?: string;
+      ip_address?: string;
       camera_location?: string;
       location_lat?: string;
       location_lon?: string;
@@ -75,6 +76,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
         camera_id: payload.camera_id,
         checkpoint_id: payload.checkpoint_id,
         camera_name: payload.camera_name,
+        ip_address: payload.ip_address,
         camera_location: payload.camera_location,
         location_lat: payload.location_lat,
         location_lon: payload.location_lon,

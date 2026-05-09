@@ -439,7 +439,7 @@ class DetectionManager:
                 'vehicles_count': len(vehicle_boxes),
                 'plates_count': len(plate_boxes),
                 'ocr_results': ocr_results,
-                'original_image_path': f"captured_images/{os.path.basename(original_path)}" if original_path else '',
+                'original_image_path': original_path or '',
                 'vehicle_detections': vehicle_boxes,
                 'plate_detections': plate_boxes,
                 'processing_time_ms': processing_time * 1000.0,  # Convert to milliseconds

@@ -56,6 +56,7 @@ export class DeviceController {
       camera_id: string;
       checkpoint_id: string;
       camera_name?: string;
+      ip_address?: string;
       camera_location?: string;
       location_lat?: string;
       location_lon?: string;

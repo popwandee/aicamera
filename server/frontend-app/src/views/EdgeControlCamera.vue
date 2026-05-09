@@ -22,6 +22,7 @@
         </div>
         <div class="camera-meta">
           <span class="font-data text-muted">{{ camera.cameraId }}</span>
+          <span v-if="camera.ipAddress" class="font-data text-secondary">IP: {{ camera.ipAddress }}</span>
           <span v-if="camera.locationAddress" class="text-secondary">{{ camera.locationAddress }}</span>
         </div>
       </div>

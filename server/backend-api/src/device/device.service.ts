@@ -156,6 +156,7 @@ export class DeviceService {
     camera_id: string;
     checkpoint_id: string;
     camera_name?: string;
+    ip_address?: string;
     camera_location?: string;
     location_lat?: string;
     location_lon?: string;
@@ -167,6 +168,7 @@ export class DeviceService {
       // Only update name when camera_name is explicitly provided by the edge (not a fallback)
       const explicitName = payload.camera_name?.trim();
       if (explicitName && explicitName !== existing.name) updates.name = explicitName;
+      if (payload.ip_address) updates.ipAddress = payload.ip_address;
       if (payload.camera_location) updates.locationAddress = payload.camera_location;
       if (payload.location_lat) updates.locationLat = payload.location_lat;
       if (payload.location_lon) updates.locationLng = payload.location_lon;
@@ -179,6 +181,7 @@ export class DeviceService {
     return this.createCamera({
       cameraId: payload.camera_id,
       name: newName,
+      ipAddress: payload.ip_address || null,
       locationAddress: payload.camera_location || null,
       locationLat: payload.location_lat || null,
       locationLng: payload.location_lon || null,

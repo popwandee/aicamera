@@ -130,7 +130,7 @@ export default {
       ],
       // Fallback column headers when table has no rows (for UI layout and design)
       fallbackColumns: {
-        cameras: ['id', 'cameraId', 'name', 'locationLat', 'locationLng', 'locationAddress', 'status', 'detectionEnabled', 'imageQuality', 'uploadInterval', 'configuration', 'createdAt', 'updatedAt'],
+        cameras: ['id', 'cameraId', 'name', 'ipAddress', 'locationLat', 'locationLng', 'locationAddress', 'status', 'detectionEnabled', 'imageQuality', 'uploadInterval', 'configuration', 'createdAt', 'updatedAt'],
         detections: ['id', 'cameraId', 'timestamp', 'licensePlate', 'confidence', 'imageUrl', 'imagePath', 'status', 'metadata', 'archived', 'createdAt', 'updatedAt', '_image_link', '_actions'],
         cameraHealth: ['id', 'cameraId', 'timestamp', 'status', 'cpuUsage', 'memoryUsage', 'diskUsage', 'temperature', 'uptimeSeconds', 'lastDetectionAt', 'metadata', 'createdAt'],
         analytics: ['id', 'cameraId', 'date', 'totalDetections', 'uniquePlates', 'averageConfidence', 'createdAt', 'updatedAt'],
