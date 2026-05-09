@@ -1,7 +1,7 @@
 [Unit]
 Description=AI Camera v2.0.0 Flask Application
-After=network.target
-Wants=network.target
+After=network-online.target tailscale.service
+Wants=network-online.target
 
 [Service]
 Type=notify
@@ -14,6 +14,7 @@ Environment=FLASK_APP=edge.src.wsgi:app
 Environment=PYTHONPATH=/home/camuser/aicamera/edge/installation/venv_hailo/lib/python3.11/site-packages:/home/camuser/aicamera
 Environment=PYTHONNOUSERSITE=1
 
+ExecStartPre=/bin/bash -c 'for i in $(seq 1 12); do tailscale ping -c 1 100.95.46.128 >/dev/null 2>&1 && echo "Tailscale to lprserver OK" && break; echo "Waiting for Tailscale... ($i/12)"; sleep 5; done'
 ExecStartPre=/bin/bash -lc 'source /home/camuser/aicamera/edge/installation/venv_hailo/bin/activate && /home/camuser/aicamera/edge/systemd_service/aicamera_lpr_prestart.sh'
 ExecStart=/bin/bash -lc 'source /home/camuser/aicamera/edge/installation/venv_hailo/bin/activate && source /home/camuser/aicamera/edge/installation/setup_env.sh && export PYTHONPATH="/home/camuser/aicamera/edge/installation/venv_hailo/lib/python3.11/site-packages:/home/camuser/aicamera" && exec /home/camuser/aicamera/edge/installation/venv_hailo/bin/gunicorn --config /home/camuser/aicamera/edge/gunicorn_config.py --worker-class gthread --workers 1 --threads 4 edge.src.wsgi:app'
 ExecReload=/bin/kill -s HUP $MAINPID
