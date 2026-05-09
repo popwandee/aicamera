@@ -34,7 +34,7 @@ from edge.src.core.config import (
     WEBSOCKET_SERVER_URL, SENDER_INTERVAL,
     WEBSOCKET_SENDER_ENABLED, WEBSOCKET_CONNECTION_TIMEOUT, 
     WEBSOCKET_RETRY_INTERVAL, WEBSOCKET_MAX_RETRIES,
-    AICAMERA_ID, CHECKPOINT_ID, CAMERA_NAME, CAMERA_LOCATION, LOCATION_LAT, LOCATION_LON
+    AICAMERA_ID, CHECKPOINT_ID, CAMERA_NAME, CAMERA_IP, CAMERA_LOCATION, LOCATION_LAT, LOCATION_LON
 )
 
 # Use dedicated communication logger to write into edge/logs/unified_comm.log
@@ -90,6 +90,7 @@ class WebSocketSender:
         self.aicamera_id = AICAMERA_ID
         self.checkpoint_id = CHECKPOINT_ID
         self.camera_name = CAMERA_NAME or AICAMERA_ID
+        self.camera_ip = CAMERA_IP
         self.camera_location = CAMERA_LOCATION
         self.location_lat = LOCATION_LAT
         self.location_lon = LOCATION_LON
@@ -320,6 +321,7 @@ class WebSocketSender:
                     'camera_id': self.aicamera_id,
                     'checkpoint_id': self.checkpoint_id,
                     'camera_name': self.camera_name,
+                    'ip_address': self.camera_ip,
                     'camera_location': self.camera_location,
                     'location_lat': self.location_lat,
                     'location_lon': self.location_lon,
@@ -401,12 +403,14 @@ class WebSocketSender:
             
             self.logger.info("Sending pending data after reconnection...")
             
-            # Send pending detection data (health is sent via MQTT)
+            # Send pending detection data
             detection_count = self._send_detection_data()
             if detection_count > 0:
                 self.logger.info("Sent pending detection records")
             else:
                 self.logger.info("No pending data to send")
+            # Send current health status
+            self._send_health_status()
                 
         except Exception as e:
             self.logger.error(f"Error sending pending data: {e}")
@@ -696,29 +700,79 @@ class WebSocketSender:
         except Exception as e:
             self.logger.error(f"Error stopping WebSocket sender: {e}")
     
+    def _send_health_status(self) -> bool:
+        """Collect current system stats and send health_status event via WebSocket."""
+        if not self.connected or not self.sio or not self.sio.connected:
+            return False
+        try:
+            import psutil
+            cpu_percent = psutil.cpu_percent(interval=0.5)
+            mem = psutil.virtual_memory()
+            ram_percent = mem.percent
+            cpu_temp = None
+            try:
+                temps = psutil.sensors_temperatures()
+                if 'cpu_thermal' in temps and temps['cpu_thermal']:
+                    cpu_temp = temps['cpu_thermal'][0].current
+            except Exception:
+                pass
+            disk = psutil.disk_usage('/')
+            uptime = int(datetime.now().timestamp() - psutil.boot_time())
+            details = {
+                'cpu_percent': cpu_percent,
+                'ram_percent': ram_percent,
+                'disk_used_percent': disk.percent,
+            }
+            if cpu_temp is not None:
+                details['cpu_temp'] = cpu_temp
+            payload = {
+                'type': 'health_status',
+                'aicamera_id': self.aicamera_id,
+                'checkpoint_id': self.checkpoint_id,
+                'timestamp': datetime.now().isoformat(),
+                'component': 'system',
+                'status': 'ok',
+                'message': f"CPU {cpu_percent:.1f}%, RAM {ram_percent:.1f}%",
+                'details': json.dumps(details),
+                'uptime_seconds': uptime,
+            }
+            self.sio.emit('health_status', payload)
+            self.logger.debug("Sent health_status via WebSocket")
+            return True
+        except Exception as e:
+            self.logger.warning(f"health_status send failed: {e}")
+            return False
+
     def _detection_sender_loop(self):
         """Main loop for detection data sender thread - OPTIMIZED for reduced resource usage."""
         self.logger.info(f"Detection sender thread started with {SENDER_INTERVAL}s interval (optimized)")
-        
+        health_counter = 0
+        HEALTH_EVERY_N = 1  # send health every detection cycle (every SENDER_INTERVAL seconds)
+
         while self.running and not self.stop_event.is_set():
             try:
                 self.last_detection_check = datetime.now()
                 sent_count = self._send_detection_data()
-                
+
                 if sent_count > 0:
                     self.total_detections_sent += sent_count
                     self.logger.info(f"Sent {sent_count} detection records to server")
-                
+
+                health_counter += 1
+                if health_counter >= HEALTH_EVERY_N:
+                    self._send_health_status()
+                    health_counter = 0
+
                 # Wait for next interval or stop event (longer interval to reduce resource usage)
                 if self.stop_event.wait(SENDER_INTERVAL):
                     break
-                    
+
             except Exception as e:
                 self.logger.error(f"Error in detection sender loop: {e}")
                 # Wait before retrying (longer interval to reduce resource usage)
                 if self.stop_event.wait(SENDER_INTERVAL):
                     break
-        
+
         self.logger.info("Detection sender thread stopped")
     
     def _send_detection_data(self) -> int:
@@ -751,6 +805,14 @@ class WebSocketSender:
                     self.logger.info(f"Skipped DB log (no detection data): {db_exc}")
                 return 0
             
+            # Reconnect if disconnected (initial connect may have failed at startup)
+            if self.server_url and not self.connected:
+                self.logger.info(f"Reconnecting to server before sending {len(unsent_detections)} detection(s)...")
+                self.connect()
+                if not self.connected:
+                    self.logger.warning("Cannot send detection data: server unreachable, will retry next interval")
+                    return 0
+
             # Check if in offline mode
             if not self.server_url:
                 # In offline mode, just log that we're processing locally

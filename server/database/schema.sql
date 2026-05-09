@@ -17,6 +17,7 @@ CREATE TABLE cameras (
     location_lat DECIMAL(10, 8),
     location_lng DECIMAL(11, 8),
     location_address TEXT,
+    ip_address VARCHAR(45),
     status camera_status DEFAULT 'active',
     detection_enabled BOOLEAN DEFAULT true,
     image_quality image_quality DEFAULT 'medium',

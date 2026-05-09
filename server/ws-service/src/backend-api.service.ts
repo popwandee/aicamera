@@ -15,6 +15,7 @@ export interface CameraRegisterPayload {
   camera_id: string;
   checkpoint_id: string;
   camera_name?: string;
+  ip_address?: string;
   camera_location?: string;
   location_lat?: string;
   location_lon?: string;
@@ -45,6 +46,8 @@ export interface HealthStatusPayload {
   message: string;
   details?: string;
   created_at?: string;
+  uptime_seconds?: number;
+  [key: string]: unknown;
 }
 
 export interface CameraResponse {
@@ -170,9 +173,12 @@ export class BackendApiService {
       parsedDetails = payload.details as Record<string, unknown>;
     }
 
-    const cpuUsageVal = typeof parsedDetails.cpu_percent === 'number' ? parsedDetails.cpu_percent : undefined;
-    const memUsageVal = typeof parsedDetails.ram_percent === 'number' ? parsedDetails.ram_percent : undefined;
-    const tempVal     = typeof parsedDetails.cpu_temp === 'number'    ? parsedDetails.cpu_temp    : undefined;
+    const cpuUsageVal  = typeof parsedDetails.cpu_percent === 'number'       ? parsedDetails.cpu_percent       : undefined;
+    const memUsageVal  = typeof parsedDetails.ram_percent === 'number'       ? parsedDetails.ram_percent       : undefined;
+    const tempVal      = typeof parsedDetails.cpu_temp === 'number'          ? parsedDetails.cpu_temp          : undefined;
+    const diskUsageVal = typeof parsedDetails.disk_used_percent === 'number' ? parsedDetails.disk_used_percent : undefined;
+    const uptimeVal    = typeof (payload as Record<string, unknown>).uptime_seconds === 'number'
+      ? (payload as Record<string, unknown>).uptime_seconds as number : undefined;
 
     const metadata: Record<string, unknown> = {
       component: payload.component,
@@ -186,9 +192,11 @@ export class BackendApiService {
       status: payload.status,
       metadata,
     };
-    if (cpuUsageVal != null) body['cpuUsage']    = cpuUsageVal;
-    if (memUsageVal != null) body['memoryUsage'] = memUsageVal;
-    if (tempVal     != null) body['temperature'] = tempVal;
+    if (cpuUsageVal  != null) body['cpuUsage']      = cpuUsageVal;
+    if (memUsageVal  != null) body['memoryUsage']   = memUsageVal;
+    if (tempVal      != null) body['temperature']   = tempVal;
+    if (diskUsageVal != null) body['diskUsage']     = diskUsageVal;
+    if (uptimeVal    != null) body['uptimeSeconds'] = uptimeVal;
 
     const { data } = await this.client.post<{ id: string }>('/camera-health', body);
     return data;

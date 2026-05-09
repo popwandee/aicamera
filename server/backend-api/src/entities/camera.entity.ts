@@ -34,6 +34,9 @@ export class Camera {
   @Column({ name: 'location_address', type: 'text', nullable: true })
   locationAddress: string | null;
 
+  @Column({ name: 'ip_address', type: 'varchar', length: 45, nullable: true })
+  ipAddress: string | null;
+
   @Column({ type: 'enum', enum: ['active', 'inactive', 'maintenance'], default: 'active' })
   status: CameraStatus;
 
