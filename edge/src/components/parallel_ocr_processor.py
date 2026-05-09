@@ -34,7 +34,7 @@ class ParallelOCRProcessor:
     compared and the best result is selected based on confidence scores.
     """
     
-    def __init__(self, hailo_ocr_model, thai_lp_ocr, logger=None):
+    def __init__(self, hailo_ocr_model, thai_lp_ocr, logger=None, dual_branch_ocr=None):
         """
         Initialize the parallel OCR processor.
 
@@ -45,6 +45,7 @@ class ParallelOCRProcessor:
         """
         self.hailo_ocr_model = hailo_ocr_model
         self.thai_lp_ocr = thai_lp_ocr
+        self.dual_branch_ocr = dual_branch_ocr  # DualBranchDegirumOCR (preferred CTC engine)
         self.logger = logger or logging.getLogger(__name__)
         self.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ParallelOCR")
         
@@ -113,12 +114,51 @@ class ParallelOCRProcessor:
             }
     
     def _hailo_ocr_worker(self, plate_image, plate_idx: int) -> Dict[str, Any]:
-        """Worker function for Hailo OCR processing."""
+        """Worker function for Hailo OCR processing.
+
+        Tries DualBranchDegirumOCR (CTC) first when available — it provides
+        both character sequence AND province classification from a single
+        forward pass.  Falls back to the legacy degirum YOLOv8 character-
+        detection model if DualBranchDegirumOCR is not loaded.
+        """
         start_time = time.time()
 
+        # ------------------------------------------------------------------
+        # Primary: DualBranchDegirumOCR (CTC-based, trained on Thai LP data)
+        # ------------------------------------------------------------------
+        if self.dual_branch_ocr is not None and self.dual_branch_ocr.is_ready():
+            try:
+                result = self.dual_branch_ocr.read_plate(plate_image)
+                processing_time = time.time() - start_time
+                if result.get('success') and result.get('chars', ''):
+                    self.logger.debug(
+                        f"DualBranchOCR plate {plate_idx}: '{result['text']}' "
+                        f"(conf={result['confidence']:.3f})"
+                    )
+                    return {
+                        'success': True,
+                        'text': result['text'],
+                        'confidence': result['confidence'],
+                        'processing_time': processing_time,
+                        'method': 'dualbranch',
+                        'province': result.get('province', ''),
+                        'province_confidence': result.get('province_confidence', 0.0),
+                    }
+                else:
+                    self.logger.debug(
+                        f"DualBranchOCR plate {plate_idx}: empty CTC — {result.get('error','')}"
+                    )
+                    # Fall through to legacy engine
+            except Exception as e:
+                self.logger.warning(f"DualBranchOCR plate {plate_idx} exception: {e}")
+                # Fall through to legacy engine
+
+        # ------------------------------------------------------------------
+        # Fallback: legacy degirum YOLOv8 character-detection model
+        # ------------------------------------------------------------------
         try:
             if not self.hailo_ocr_model:
-                return {'success': False, 'error': 'Hailo OCR model not available'}
+                return {'success': False, 'error': 'No Hailo OCR model available'}
 
             # Perform Hailo OCR — returns DeGirum DetectionResults
             hailo_result_obj = self.hailo_ocr_model(plate_image)

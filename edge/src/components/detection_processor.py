@@ -52,6 +52,7 @@ from edge.src.core.config import (
 from edge.src.components.async_ocr_loader import AsyncOCRLoader
 from edge.src.components.parallel_ocr_processor import ParallelOCRProcessor
 from edge.src.components.thai_lp_ocr import ThaiLPROCR, preprocess_plate_crop, validate_thai_plate
+from edge.src.components.dual_branch_degirum_ocr import DualBranchDegirumOCR
 
 logger = get_logger(__name__)
 
@@ -184,6 +185,7 @@ class DetectionProcessor:
         # Thai PaddleOCR instance (replaces EasyOCR as secondary OCR engine)
         self.thai_lp_ocr = None
 
+        self.dual_branch_ocr: 'Optional[DualBranchDegirumOCR]' = None  # CTC OCR via degirum
         # Parallel OCR processor for simultaneous Hailo + ThaiLPROCR
         self.logger.info("🔍 [DETECTION_PROC] Initializing parallel OCR processor...")
         self.parallel_ocr_processor = None
@@ -363,12 +365,27 @@ class DetectionProcessor:
                 self.logger.warning(f"🔧 [DETECTION_PROC] Failed to load ThaiLPROCR: {e}")
                 self.thai_lp_ocr = None
 
-            # Initialize parallel OCR processor (Hailo + ThaiLPROCR)
+            # Load DualBranchDegirumOCR (primary CTC OCR via degirum)
+            self.logger.info("🔧 [DETECTION_PROC] Loading DualBranchDegirumOCR (CTC OCR via degirum)...")
+            try:
+                if self.dual_branch_ocr is None:
+                    self.dual_branch_ocr = DualBranchDegirumOCR(logger=self.logger)
+                if self.dual_branch_ocr.load():
+                    self.logger.info("🔧 [DETECTION_PROC] ✅ DualBranchDegirumOCR loaded — CTC OCR active")
+                else:
+                    self.logger.warning("🔧 [DETECTION_PROC] ⚠️  DualBranchDegirumOCR load failed — CTC OCR disabled")
+                    self.dual_branch_ocr = None
+            except Exception as e:
+                self.logger.warning(f"🔧 [DETECTION_PROC] DualBranchDegirumOCR init error: {e}")
+                self.dual_branch_ocr = None
+
+            # Initialize parallel OCR processor (DualBranchDegirumOCR + ThaiLPROCR)
             self.logger.info("🔧 [DETECTION_PROC] Initializing parallel OCR processor...")
             try:
                 self.parallel_ocr_processor = ParallelOCRProcessor(
                     hailo_ocr_model=self.lp_ocr_model,
                     thai_lp_ocr=self.thai_lp_ocr,
+                    dual_branch_ocr=self.dual_branch_ocr,
                     logger=self.logger
                 )
                 self.logger.info("🔧 [DETECTION_PROC] ✅ Parallel OCR processor initialized")
@@ -532,6 +549,15 @@ class DetectionProcessor:
                 except Exception as e:
                     self.logger.warning(f"Error cleaning up parallel OCR processor: {e}")
             
+            # Step 1.5: Clean up DualBranchDegirumOCR
+            if hasattr(self, 'dual_branch_ocr') and self.dual_branch_ocr is not None:
+                try:
+                    self.dual_branch_ocr.cleanup()
+                    self.dual_branch_ocr = None
+                    self.logger.debug('DualBranchDegirumOCR cleaned up')
+                except Exception as e:
+                    self.logger.warning(f'Error cleaning up DualBranchDegirumOCR: {e}')
+
             # Step 2: Clean up async OCR loader if present
             if hasattr(self, 'async_ocr_loader'):
                 try:

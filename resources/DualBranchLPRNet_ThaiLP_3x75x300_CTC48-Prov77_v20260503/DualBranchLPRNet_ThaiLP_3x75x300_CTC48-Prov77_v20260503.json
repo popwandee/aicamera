@@ -1,17 +1,30 @@
 {
-  "timestamp": "2026-05-03T21:44:29.135257",
-  "model_checkpoint": "best_model_20260503_0937PM.pth",
-  "onnx_model": "lprnet_dual_branch_20260503_0937PM.onnx",
-  "input_size": [
-    1,
-    3,
-    75,
-    300
-  ],
-  "model_architecture": "DualBranchLPRNet",
-  "output_names": [
-    "lpr_logits",
-    "province_logits"
-  ],
-  "notes": "Exported ONNX model from LPRNet family. For dual-branch checkpoints, outputs are lpr_logits and province_logits."
+    "ConfigVersion": 6,
+    "Checksum": "847cc6d5668f2515750ab2b3a2c3490291d4573ee281331f331923e7ee299f06",
+    "DEVICE": [
+        {
+            "DeviceType": "HAILO8",
+            "RuntimeAgent": "HAILORT",
+            "SupportedDeviceTypes": "HAILORT/HAILO8"
+        }
+    ],
+    "PRE_PROCESS": [
+        {
+            "InputN": 1,
+            "InputH": 75,
+            "InputW": 300,
+            "InputC": 3,
+            "InputQuantEn": true
+        }
+    ],
+    "MODEL_PARAMETERS": [
+        {
+            "ModelPath": "DualBranchLPRNet_ThaiLP_3x75x300_CTC48-Prov77_v20260503_fixed.hef"
+        }
+    ],
+    "POST_PROCESS": [
+        {
+            "OutputPostprocessType": "None"
+        }
+    ]
 }
