@@ -104,3 +104,6 @@ edge/db/
 CLAUDE.md
 CONTEXT_ENGINEERING.md
 TEST_AND_DEBUG_PLAN.md
+
+# Debug/context docs (local only)
+docs/project/
