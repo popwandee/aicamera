@@ -549,6 +549,7 @@
       <p class="hero-funded">โครงการวิจัยที่ได้รับการสนับสนุนจากหน่วยงานภาครัฐ</p>
       <div class="hero-badges">
         <span class="badge badge-server">lprserver · 100.95.46.128</span>
+        <span class="badge badge-online">● aicamera1 Online</span>
         <span class="badge badge-online">● aicamera2 Online</span>
         <span class="badge badge-network">Tailscale · tail605477.ts.net</span>
       </div>
@@ -609,14 +610,13 @@
 ├── <span class="c-green">mosquitto</span>     :1883  (MQTT Broker)
 └── <span class="c-green">PostgreSQL</span>    :5432  (aicamera_app DB)
         ↑ Tailscale (WebSocket + MQTT) ↓
-<span class="c-cyan">aicamera2</span> <span class="c-dim">(100.110.20.53)</span> <span class="c-green">✅ Online</span>
-├── Raspberry Pi 5 (aarch64, kernel 6.12.47)
-├── Hailo-8 AI Chip (FW 4.20.0)
-├── IMX708 NoIR Camera (libcamera v0.5.2)
+<span class="c-cyan">aicamera1</span> <span class="c-dim">(100.126.178.74)</span> <span class="c-green">✅ Online</span>
+├── Raspberry Pi 5 (aarch64) · IMX708 Camera · Hailo-8 AI
 └── aicamera_lpr.service (Flask + Gunicorn)
 
-<span class="c-dim">aicamera1 (100.126.178.74)</span>  <span class="c-red">⚠ Offline</span>
-<span class="c-dim">aicamera3 (100.68.95.36)</span>   <span class="c-red">⚠ Offline</span></div>
+<span class="c-cyan">aicamera2</span> <span class="c-dim">(100.110.20.53)</span> <span class="c-green">✅ Online</span>
+├── Raspberry Pi 5 (aarch64) · IMX708 NoIR Camera · Hailo-8 AI
+└── aicamera_lpr.service (Flask + Gunicorn)</div>
 
         <div class="flow-steps">
           <div class="flow-step">
@@ -773,15 +773,15 @@
 
         <div class="stats-bar">
           <div class="stat-item">
-            <span class="stat-value">6</span>
-            <div class="stat-label">Cameras ลงทะเบียน</div>
+            <span class="stat-value">2</span>
+            <div class="stat-label">Cameras Online</div>
           </div>
           <div class="stat-item">
-            <span class="stat-value">250+</span>
+            <span class="stat-value">500+</span>
             <div class="stat-label">Detections</div>
           </div>
           <div class="stat-item">
-            <span class="stat-value">505+</span>
+            <span class="stat-value">1000+</span>
             <div class="stat-label">Health Records</div>
           </div>
           <div class="stat-item">

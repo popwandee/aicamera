@@ -12,8 +12,11 @@ export const useCamerasStore = defineStore('cameras', {
   persist: false,
   getters: {
     onlineCount: (s) => s.edgeStatus.filter(c => {
+      if (!c.latestHealth) return false;
+      const ageMins = (Date.now() - new Date(c.latestHealth.timestamp).getTime()) / 60000;
+      if (ageMins > 15) return false;
       const st = (c.latestHealth?.status || '').toLowerCase();
-      return st === 'online' || st === 'healthy' || st === 'pass';
+      return st === 'online' || st === 'healthy' || st === 'pass' || st === 'ok';
     }).length,
   },
   actions: {

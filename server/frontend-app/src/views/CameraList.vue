@@ -50,7 +50,7 @@
             <td class="font-data cam-id">{{ item.camera.cameraId }}</td>
             <td class="cam-name">{{ item.camera.name || '—' }}</td>
             <td class="text-secondary">{{ item.camera.locationAddress || '—' }}</td>
-            <td class="font-data text-muted">{{ item.camera.ip || '—' }}</td>
+            <td class="font-data text-muted">{{ item.camera.ipAddress || '—' }}</td>
             <td class="col-num font-data" :class="tempClass(item.latestHealth?.temperature)">
               {{ fmtTemp(item.latestHealth?.temperature) }}
             </td>
@@ -147,8 +147,10 @@ export default {
 
     cameraStatus(item) {
       if (!item.latestHealth) return 'unknown';
+      const ageMins = (Date.now() - new Date(item.latestHealth.timestamp).getTime()) / 60000;
+      if (ageMins > 15) return 'offline';
       const s = (item.latestHealth.status || '').toLowerCase();
-      if (s === 'online' || s === 'healthy' || s === 'pass') return 'online';
+      if (s === 'online' || s === 'healthy' || s === 'pass' || s === 'ok') return 'online';
       if (s === 'degraded' || s === 'warning') return 'warning';
       return 'offline';
     },
