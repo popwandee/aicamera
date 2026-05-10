@@ -235,33 +235,16 @@ export class DeviceService {
 
   /** For Edge Control dashboard: cameras with their latest camera_health snapshot. */
   async findCamerasWithLatestHealth(): Promise<
-    Array<{ camera: Camera; latestHealth: {
-      status: string; timestamp: Date;
-      cpuUsage: string | null; memoryUsage: string | null;
-      temperature: string | null; diskUsage: string | null;
-      uptimeSeconds: string | null;
-    } | null }>
+    Array<{ camera: Camera; latestHealth: CameraHealth | null }>
   > {
-    type HealthSnap = { status: string; timestamp: Date; cpuUsage: string | null; memoryUsage: string | null; temperature: string | null; diskUsage: string | null; uptimeSeconds: string | null };
     const cameras = await this.cameraRepo.find({ order: { createdAt: 'DESC' } });
-    const result: Array<{ camera: Camera; latestHealth: HealthSnap | null }> = [];
+    const result: Array<{ camera: Camera; latestHealth: CameraHealth | null }> = [];
     for (const camera of cameras) {
       const latest = await this.cameraHealthRepo.findOne({
         where: { cameraId: camera.id },
         order: { timestamp: 'DESC' },
       });
-      result.push({
-        camera,
-        latestHealth: latest ? {
-          status: latest.status,
-          timestamp: latest.timestamp,
-          cpuUsage: latest.cpuUsage,
-          memoryUsage: latest.memoryUsage,
-          temperature: latest.temperature,
-          diskUsage: latest.diskUsage,
-          uptimeSeconds: latest.uptimeSeconds,
-        } : null,
-      });
+      result.push({ camera, latestHealth: latest ?? null });
     }
     return result;
   }
