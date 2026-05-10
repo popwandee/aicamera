@@ -249,7 +249,6 @@ export class DeviceService {
       const latest = await this.cameraHealthRepo.findOne({
         where: { cameraId: camera.id },
         order: { timestamp: 'DESC' },
-        select: ['status', 'timestamp', 'cpuUsage', 'memoryUsage', 'temperature', 'diskUsage', 'uptimeSeconds'],
       });
       result.push({
         camera,
