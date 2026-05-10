@@ -31,17 +31,26 @@
       <table class="data-table" v-if="store.currentPage.length">
         <thead>
           <tr>
+            <th class="col-thumb"></th>
             <th class="col-plate">Plate</th>
             <th>Camera</th>
             <th class="col-conf">Confidence</th>
             <th class="col-time">Timestamp</th>
-            <th class="col-img" title="Image available">🖼</th>
             <th class="col-arch" title="Archived">⊘</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="d in store.currentPage" :key="d.id"
               class="table-row" @click="goToDetail(d.id)">
+            <td class="col-thumb">
+              <img v-if="d.imagePath"
+                   :src="thumbUrl(d.id)"
+                   class="thumb-img"
+                   loading="lazy"
+                   alt=""
+                   @error="$event.target.style.visibility='hidden'" />
+              <div v-else class="thumb-none" />
+            </td>
             <td class="col-plate">
               <PlateTag :plate="d.licensePlate" size="sm" />
             </td>
@@ -52,7 +61,6 @@
               <ConfidenceBar :value="d.confidence" />
             </td>
             <td class="col-time font-data text-muted">{{ fmtTs(d.timestamp) }}</td>
-            <td class="col-img text-muted">{{ d.imagePath ? '●' : '' }}</td>
             <td class="col-arch">
               <span v-if="d.archived" class="arch-dot text-muted" title="Archived">⊘</span>
             </td>
@@ -139,6 +147,9 @@ export default {
     refresh() {
       this.store.fetchFiltered();
       this.newCount = 0;
+    },
+    thumbUrl(id) {
+      return api.getDetectionImageUrl(id);
     },
     goToDetail(id) {
       this.$router.push('/detections/' + id);
@@ -247,10 +258,25 @@ export default {
 .table-row:hover { background: var(--bg-hover); }
 .table-row:last-child td { border-bottom: none; }
 
+.col-thumb { width: 62px; padding: 4px 6px !important; }
+.thumb-img {
+  width: 50px;
+  height: 50px;
+  object-fit: cover;
+  border-radius: 3px;
+  display: block;
+  background: var(--bg-surface);
+}
+.thumb-none {
+  width: 50px;
+  height: 50px;
+  border-radius: 3px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-dim);
+}
 .col-plate { min-width: 140px; }
 .col-conf  { min-width: 130px; }
 .col-time  { text-align: right; white-space: nowrap; width: 130px; }
-.col-img   { text-align: center; width: 36px; font-size: 10px; color: var(--cyan-dim); }
 .col-arch  { text-align: center; width: 30px; }
 .cam-cell  { font-size: 11px; }
 .arch-dot  { font-size: 12px; }
