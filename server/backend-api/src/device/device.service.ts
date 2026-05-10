@@ -242,8 +242,9 @@ export class DeviceService {
       uptimeSeconds: string | null;
     } | null }>
   > {
+    type HealthSnap = { status: string; timestamp: Date; cpuUsage: string | null; memoryUsage: string | null; temperature: string | null; diskUsage: string | null; uptimeSeconds: string | null };
     const cameras = await this.cameraRepo.find({ order: { createdAt: 'DESC' } });
-    const result = [];
+    const result: Array<{ camera: Camera; latestHealth: HealthSnap | null }> = [];
     for (const camera of cameras) {
       const latest = await this.cameraHealthRepo.findOne({
         where: { cameraId: camera.id },
