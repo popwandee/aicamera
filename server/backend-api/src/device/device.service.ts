@@ -218,6 +218,23 @@ export class DeviceService {
     });
   }
 
+  async createSystemEvent(data: {
+    cameraId?: string | null;
+    eventType: string;
+    eventLevel: string;
+    message: string;
+    metadata?: Record<string, unknown>;
+  }): Promise<SystemEvent> {
+    const event = this.systemEventRepo.create({
+      cameraId: data.cameraId ?? null,
+      eventType: data.eventType,
+      eventLevel: data.eventLevel as SystemEvent['eventLevel'],
+      message: data.message,
+      metadata: data.metadata ?? {},
+    });
+    return this.systemEventRepo.save(event);
+  }
+
   async findAllVisualizations(limit = 500): Promise<Visualization[]> {
     return this.visualizationRepo.find({
       order: { createdAt: 'DESC' },

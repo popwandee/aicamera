@@ -73,6 +73,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: any,
   ) {
     try {
+      const isReconnect = this.cameraIdToUuid.has(payload.camera_id);
       const camera = await this.backendApi.registerCamera({
         camera_id: payload.camera_id,
         checkpoint_id: payload.checkpoint_id,
@@ -86,8 +87,23 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.cameraIdToUuid.set(payload.camera_id, camera.id);
       this.logger.log(`Camera registered: ${payload.camera_id} -> ${camera.id}`);
       client.emit('camera_registered', { camera_id: payload.camera_id, id: camera.id });
+      this.backendApi.createSystemEvent({
+        cameraId: camera.id,
+        eventType: isReconnect ? 'camera_reconnect' : 'camera_registered',
+        eventLevel: 'info',
+        message: isReconnect
+          ? `Camera ${payload.camera_id} reconnected`
+          : `Camera ${payload.camera_id} registered (${payload.camera_name || payload.checkpoint_id})`,
+        metadata: { ip: payload.ip_address, checkpointId: payload.checkpoint_id },
+      }).catch(() => {});
     } catch (error: any) {
       this.logger.error(`Camera register failed: ${error?.message}`);
+      this.backendApi.createSystemEvent({
+        eventType: 'camera_register_error',
+        eventLevel: 'error',
+        message: `Camera ${payload.camera_id} registration failed: ${error?.message}`,
+        metadata: { camera_id: payload.camera_id },
+      }).catch(() => {});
       client.emit('message_error', { success: false, error: error?.message });
     }
   }
@@ -123,6 +139,12 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       client.emit('image_saved', { path: filePath, success: true });
     } catch (error: any) {
       this.logger.error(`Failed to save image: ${error?.message}`);
+      this.backendApi.createSystemEvent({
+        eventType: 'image_save_error',
+        eventLevel: 'error',
+        message: `Image save failed: ${error?.message}`,
+        metadata: { filename: data.filename, camera_id: data.camera_id },
+      }).catch(() => {});
       client.emit('image_error', { success: false, error: error?.message });
     }
   }
@@ -169,6 +191,12 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       });
     } catch (error: any) {
       this.logger.error(`Failed to save message: ${error?.message}`);
+      this.backendApi.createSystemEvent({
+        eventType: 'detection_error',
+        eventLevel: 'error',
+        message: `Detection save failed: ${error?.message}`,
+        metadata: { client_id: client.id },
+      }).catch(() => {});
       client.emit('message_error', { success: false, error: error?.message });
     }
   }
@@ -197,9 +225,24 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       );
       await this.backendApi.createCameraHealth(cameraUuid, payload);
       this.logger.log(`Health status saved: ${cameraId} ${payload.status}`);
+      if (payload.status !== 'ok') {
+        this.backendApi.createSystemEvent({
+          cameraId: cameraUuid,
+          eventType: 'health_degraded',
+          eventLevel: payload.status === 'error' ? 'error' : 'warning',
+          message: `Camera ${cameraId} health: ${payload.status} — ${payload.message}`,
+          metadata: { status: payload.status, component: payload.component },
+        }).catch(() => {});
+      }
       client.emit('health_saved', { success: true });
     } catch (error: any) {
       this.logger.error(`Health status save failed: ${error?.message}`);
+      this.backendApi.createSystemEvent({
+        eventType: 'health_save_error',
+        eventLevel: 'error',
+        message: `Health status save failed for camera ${payload.aicamera_id}: ${error?.message}`,
+        metadata: { camera_id: payload.aicamera_id },
+      }).catch(() => {});
       client.emit('message_error', { success: false, error: error?.message });
     }
   }

@@ -159,6 +159,16 @@ export class BackendApiService {
     return data;
   }
 
+  async createSystemEvent(payload: {
+    cameraId?: string | null;
+    eventType: string;
+    eventLevel: 'debug' | 'info' | 'warning' | 'error' | 'critical';
+    message: string;
+    metadata?: Record<string, unknown>;
+  }): Promise<void> {
+    await this.client.post('/system-events', payload);
+  }
+
   async createCameraHealth(
     cameraIdUuid: string,
     payload: HealthStatusPayload,

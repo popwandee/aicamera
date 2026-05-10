@@ -204,6 +204,20 @@ export class DeviceController {
     );
   }
 
+  @Post('system-events')
+  async createSystemEvent(
+    @Body()
+    body: {
+      cameraId?: string;
+      eventType: string;
+      eventLevel: string;
+      message: string;
+      metadata?: Record<string, unknown>;
+    },
+  ) {
+    return this.deviceService.createSystemEvent(body);
+  }
+
   @Get('visualizations')
   async getVisualizations(@Query('limit') limit?: string) {
     return this.deviceService.findAllVisualizations(
