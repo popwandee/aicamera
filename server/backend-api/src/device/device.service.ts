@@ -268,8 +268,8 @@ export class DeviceService {
     imagePath: string,
   ): Promise<{ affected: number }> {
     const t = new Date(timestampIso);
-    const start = new Date(t.getTime() - 1000);
-    const end = new Date(t.getTime() + 1000);
+    const start = new Date(t.getTime() - 60000);
+    const end = new Date(t.getTime() + 60000);
     const result = await this.detectionRepo
       .createQueryBuilder()
       .update(Detection)

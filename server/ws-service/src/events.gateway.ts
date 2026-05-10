@@ -53,7 +53,8 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     );
     if (!match) return null;
     const [, y, m, d, h, min, s] = match;
-    return `${y}-${m}-${d}T${h}:${min}:${s}.000000`;
+    // Use local Date constructor so the filename's local time is correctly converted to UTC
+    return new Date(+y, +m - 1, +d, +h, +min, +s).toISOString();
   }
 
   @SubscribeMessage('camera_register')
