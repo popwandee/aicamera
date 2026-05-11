@@ -551,7 +551,14 @@ class DetectionProcessor:
             
             # Check if motion exceeds threshold
             motion_detected = motion_ratio > self.motion_threshold
-            
+            # ─── [DIAG H6] Motion Ratio Log ─────────────────────────
+            self.logger.debug(
+                f"[MOTION] ratio={motion_ratio:.4f} | "
+                f"threshold={self.motion_threshold} | "
+                f"detected={motion_detected} | "
+                f"frames_skipped={self.processing_metrics.frames_skipped}"
+            )
+            # ────────────────────────────────────────────────────────
             if motion_detected:
                 self.logger.debug(f"🔧 [MOTION_DETECTION] Motion detected: {motion_ratio:.3f} > {self.motion_threshold}")
             else:
@@ -909,14 +916,22 @@ class DetectionProcessor:
                 # Extract license plate region using safe padding
                 bbox = plate_box['bbox']
                 self.logger.debug(f"🔧 [DETECTION_PROCESSOR] perform_ocr: plate {i} bbox: {bbox}")
-                
+                # ─── [DIAG H2] บันทึกขนาด bbox ก่อน crop ──────────────────
+                bw = int(bbox[2] - bbox[0])
+                bh = int(bbox[3] - bbox[1])
+                self.logger.info(
+                    f"[LP_SIZE] track={plate_box.get('vehicle_idx','?')} "
+                    f"bbox_w={bw}px bbox_h={bh}px "
+                    f"det_conf={plate_box.get('score',0):.3f}"
+                )
+                # ─────────────────────────────────────────────────────────────
                 # ใช้ crop_with_safe_padding เพื่อขยายขอบ 15% สำหรับ OCR
                 plate_region, crop_info = self.crop_with_safe_padding(frame, bbox, padding_ratio=0.15)
                 
                 if plate_region.size == 0:
                     self.logger.debug(f"🔧 [DETECTION_PROCESSOR] perform_ocr: plate {i} region is empty, skipping")
                     continue
-                
+
                 # Check plate quality before OCR processing
                 quality_check = self._check_plate_quality(plate_region)
                 if not quality_check['is_acceptable']:
@@ -1116,8 +1131,20 @@ class DetectionProcessor:
                     return "", "", "", []
 
             # Pi5/PiSP: picamera2 "RGB888" make_array() delivers BGR in memory → cv2.imwrite expects BGR, no conversion
-
+            # ─── [DIAG H5] Upload I/O Timing ────────────────────────
+            time_save_start = time.perf_counter()
             success = cv2.imwrite(original_path, frame_to_save)
+            time_save_ms = (time.perf_counter() - time_save_start) * 1000
+            file_size_kb = os.path.getsize(original_path) / 1024 if success else 0
+            self.logger.info(
+                f"[UPLOAD] path={original_filename} | "
+                f"size={file_size_kb:.0f}KB | "
+                f"write_time={t_save_ms:.0f}ms | "
+                f"success={success}"
+            )
+            # สิ่งที่ต้องสังเกต: ถ้า write_time= สูง (>200ms)
+            # → SD Card I/O เป็นคอขวด → ยืนยัน H5
+            # ────────────────────────────────────────────────────────
             if not success or (not os.path.exists(original_path)):
                 self.logger.error(f"cv2.imwrite failed or file missing after write: {original_path}")
                 return "", "", "", []
@@ -1658,54 +1685,108 @@ class DetectionProcessor:
     def _check_plate_quality(self, plate_region: np.ndarray) -> Dict[str, Any]:
         """
         Check plate image quality before OCR processing.
-        
-        Args:
-            plate_region: Cropped license plate region
-            
-        Returns:
-            Dict with 'is_acceptable' (bool) and 'reason' (str) if not acceptable
+        Thresholds calibrated for yolov8n_relu6_lp_ocr--256x128 model.
         """
         try:
             if plate_region.size == 0:
                 return {'is_acceptable': False, 'reason': 'Empty region'}
-            
+
             h, w = plate_region.shape[:2]
-            
-            # Check minimum size (too small images are hard to read)
-            min_size = 20  # pixels
-            if h < min_size or w < min_size:
-                return {'is_acceptable': False, 'reason': f'Too small ({w}x{h})'}
-            
-            # Convert to grayscale if needed
+            # ─── [DIAG H2] LP Size Log — บันทึกขนาดทุกครั้งก่อน OCR ────
+            self.logger.info(
+                f"[LP_SIZE] w={w}px h={h}px "
+                f"ratio={w/max(h,1):.2f} "
+                f"area={w*h}px²"
+            )
+            # สิ่งที่ต้องสังเกต: ถ้า w= ส่วนใหญ่ < 80 → ยืนยัน H2
+            # ─────────────────────────────────────────────────────────────
+
+            # ── Minimum Size Check ───────────────────────────────────────────
+            # Model input: 256×128 → max upscale 3× is acceptable
+            # Thai LP aspect ratio ≈ 3.25:1 (52cm × 16cm)
+            # Width and Height thresholds are INDEPENDENT — not the same value
+            #
+            #  Level        MIN_W   MIN_H   Upscale(W)  Upscale(H)  Quality
+            #  Absolute     64px    20px      4.0×        6.4×       poor
+            #  Acceptable   80px    24px      3.2×        5.3×       ok
+            #  Good        128px    40px      2.0×        3.2×       good ✅ target
+            #  Excellent   160px    50px      1.6×        2.6×       very good
+            MIN_PLATE_WIDTH  = 80   # px — ~1/3 of model input width  (256px)
+            MIN_PLATE_HEIGHT = 24   # px — based on Thai LP ratio 3.3:1
+
+            if w < MIN_PLATE_WIDTH:
+                return {
+                    'is_acceptable': False,
+                    'reason': f'Width too small ({w}px < {MIN_PLATE_WIDTH}px) '
+                            f'— would require {256/max(w,1):.1f}× upscale into 256px model'
+                }
+            if h < MIN_PLATE_HEIGHT:
+                return {
+                    'is_acceptable': False,
+                    'reason': f'Height too small ({h}px < {MIN_PLATE_HEIGHT}px) '
+                            f'— would require {128/max(h,1):.1f}× upscale into 128px model'
+                }
+
+            # ── Aspect Ratio Sanity Check ─────────────────────────────────────
+            # Thai LP ≈ 2.8–3.8:1  |  reject garbage detections (squares, tall boxes)
+            aspect_ratio = w / max(h, 1)
+            if not (1.5 <= aspect_ratio <= 6.0):
+                return {
+                    'is_acceptable': False,
+                    'reason': f'Aspect ratio {aspect_ratio:.2f} invalid for Thai LP '
+                            f'(expected 1.5–6.0, got {w}×{h}px)'
+                }
+
+            # ── Convert to Grayscale ──────────────────────────────────────────
             if len(plate_region.shape) == 3:
                 gray = cv2.cvtColor(plate_region, cv2.COLOR_BGR2GRAY)
             else:
                 gray = plate_region
-            
-            # Check sharpness (blur detection using Laplacian variance)
+
+            # ── Sharpness Check (Laplacian Variance) ──────────────────────────
+            # Normalize threshold by plate area — small crops naturally have lower variance
             laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
-            min_sharpness = 50.0  # Minimum Laplacian variance for acceptable sharpness
+            # Scale threshold: large plate → stricter (more expected detail)
+            area_factor   = min(w * h / (128 * 40), 2.0)   # normalize to "good" size
+            min_sharpness = 30.0 * area_factor              # 30–60 range
             if laplacian_var < min_sharpness:
-                return {'is_acceptable': False, 'reason': f'Too blurry (sharpness: {laplacian_var:.1f})'}
-            
-            # Check brightness (too dark or too bright images are hard to read)
+                return {
+                    'is_acceptable': False,
+                    'reason': f'Too blurry (laplacian={laplacian_var:.1f} '
+                            f'< {min_sharpness:.1f}) — motion blur or out of focus'
+                }
+
+            # ── Brightness Check ──────────────────────────────────────────────
             mean_brightness = np.mean(gray)
-            if mean_brightness < 30:  # Too dark
-                return {'is_acceptable': False, 'reason': f'Too dark (brightness: {mean_brightness:.1f})'}
-            if mean_brightness > 240:  # Too bright (overexposed)
-                return {'is_acceptable': False, 'reason': f'Too bright (brightness: {mean_brightness:.1f})'}
-            
-            # Check contrast (low contrast makes OCR difficult)
+            if mean_brightness < 30:
+                return {'is_acceptable': False,
+                        'reason': f'Too dark (brightness={mean_brightness:.1f}/255)'}
+            if mean_brightness > 240:
+                return {'is_acceptable': False,
+                        'reason': f'Overexposed (brightness={mean_brightness:.1f}/255)'}
+
+            # ── Contrast Check ────────────────────────────────────────────────
             contrast = np.std(gray)
-            min_contrast = 15.0
-            if contrast < min_contrast:
-                return {'is_acceptable': False, 'reason': f'Low contrast ({contrast:.1f})'}
-            
-            return {'is_acceptable': True, 'reason': 'OK'}
-            
+            if contrast < 15.0:
+                return {'is_acceptable': False,
+                        'reason': f'Low contrast (std={contrast:.1f}) — may be blank region'}
+
+            return {
+                'is_acceptable': True,
+                'reason': 'OK',
+                'metrics': {
+                    'size':       f'{w}×{h}px',
+                    'aspect':     round(aspect_ratio, 2),
+                    'sharpness':  round(laplacian_var, 1),
+                    'brightness': round(float(mean_brightness), 1),
+                    'contrast':   round(float(contrast), 1),
+                    'upscale_w':  round(256 / w, 2),
+                    'upscale_h':  round(128 / h, 2),
+                }
+            }
+
         except Exception as e:
             self.logger.warning(f"Plate quality check failed: {e}")
-            # Default to acceptable if check fails
             return {'is_acceptable': True, 'reason': 'Check failed, proceeding'}
     
     def _enhance_character_edges(self, plate_region: np.ndarray) -> np.ndarray:
@@ -1757,7 +1838,10 @@ class DetectionProcessor:
         try:
             with self._track_lock:
                 current_time = time.time()
-                
+                # ─── [DIAG H4] บันทึก Track IDs ก่อน update ───────
+                prev_ids = set(self.active_tracks.keys())
+                # ────────────────────────────────────────────────────
+
                 # Clean up expired tracks
                 self._cleanup_expired_tracks(current_time)
                 
@@ -1781,7 +1865,21 @@ class DetectionProcessor:
                 
                 # Update active tracks
                 self.active_tracks = {track.track_id: track for track in updated_tracks}
-                
+                # ─── [DIAG H4] Structured Tracker Log ──────────────
+                new_ids = set(self.active_tracks.keys())
+                created = new_ids - prev_ids
+                lost    = prev_ids - new_ids
+                if created or lost:
+                    self.logger.info(
+                        f"[TRACKER] "
+                        f"active={sorted(new_ids)} | "
+                        f"created={sorted(created)} | "
+                        f"lost={sorted(lost)} | "
+                        f"total_detections={len(detections)}"
+                    )
+                # สิ่งที่ต้องสังเกต: ถ้ามี ID หายพร้อมกันกับ ID ใหม่
+                # ขณะที่รถยังอยู่ในเฟรม → ยืนยัน H4: Track ID Reset
+                # ────────────────────────────────────────────────────
                 self.logger.debug(f"🔧 [TRACKING] Updated {len(updated_tracks)} tracks")
                 return updated_tracks
                 
@@ -1798,9 +1896,19 @@ class DetectionProcessor:
                     expired_tracks.append(track_id)
             
             for track_id in expired_tracks:
+                track = self.active_tracks[track_id]
+                # ─── [DIAG H4] Log expired track details ────────────
+                self.logger.info(
+                    f"[TRACKER_EXPIRE] track_id={track_id} | "
+                    f"age={current_time - track.last_seen:.2f}s | "
+                    f"frame_count={track.frame_count} | "
+                    f"best_score={track.best_frame_score:.3f} | "
+                    f"plates_found={len(track.plate_candidates)}"
+                )
+                # ────────────────────────────────────────────────────
                 del self.active_tracks[track_id]
                 self.logger.debug(f"🔧 [TRACKING] Removed expired track {track_id}")
-                
+
         except Exception as e:
             self.logger.warning(f"Track cleanup error: {e}")
     
@@ -1821,7 +1929,15 @@ class DetectionProcessor:
                 
                 # Calculate IoU
                 iou = self._calculate_iou(detection_bbox, track.bbox)
-                
+                # ─── [DIAG H4] IoU Logging ──────────────────────────
+                if iou > 0:  # log เฉพาะที่มีการ overlap บ้าง
+                    self.logger.debug(
+                        f"[IOUcheck] track={track.track_id} | "
+                        f"iou={iou:.3f} | "
+                        f"threshold={self.iou_threshold} | "
+                        f"{'MATCH' if iou > self.iou_threshold else 'NO_MATCH'}"
+                    )
+                # ────────────────────────────────────────────────────
                 if iou > self.iou_threshold and iou > best_iou:
                     best_iou = iou
                     best_track = track
@@ -1853,7 +1969,14 @@ class DetectionProcessor:
                 track.best_frame_score = current_score
                 track.best_frame_data = frame.copy()
                 self.logger.debug(f"🔧 [TRACKING] Updated best frame for track {track.track_id} with score {current_score:.3f}")
-            
+                # ─── [DIAG H3] Best Frame Updated ──────────────────────
+                self.logger.info(
+                    f"[FRAME] track_id={track.track_id} | "
+                    f"new_best_score={current_score:.3f} | "
+                    f"prev_score={track.best_frame_score:.3f} | "
+                    f"frame_count={track.frame_count}"
+                )
+                # ────────────────────────────────────────────────────────
         except Exception as e:
             self.logger.warning(f"Track update error: {e}")
     
@@ -1988,7 +2111,20 @@ class DetectionProcessor:
                     weights['plate_confidence'] * plate_conf +
                     weights['area_ratio'] * area_ratio +
                     weights['plate_centeredness'] * centeredness)
-            
+            # ─── [DIAG H3] Frame Score Breakdown Log ───────────────────
+            self.logger.info(
+                f"[FRAME_SCORE] "
+                f"track={detection.get('track_id','?')} | "
+                f"sharpness={combined_sharpness:.3f} "
+                f"(plate={plate_sharpness_score:.3f} frame={sharpness_score:.3f}) | "
+                f"conf={plate_conf:.3f} | "
+                f"area={area_ratio:.3f} | "
+                f"center={centeredness:.3f} | "
+                f"SCORE={score:.3f}"
+            )
+            # สิ่งที่ต้องสังเกต: ถ้า score สูง แต่ OCR ยังล้มเหลว
+            # → sharpness ต่ำ → ยืนยัน H3: scoring ไม่สัมพันธ์กับ OCR quality
+            # ─────────────────────────────────────────────────────────────
             return score
             
         except Exception as e:
@@ -2086,7 +2222,9 @@ class DetectionProcessor:
     
     # Enhanced Detection Pipeline Orchestration
     
-    def process_enhanced_pipeline(self, frame: np.ndarray) -> Optional[Dict[str, Any]]:
+    #def process_enhanced_pipeline(self, frame: np.ndarray) -> Optional[Dict[str, Any]]:
+    def process_enhanced_pipeline(self, frame: np.ndarray,
+                               frame_capture_time: float = None) -> Optional[Dict[str, Any]]:
         """
         Process frame through enhanced detection pipeline with event-driven orchestration.
         
@@ -2107,7 +2245,22 @@ class DetectionProcessor:
         """
         try:
             with self._processing_lock:
-                start_time = time.time()
+                start_time = time.perf_counter()
+
+                # ─── [DIAG H1/H6] Frame Age Check ──────────────────────────
+                if frame_capture_time is None:
+                    frame_capture_time = start_time
+                frame_age_ms = (start_time - frame_capture_time) * 1000
+                self.logger.info(
+                    f"[TIMING] frame_age={frame_age_ms:.0f}ms"
+                )
+                if frame_age_ms > 300:
+                    self.logger.warning(
+                        f"[STALE_FRAME] age={frame_age_ms:.0f}ms > 300ms — "
+                        f"pipeline lag detected, skipping stale frame"
+                    )
+                    return None
+
                 self.processing_metrics.total_time = 0.0
                 
                 # Step 1: Motion Detection
@@ -2125,15 +2278,15 @@ class DetectionProcessor:
                 
                 # Step 3: Vehicle Detection
                 detection_start = time.time()
-                vehicle_detections = self.detect_vehicles(enhanced_frame)
-                if not vehicle_detections:
+                vehicle_boxes, mapping_info = self.detect_vehicles(enhanced_frame)
+                if not vehicle_boxes:
                     self.logger.debug("🔧 [PIPELINE] No vehicles detected")
                     return None
                 self.processing_metrics.vehicle_detection_time = time.time() - detection_start
                 
                 # Step 4: Tracking and Deduplication
                 tracking_start = time.time()
-                tracks = self.update_vehicle_tracks(vehicle_detections, frame)
+                tracks = self.update_vehicle_tracks(vehicle_boxes, frame)
                 filtered_tracks = self.apply_deduplication_rules(tracks)
                 self.processing_metrics.tracking_time = time.time() - tracking_start
                 self.processing_metrics.vehicles_tracked = len(filtered_tracks)
@@ -2242,6 +2395,22 @@ class DetectionProcessor:
                 
                 self.logger.info(f"🔧 [PIPELINE] Enhanced processing completed: {len(filtered_tracks)} tracks, {len(plate_results)} plates, {len(ocr_results)} OCR in {total_time:.3f}s")
                 
+                self.logger.debug(f"🔧 [PIPELINE] Start time {start_time}, Motion detection {motion_start}, Preprocessing {preprocessing_start}, Vehicle detection {detection_start}, Tracking {tracking_start}, Plate detection {plate_start}, OCR {ocr_start}, Storage {storage_start}")
+                # ─── [DIAG H1] Structured Timing Log ───────────────────────
+                self.logger.info(
+                    f"[PROCESS ENHANCED PIPELINE TIMING] "
+                    f"frame age={frame_age_ms:.0f}ms | "
+                    f"motion={self.processing_metrics.motion_detection_time*1000:.0f}ms | "
+                    f"preprocess={self.processing_metrics.preprocessing_time*1000:.0f}ms | "
+                    f"vehicle={self.processing_metrics.vehicle_detection_time*1000:.0f}ms | "
+                    f"plate={self.processing_metrics.plate_detection_time*1000:.0f}ms | "
+                    f"ocr={self.processing_metrics.ocr_time*1000:.0f}ms | "
+                    f"storage={storage_time*1000:.0f}ms | "
+                    f"total={total_time*1000:.0f}ms"
+                )
+                # สิ่งที่ต้องสังเกต: ถ้า ocr= สูงมาก (>500ms) และ total= สูงตาม
+                # → ยืนยัน H1: OCR Blocking หลัก Pipeline
+                # ─────────────────────────────────────────────────────────────
                 return enhanced_results
                 
         except Exception as e:
