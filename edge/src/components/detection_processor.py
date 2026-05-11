@@ -1139,7 +1139,7 @@ class DetectionProcessor:
             self.logger.info(
                 f"[UPLOAD] path={original_filename} | "
                 f"size={file_size_kb:.0f}KB | "
-                f"write_time={t_save_ms:.0f}ms | "
+                f"write_time={time_save_ms:.0f}ms | "
                 f"success={success}"
             )
             # สิ่งที่ต้องสังเกต: ถ้า write_time= สูง (>200ms)
