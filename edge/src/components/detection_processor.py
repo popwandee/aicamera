@@ -51,6 +51,7 @@ from edge.src.core.config import (
 from edge.src.components.async_ocr_loader import AsyncOCRLoader
 from edge.src.components.parallel_ocr_processor import ParallelOCRProcessor
 from edge.src.components.thai_lp_ocr import ThaiLPROCR, preprocess_plate_crop, validate_thai_plate
+from edge.src.components.ocr_queue_worker import OcrQueueWorker, OcrTask
 
 logger = get_logger(__name__)
 
@@ -89,7 +90,10 @@ class VehicleTrack:
     plate_candidates: List[Dict] = None
     ocr_results: List[Dict] = None
     iou_history: deque = None
-    
+    # Async OCR queue fields
+    ocr_submitted: bool = False          # True once track has been queued for OCR
+    plate_crop_buffer: deque = None      # (laplacian_var, crop_bgr) — maxlen=5
+
     def __post_init__(self):
         if self.plate_candidates is None:
             self.plate_candidates = []
@@ -97,6 +101,8 @@ class VehicleTrack:
             self.ocr_results = []
         if self.iou_history is None:
             self.iou_history = deque(maxlen=10)
+        if self.plate_crop_buffer is None:
+            self.plate_crop_buffer = deque(maxlen=5)
 
 
 @dataclass
@@ -252,7 +258,25 @@ class DetectionProcessor:
         # Thread Safety
         self._processing_lock = threading.RLock()
         self._track_lock = threading.RLock()
-        
+
+        # ── Async OCR Queue (Producer-Consumer) ────────────────────────────
+        # Worker is created here but not started until load_models() completes
+        # so ThaiLPROCR is ready before the worker thread begins.
+        self.ocr_queue_worker: Optional[OcrQueueWorker] = None
+        self._async_ocr_enabled: bool = True   # set False to fall back to sync
+
+        # Gatekeeper thresholds for async submit
+        self._ocr_min_plate_frames: int = 3    # wait for N frames before OCR
+        self._ocr_min_frame_score: float = 0.3 # minimum best_frame_score
+
+        # ROI trigger zone (normalized 0-1, disabled by default)
+        self._roi_zone = {
+            'enabled': False,
+            'x1': 0.1, 'y1': 0.2,
+            'x2': 0.9, 'y2': 0.8,
+        }
+        # ──────────────────────────────────────────────────────────────────
+
         self.logger.info("🔧 [ENHANCED_DETECTION] Enhanced detection pipeline initialized successfully")
     
     def load_models(self) -> bool:
@@ -376,8 +400,25 @@ class DetectionProcessor:
                 self.parallel_ocr_processor = None
             
             self.models_loaded = models_loaded >= 2  # At least vehicle + LP detection
-            # self.logger.info(f"🔧 [DETECTION_PROC] Models loaded: {models_loaded}, Ready: {self.models_loaded}")  # INFO: ปิดรายละเอียด
-            
+
+            # Start Async OCR Queue Worker (requires ThaiLPROCR to be ready)
+            if self._async_ocr_enabled and self.thai_lp_ocr and self.thai_lp_ocr.is_ready():
+                try:
+                    self.ocr_queue_worker = OcrQueueWorker(
+                        thai_lp_ocr=self.thai_lp_ocr,
+                        ocr_queue_maxsize=10,
+                        result_queue_maxsize=50,
+                        num_workers=1,
+                        logger=self.logger,
+                    )
+                    self.ocr_queue_worker.start()
+                    self.logger.info("🔧 [DETECTION_PROC] ✅ Async OCR queue worker started")
+                except Exception as e:
+                    self.logger.warning(f"🔧 [DETECTION_PROC] Failed to start OCR queue worker: {e}")
+                    self.ocr_queue_worker = None
+            else:
+                self.logger.info("🔧 [DETECTION_PROC] Async OCR worker skipped (ThaiLPROCR not ready or disabled)")
+
             self.logger.info("🔧 [DETECTION_PROC] Model loading process completed successfully")
             return self.models_loaded
             
@@ -483,7 +524,17 @@ class DetectionProcessor:
         """
         try:
             self.logger.info("Cleaning up DetectionProcessor...")
-            
+
+            # Step 0: Shut down async OCR queue worker
+            if hasattr(self, 'ocr_queue_worker') and self.ocr_queue_worker:
+                try:
+                    self.ocr_queue_worker.cleanup()
+                    self.logger.debug("Async OCR queue worker shut down")
+                except Exception as e:
+                    self.logger.warning(f"Error shutting down OCR queue worker: {e}")
+                finally:
+                    self.ocr_queue_worker = None
+
             # Step 1: Clean up parallel OCR processor if present
             if hasattr(self, 'parallel_ocr_processor') and self.parallel_ocr_processor:
                 try:
@@ -1822,8 +1873,113 @@ class DetectionProcessor:
             self.logger.warning(f"Character edge enhancement failed: {e}")
             return plate_region
     
+    # ── Async OCR Queue Methods ────────────────────────────────────────────────
+
+    def _plate_in_roi(self, plate_bbox: List[float], frame_shape: tuple) -> bool:
+        """Return True if plate center falls inside the configured ROI zone."""
+        roi = self._roi_zone
+        if not roi.get('enabled', False):
+            return True
+        h, w = frame_shape[:2]
+        if w == 0 or h == 0:
+            return True
+        cx = (plate_bbox[0] + plate_bbox[2]) / 2 / w
+        cy = (plate_bbox[1] + plate_bbox[3]) / 2 / h
+        return roi['x1'] <= cx <= roi['x2'] and roi['y1'] <= cy <= roi['y2']
+
+    def _should_submit_for_ocr(self, track: 'VehicleTrack', plate_bbox: List[float],
+                                frame_shape: tuple) -> bool:
+        """Gatekeeper — decide whether this track should be queued for OCR."""
+        if track.ocr_submitted:
+            return False
+        if len(track.plate_candidates) < self._ocr_min_plate_frames:
+            return False
+        if track.best_frame_score < self._ocr_min_frame_score:
+            return False
+        if not self._plate_in_roi(plate_bbox, frame_shape):
+            return False
+        return True
+
+    def submit_for_ocr(self, track: 'VehicleTrack', plate_bbox: List[float],
+                        det_confidence: float, frame_timestamp: float,
+                        camera_id: str, frame_shape: tuple) -> bool:
+        """
+        Non-blocking submit of track's best plate crop to the OCR worker.
+        Returns True if task was accepted, False if skipped or dropped.
+        """
+        if not self.ocr_queue_worker:
+            return False
+        if not self._should_submit_for_ocr(track, plate_bbox, frame_shape):
+            return False
+
+        # Pick sharpest crop from buffer; fall back to best_frame_data full frame
+        plate_crop = None
+        if track.plate_crop_buffer:
+            plate_crop = max(track.plate_crop_buffer, key=lambda x: x[0])[1]
+        if plate_crop is None or plate_crop.size == 0:
+            self.logger.debug(
+                f"[ASYNC_OCR] track_id={track.track_id} no crop in buffer — skipping"
+            )
+            return False
+
+        task = OcrTask(
+            track_id=track.track_id,
+            plate_crop=plate_crop,
+            bbox=plate_bbox,
+            det_confidence=det_confidence,
+            frame_timestamp=frame_timestamp,
+            camera_id=camera_id,
+        )
+        accepted = self.ocr_queue_worker.submit(task)
+        if accepted:
+            track.ocr_submitted = True
+            self.logger.debug(
+                f"[ASYNC_OCR] Submitted track_id={track.track_id} "
+                f"score={track.best_frame_score:.3f}"
+            )
+        return accepted
+
+    def poll_ocr_results(self) -> List[Dict[str, Any]]:
+        """
+        Non-blocking drain of completed OCR results from the worker.
+        Converts OcrResult → same dict schema as perform_ocr_on_enhanced_plates().
+        Call once per frame iteration before the storage step.
+        """
+        if not self.ocr_queue_worker:
+            return []
+        raw_results = self.ocr_queue_worker.drain_results()
+        if not raw_results:
+            return []
+
+        results = []
+        for r in raw_results:
+            if r.error:
+                self.logger.warning(
+                    f"[ASYNC_OCR] track_id={r.track_id} error: {r.error}"
+                )
+                continue
+            ocr_entry = {
+                'plate_idx': r.track_id,
+                'bbox': r.bbox,
+                'text': r.text,
+                'confidence': r.confidence,
+                'detection_confidence': r.det_confidence,
+                'ocr_method': r.method,
+                'enhanced_processing': True,
+                'valid_thai': r.valid_thai,
+                'async_ocr': True,
+                'track_id': r.track_id,
+            }
+            results.append(ocr_entry)
+            self.logger.info(
+                f"[ASYNC_OCR] ✅ track_id={r.track_id} "
+                f"text='{r.text}' valid={r.valid_thai} "
+                f"conf={r.confidence:.3f}"
+            )
+        return results
+
     # Vehicle Tracking and Deduplication Methods
-    
+
     def update_vehicle_tracks(self, detections: List[Dict[str, Any]], frame: np.ndarray) -> List[VehicleTrack]:
         """
         Update vehicle tracks with new detections.
@@ -2301,44 +2457,79 @@ class DetectionProcessor:
                 for track in filtered_tracks:
                     # Use best frame if available, otherwise use current frame
                     frame_for_plate = track.best_frame_data if track.best_frame_data is not None else frame
-                    
+
                     # Detect plates in vehicle region
                     plates = self.detect_license_plates(frame_for_plate, [{'bbox': track.bbox, 'score': track.confidence}])
                     track.plate_candidates.extend(plates)
                     plate_results.extend(plates)
-                
+
+                    # Buffer plate crops for async OCR best-frame selection
+                    if self._async_ocr_enabled and plates:
+                        for plate in plates:
+                            x1, y1, x2, y2 = plate['bbox']
+                            crop = frame_for_plate[int(y1):int(y2), int(x1):int(x2)]
+                            if crop.size > 0:
+                                gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY) if crop.ndim == 3 else crop
+                                blur_score = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+                                track.plate_crop_buffer.append((blur_score, crop.copy()))
+
                 self.processing_metrics.plate_detection_time = time.time() - plate_start
                 self.processing_metrics.plates_detected = len(plate_results)
-                
+
                 # Step 6: OCR Processing
                 ocr_start = time.time()
                 ocr_results = []
+
+                # Step 6a: Poll for completed async OCR results from previous frames (non-blocking)
+                async_polled = self.poll_ocr_results()
+                if async_polled:
+                    ocr_results.extend(async_polled)
+                    self.logger.info(
+                        f"[PIPELINE] Polled {len(async_polled)} async OCR result(s) "
+                        f"from background worker"
+                    )
+
+                # Step 6b: Submit current-frame plates to async queue OR run sync fallback
                 if plate_results:
-                    # Process OCR on best frames
-                    for track in filtered_tracks:
-                        if track.plate_candidates:
-                            # Use best frame for OCR
-                            ocr_frame = track.best_frame_data if track.best_frame_data is not None else frame
-                            
-                            # Enhance plate regions for OCR
-                            enhanced_plates = []
-                            for plate in track.plate_candidates:
-                                x1, y1, x2, y2 = plate['bbox']
-                                plate_region = ocr_frame[int(y1):int(y2), int(x1):int(x2)]
-                                if plate_region.size > 0:
-                                    enhanced_plate_region = self.enhance_for_ocr(plate_region)
-                                    enhanced_plates.append({
-                                        'bbox': plate['bbox'],
-                                        'score': plate['score'],
-                                        'enhanced_region': enhanced_plate_region
-                                    })
-                            
-                            # Perform OCR on enhanced plates
-                            if enhanced_plates:
-                                track_ocr = self.perform_ocr_on_enhanced_plates(enhanced_plates)
-                                track.ocr_results.extend(track_ocr)
-                                ocr_results.extend(track_ocr)
-                
+                    if self._async_ocr_enabled and self.ocr_queue_worker:
+                        # Async path — non-blocking submit; OCR runs in background thread
+                        from edge.src.core.config import AICAMERA_ID
+                        frame_ts = time.time()
+                        for track in filtered_tracks:
+                            if track.plate_candidates:
+                                best_plate = max(
+                                    track.plate_candidates,
+                                    key=lambda p: p.get('score', 0.0)
+                                )
+                                self.submit_for_ocr(
+                                    track=track,
+                                    plate_bbox=best_plate['bbox'],
+                                    det_confidence=best_plate.get('score', 0.0),
+                                    frame_timestamp=frame_ts,
+                                    camera_id=AICAMERA_ID,
+                                    frame_shape=frame.shape,
+                                )
+                    else:
+                        # Sync fallback — blocking OCR (legacy behaviour, kept intact)
+                        for track in filtered_tracks:
+                            if track.plate_candidates:
+                                ocr_frame = track.best_frame_data if track.best_frame_data is not None else frame
+                                enhanced_plates = []
+                                for plate in track.plate_candidates:
+                                    x1, y1, x2, y2 = plate['bbox']
+                                    plate_region = ocr_frame[int(y1):int(y2), int(x1):int(x2)]
+                                    if plate_region.size > 0:
+                                        enhanced_plate_region = self.enhance_for_ocr(plate_region)
+                                        enhanced_plates.append({
+                                            'bbox': plate['bbox'],
+                                            'score': plate['score'],
+                                            'enhanced_region': enhanced_plate_region
+                                        })
+                                if enhanced_plates:
+                                    track_ocr = self.perform_ocr_on_enhanced_plates(enhanced_plates)
+                                    track.ocr_results.extend(track_ocr)
+                                    ocr_results.extend(track_ocr)
+
                 self.processing_metrics.ocr_time = time.time() - ocr_start
                 self.processing_metrics.ocr_successful = len(ocr_results)
                 
