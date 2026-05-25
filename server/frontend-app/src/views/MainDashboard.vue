@@ -161,6 +161,8 @@ export default {
     },
     cameraStatus(item) {
       if (!item.latestHealth) return 'unknown';
+      const ageMins = (Date.now() - new Date(item.latestHealth.timestamp).getTime()) / 60000;
+      if (ageMins > 15) return 'offline';
       const s = (item.latestHealth.status || '').toLowerCase();
       if (s === 'online' || s === 'healthy' || s === 'pass' || s === 'ok') return 'online';
       if (s === 'degraded' || s === 'warning') return 'warning';

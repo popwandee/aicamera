@@ -225,6 +225,9 @@ export default {
     },
     statusStr() {
       if (!this.latestHealth) return 'unknown';
+      const ts = this.latestHealth.timestamp || this.latestHealth.createdAt;
+      const ageMins = ts ? (Date.now() - new Date(ts).getTime()) / 60000 : Infinity;
+      if (ageMins > 15) return 'offline';
       const s = (this.latestHealth.status || '').toLowerCase();
       if (s === 'online' || s === 'healthy' || s === 'pass' || s === 'ok') return 'online';
       if (s === 'degraded' || s === 'warning') return 'warning';
