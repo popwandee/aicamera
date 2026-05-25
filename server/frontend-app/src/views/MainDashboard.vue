@@ -162,7 +162,7 @@ export default {
     cameraStatus(item) {
       if (!item.latestHealth) return 'unknown';
       const s = (item.latestHealth.status || '').toLowerCase();
-      if (s === 'online' || s === 'healthy' || s === 'pass') return 'online';
+      if (s === 'online' || s === 'healthy' || s === 'pass' || s === 'ok') return 'online';
       if (s === 'degraded' || s === 'warning') return 'warning';
       return 'offline';
     },

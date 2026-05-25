@@ -226,7 +226,7 @@ export default {
     statusStr() {
       if (!this.latestHealth) return 'unknown';
       const s = (this.latestHealth.status || '').toLowerCase();
-      if (s === 'online' || s === 'healthy' || s === 'pass') return 'online';
+      if (s === 'online' || s === 'healthy' || s === 'pass' || s === 'ok') return 'online';
       if (s === 'degraded' || s === 'warning') return 'warning';
       return 'offline';
     },
