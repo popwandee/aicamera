@@ -721,13 +721,12 @@ class HealthMonitor:
         try:
             self.logger.info("Health check started")
             
-            # Run all checks
+            # Run all checks (EasyOCR excluded — Tesseract is used instead on edge devices)
             checks = {
                 'camera': self.check_camera(),
                 'disk_space': self.check_disk_space(),
                 'cpu_ram': self.check_cpu_ram(),
                 'models': self.check_model_loading(),
-                'easyocr': self.check_easyocr_init(),
                 'database': self.check_database_connection(),
                 'network': self.check_network_connectivity(),
                 'storage': self.check_storage_management()

@@ -277,12 +277,10 @@ class HealthService:
             
             # Fallback to health check results if detection manager not available
             if detection_status == "unknown":
-                detection_status = "healthy" if (component_status.get('models', False) and 
-                                               component_status.get('easyocr', False)) else "unhealthy"
+                # Only require models — EasyOCR is never loaded on edge devices
+                detection_status = "healthy" if component_status.get('models', False) else "unhealthy"
                 models_check = self._find_latest_check(latest_checks, "Detection Models")
-                easyocr_check = self._find_latest_check(latest_checks, "EasyOCR")
                 models_loaded = models_check.get('status') == 'PASS' if models_check else False
-                easyocr_available = easyocr_check.get('status') == 'PASS' if easyocr_check else False
             
             components['detection'] = {
                 'status': detection_status,
@@ -396,8 +394,7 @@ class HealthService:
         elif component_name == 'detection':
             if not component_data.get('models_loaded', False):
                 issues.append('AI models not loaded')
-            if not component_data.get('easyocr_available', False):
-                issues.append('EasyOCR not available')
+            # EasyOCR is never loaded on edge devices — Tesseract is used instead
             if not component_data.get('detection_active', False):
                 issues.append('Detection not active')
             if not component_data.get('service_running', False):
@@ -931,13 +928,13 @@ class HealthService:
         try:
             processor_status = detection_status.get('detection_processor_status', {})
             
-            # Check if models are loaded (using detection processor pattern)
+            # Check if essential models are loaded (vehicle + LP detection).
+            # lp_ocr_model_available and easyocr_available are optional — Tesseract is
+            # used as OCR fallback and EasyOCR is never loaded on edge devices.
             models_ready = (
                 processor_status.get('models_loaded', False) and
                 processor_status.get('vehicle_model_available', False) and
-                processor_status.get('lp_detection_model_available', False) and
-                processor_status.get('lp_ocr_model_available', False) and
-                processor_status.get('easyocr_available', False)
+                processor_status.get('lp_detection_model_available', False)
             )
             
             self.logger.debug(f"Detection processor models ready: {models_ready}")
