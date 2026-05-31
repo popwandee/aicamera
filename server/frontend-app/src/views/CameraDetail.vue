@@ -505,8 +505,8 @@ export default {
 .table-row { cursor: pointer; transition: background var(--transition); }
 .table-row:hover { background: var(--bg-hover); }
 .table-row:last-child td { border-bottom: none; }
-.col-num  { text-align: right; width: 80px; }
-.col-time { text-align: right; width: 110px; }
+.col-num  { text-align: right; width: 70px; }
+.col-time { text-align: right; width: 160px; white-space: nowrap; }
 .plate-cell { font-weight: 500; }
 .has-image { text-align: center; width: 32px; }
 .empty-msg { padding: 2rem 1rem; text-align: center; font-size: 13px; }
