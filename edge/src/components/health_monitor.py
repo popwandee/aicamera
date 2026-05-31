@@ -388,7 +388,7 @@ class HealthMonitor:
             # Use detection service API as primary method (more efficient)
             try:
                 import requests
-                response = requests.get('http://localhost:5000/detection/status', timeout=5)
+                response = requests.get('http://localhost/detection/status', timeout=5)
                 if response.status_code == 200:
                     detection_data = response.json()
                     if detection_data.get('success'):
