@@ -80,6 +80,8 @@
                   @click="viewerOpen = true">
             🔍 View Image
           </button>
+          <button class="btn btn-edit" @click="editOpen = true">✎ Edit</button>
+          <button class="btn btn-danger" @click="deleteConfirm = true">✕ Delete</button>
         </div>
 
         <div v-if="actionError" class="form-error">⚠ {{ actionError }}</div>
@@ -87,6 +89,32 @@
     </div>
 
     <ErrorBanner :message="error" @retry="retry" />
+
+    <!-- Delete confirm -->
+    <div class="modal-backdrop" v-if="deleteConfirm" @click.self="deleteConfirm = false">
+      <div class="confirm-box panel">
+        <div class="confirm-title">Delete Detection?</div>
+        <div class="confirm-body">
+          Permanently remove plate
+          <span class="font-data text-cyan font-thai">{{ detection.licensePlate || '—' }}</span>
+          from the database? This cannot be undone.
+        </div>
+        <div class="confirm-actions">
+          <button class="btn" @click="deleteConfirm = false">Cancel</button>
+          <button class="btn btn-danger" :disabled="deleting" @click="doDelete">
+            {{ deleting ? 'Deleting…' : 'Delete' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Edit modal -->
+    <EditDetectionModal
+      v-if="editOpen && detection"
+      :detection="detection"
+      @close="editOpen = false"
+      @updated="onUpdated"
+    />
 
     <!-- Image viewer modal -->
     <ImageViewer
@@ -104,26 +132,30 @@
 </template>
 
 <script>
-import PlateTag      from '@/components/shared/PlateTag.vue';
-import ConfidenceBar from '@/components/shared/ConfidenceBar.vue';
-import ImageViewer   from '@/components/shared/ImageViewer.vue';
-import ErrorBanner   from '@/components/shared/ErrorBanner.vue';
-import api           from '@/api/index.js';
+import PlateTag            from '@/components/shared/PlateTag.vue';
+import ConfidenceBar       from '@/components/shared/ConfidenceBar.vue';
+import ImageViewer         from '@/components/shared/ImageViewer.vue';
+import ErrorBanner         from '@/components/shared/ErrorBanner.vue';
+import EditDetectionModal  from '@/components/detections/EditDetectionModal.vue';
+import api                 from '@/api/index.js';
 
 export default {
   name: 'DetectionDetail',
-  components: { PlateTag, ConfidenceBar, ImageViewer, ErrorBanner },
+  components: { PlateTag, ConfidenceBar, ImageViewer, ErrorBanner, EditDetectionModal },
   props: { id: { type: String, required: true } },
   data() {
     return {
-      detection:   null,
-      loading:     true,
-      error:       null,
-      actionError: null,
-      archiving:   false,
-      viewerOpen:  false,
-      imgLoaded:   false,
-      imgBroken:   false,
+      detection:     null,
+      loading:       true,
+      error:         null,
+      actionError:   null,
+      archiving:     false,
+      viewerOpen:    false,
+      imgLoaded:     false,
+      imgBroken:     false,
+      editOpen:      false,
+      deleteConfirm: false,
+      deleting:      false,
     };
   },
   computed: {
@@ -173,6 +205,23 @@ export default {
         this.actionError = e.message;
       } finally {
         this.archiving = false;
+      }
+    },
+    onUpdated(updated) {
+      this.detection = { ...this.detection, ...updated };
+      this.editOpen  = false;
+    },
+    async doDelete() {
+      this.deleting    = true;
+      this.actionError = null;
+      try {
+        await api.deleteDetection(this.id);
+        this.$router.replace('/detections');
+      } catch (e) {
+        this.actionError = e.message;
+        this.deleteConfirm = false;
+      } finally {
+        this.deleting = false;
       }
     },
     fmtTs(ts) {
@@ -289,6 +338,24 @@ export default {
   margin-top: 1.5rem;
   flex-wrap: wrap;
 }
+
+.btn-edit   { border-color: rgba(0,200,255,0.35); color: var(--cyan-dim); }
+.btn-edit:hover { background: rgba(0,200,255,0.08); border-color: var(--cyan); color: var(--cyan); }
+.btn-danger { border-color: rgba(255,61,87,0.4); color: var(--red); }
+.btn-danger:hover { background: var(--red-dim); }
+.btn-danger:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Delete confirm */
+.modal-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(8,12,18,0.82);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000; backdrop-filter: blur(2px);
+}
+.confirm-box { width: 400px; max-width: calc(100vw - 2rem); }
+.confirm-title { font-size: 1rem; font-weight: 600; color: var(--red); margin-bottom: 0.75rem; }
+.confirm-body  { font-size: 13px; color: var(--text-secondary); margin-bottom: 1.25rem; line-height: 1.6; }
+.confirm-actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
 
 .form-error {
   margin-top: 0.75rem;

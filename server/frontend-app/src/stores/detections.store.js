@@ -77,6 +77,16 @@ export const useDetectionsStore = defineStore('detections', {
         this.loading = false;
       }
     },
+    async editDetection(id, data) {
+      const updated = await api.editDetection(id, data);
+      const idx = this.items.findIndex(d => d.id === id);
+      if (idx !== -1) this.items[idx] = { ...this.items[idx], ...updated };
+      return updated;
+    },
+    async removeDetection(id) {
+      await api.deleteDetection(id);
+      this.items = this.items.filter(d => d.id !== id);
+    },
     nextPage()  { if (this.hasNext)  this.page++; },
     prevPage()  { if (this.hasPrev)  this.page--; },
     goToPage(n) { this.page = Math.max(0, Math.min(n, this.pageCount - 1)); },

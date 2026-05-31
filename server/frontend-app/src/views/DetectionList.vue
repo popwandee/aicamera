@@ -37,6 +37,7 @@
             <th class="col-conf">Confidence</th>
             <th class="col-time">Timestamp</th>
             <th class="col-arch" title="Archived">⊘</th>
+            <th class="col-actions"></th>
           </tr>
         </thead>
         <tbody>
@@ -64,6 +65,12 @@
             <td class="col-arch">
               <span v-if="d.archived" class="arch-dot text-muted" title="Archived">⊘</span>
             </td>
+            <td class="col-actions" @click.stop>
+              <button class="action-btn action-edit" title="Edit"
+                      @click="openEdit(d)">✎</button>
+              <button class="action-btn action-delete" title="Delete"
+                      @click="confirmDelete(d)">✕</button>
+            </td>
           </tr>
         </tbody>
       </table>
@@ -88,14 +95,41 @@
     </div>
 
     <ErrorBanner :message="store.error" @retry="retry" />
+
+    <!-- Edit modal -->
+    <EditDetectionModal
+      v-if="editTarget"
+      :detection="editTarget"
+      @close="editTarget = null"
+      @updated="onUpdated"
+    />
+
+    <!-- Delete confirm -->
+    <div class="modal-backdrop" v-if="deleteTarget" @click.self="deleteTarget = null">
+      <div class="confirm-box panel">
+        <div class="confirm-title">Delete Detection?</div>
+        <div class="confirm-body">
+          Permanently remove plate
+          <span class="font-data text-cyan font-thai">{{ deleteTarget.licensePlate || '—' }}</span>
+          from the database? This cannot be undone.
+        </div>
+        <div class="confirm-actions">
+          <button class="btn" @click="deleteTarget = null">Cancel</button>
+          <button class="btn btn-danger" :disabled="deleting" @click="doDelete">
+            {{ deleting ? 'Deleting…' : 'Delete' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script>
-import FilterBar        from '@/components/shared/FilterBar.vue';
-import PlateTag         from '@/components/shared/PlateTag.vue';
-import ConfidenceBar    from '@/components/shared/ConfidenceBar.vue';
-import ErrorBanner      from '@/components/shared/ErrorBanner.vue';
+import FilterBar           from '@/components/shared/FilterBar.vue';
+import PlateTag            from '@/components/shared/PlateTag.vue';
+import ConfidenceBar       from '@/components/shared/ConfidenceBar.vue';
+import ErrorBanner         from '@/components/shared/ErrorBanner.vue';
+import EditDetectionModal  from '@/components/detections/EditDetectionModal.vue';
 import { useDetectionsStore } from '@/stores/detections.store.js';
 import { useCamerasStore }    from '@/stores/cameras.store.js';
 import { useSocket }          from '@/composables/useSocket.js';
@@ -103,12 +137,15 @@ import api from '@/api/index.js';
 
 export default {
   name: 'DetectionList',
-  components: { FilterBar, PlateTag, ConfidenceBar, ErrorBanner },
+  components: { FilterBar, PlateTag, ConfidenceBar, ErrorBanner, EditDetectionModal },
   data() {
     return {
-      cameras:  [],
-      socketOk: false,
-      newCount: 0,
+      cameras:      [],
+      socketOk:     false,
+      newCount:     0,
+      editTarget:   null,
+      deleteTarget: null,
+      deleting:     false,
     };
   },
   setup() {
@@ -153,6 +190,26 @@ export default {
     },
     goToDetail(id) {
       this.$router.push('/detections/' + id);
+    },
+    openEdit(detection) {
+      this.editTarget = detection;
+    },
+    onUpdated() {
+      this.editTarget = null;
+    },
+    confirmDelete(detection) {
+      this.deleteTarget = detection;
+    },
+    async doDelete() {
+      this.deleting = true;
+      try {
+        await this.store.removeDetection(this.deleteTarget.id);
+        this.deleteTarget = null;
+      } catch (e) {
+        this.store.error = e.message;
+      } finally {
+        this.deleting = false;
+      }
     },
     fmtTs(ts) {
       if (!ts) return '—';
@@ -257,6 +314,31 @@ export default {
 .table-row { cursor: pointer; transition: background var(--transition); }
 .table-row:hover { background: var(--bg-hover); }
 .table-row:last-child td { border-bottom: none; }
+
+.col-actions { width: 64px; text-align: center; white-space: nowrap; }
+.action-btn {
+  background: none; border: none; color: var(--text-muted);
+  cursor: pointer; font-size: 12px; padding: 3px 6px;
+  border-radius: var(--radius-sm);
+  transition: color var(--transition), background var(--transition);
+}
+.action-edit:hover   { color: var(--cyan); background: rgba(0,200,255,0.08); }
+.action-delete:hover { color: var(--red);  background: var(--red-dim); }
+
+/* Delete confirm modal */
+.modal-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(8,12,18,0.80);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000; backdrop-filter: blur(2px);
+}
+.confirm-box { width: 400px; max-width: calc(100vw - 2rem); }
+.confirm-title { font-size: 1rem; font-weight: 600; color: var(--red); margin-bottom: 0.75rem; }
+.confirm-body  { font-size: 13px; color: var(--text-secondary); margin-bottom: 1.25rem; line-height: 1.6; }
+.confirm-actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
+.btn-danger { border-color: rgba(255,61,87,0.5); color: var(--red); }
+.btn-danger:hover { background: var(--red-dim); }
+.btn-danger:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .col-thumb { width: 62px; padding: 4px 6px !important; }
 .thumb-img {

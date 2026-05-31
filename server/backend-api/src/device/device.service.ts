@@ -195,11 +195,17 @@ export class DeviceService {
   async updateDetection(id: string, data: Partial<Detection>): Promise<Detection> {
     if (data.archived === true) {
       (data as Record<string, unknown>).archivedAt = new Date();
+    } else if (data.archived === false) {
+      (data as Record<string, unknown>).archivedAt = null;
     }
     await this.detectionRepo.update(id, data as Record<string, unknown>);
-    const updated = await this.detectionRepo.findOne({ where: { id } });
+    const updated = await this.detectionRepo.findOne({ where: { id }, relations: ['camera'] });
     if (!updated) throw new Error('Detection not found');
     return updated;
+  }
+
+  async deleteDetection(id: string): Promise<void> {
+    await this.detectionRepo.delete(id);
   }
 
   async findAllAnalytics(limit = 500): Promise<Analytics[]> {

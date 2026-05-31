@@ -52,6 +52,14 @@ export const useCamerasStore = defineStore('cameras', {
       this.cameras.unshift(cam);
       return cam;
     },
+    async updateCamera(id, data) {
+      const updated = await api.updateCamera(id, data);
+      const idx = this.cameras.findIndex(c => c.id === id);
+      if (idx !== -1) this.cameras[idx] = updated;
+      const edgeIdx = this.edgeStatus.findIndex(c => c.camera.id === id);
+      if (edgeIdx !== -1) this.edgeStatus[edgeIdx] = { ...this.edgeStatus[edgeIdx], camera: updated };
+      return updated;
+    },
     async removeCamera(id) {
       await api.deleteCamera(id);
       this.cameras    = this.cameras.filter(c => c.id !== id);

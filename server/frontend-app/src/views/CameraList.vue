@@ -13,6 +13,16 @@
     <div class="filter-bar">
       <input v-model="search" class="search-input font-data"
              placeholder="Search camera ID, name, location…" />
+      <div class="status-pills">
+        <button class="pill" :class="{ active: statusFilter === '' }"
+                @click="statusFilter = ''">All</button>
+        <button class="pill pill-green" :class="{ active: statusFilter === 'active' }"
+                @click="statusFilter = 'active'">Active</button>
+        <button class="pill pill-amber" :class="{ active: statusFilter === 'inactive' }"
+                @click="statusFilter = 'inactive'">Inactive</button>
+        <button class="pill pill-dim" :class="{ active: statusFilter === 'maintenance' }"
+                @click="statusFilter = 'maintenance'">Maintenance</button>
+      </div>
       <div class="filter-counts">
         <span class="count-badge badge badge-green">{{ onlineCount }} Online</span>
         <span class="count-badge badge badge-cyan">{{ filtered.length }} Total</span>
@@ -64,7 +74,9 @@
               {{ fmtAgo(item.latestHealth?.createdAt || item.latestHealth?.timestamp) }}
             </td>
             <td class="col-actions" @click.stop>
-              <button class="action-btn" title="Delete"
+              <button class="action-btn action-edit" title="Edit"
+                      @click="openEdit(item.camera)">✎</button>
+              <button class="action-btn action-delete" title="Delete"
                       @click="confirmDelete(item.camera)">✕</button>
             </td>
           </tr>
@@ -84,6 +96,14 @@
       v-if="showModal"
       @close="showModal = false"
       @created="onCreated"
+    />
+
+    <!-- Edit modal -->
+    <EditCameraModal
+      v-if="editTarget"
+      :camera="editTarget"
+      @close="editTarget = null"
+      @updated="onUpdated"
     />
 
     <!-- Delete confirm -->
@@ -108,18 +128,21 @@
 <script>
 import StatusDot           from '@/components/shared/StatusDot.vue';
 import RegisterCameraModal from '@/components/cameras/RegisterCameraModal.vue';
+import EditCameraModal     from '@/components/cameras/EditCameraModal.vue';
 import ErrorBanner         from '@/components/shared/ErrorBanner.vue';
 import { useCamerasStore } from '@/stores/cameras.store.js';
 
 export default {
   name: 'CameraList',
-  components: { StatusDot, RegisterCameraModal, ErrorBanner },
+  components: { StatusDot, RegisterCameraModal, EditCameraModal, ErrorBanner },
   data() {
     return {
-      search:       '',
-      showModal:    false,
-      deleteTarget: null,
-      deleting:     false,
+      search:        '',
+      statusFilter:  '',
+      showModal:     false,
+      editTarget:    null,
+      deleteTarget:  null,
+      deleting:      false,
     };
   },
   setup() {
@@ -131,8 +154,10 @@ export default {
     error()       { return this.store.error; },
     onlineCount() { return this.store.onlineCount; },
     filtered() {
-      const q = this.search.toLowerCase();
+      const q  = this.search.toLowerCase();
+      const sf = this.statusFilter;
       return this.store.edgeStatus.filter(item => {
+        if (sf && item.camera.status !== sf) return false;
         if (!q) return true;
         const { cameraId = '', name = '', locationAddress = '' } = item.camera;
         return (cameraId + name + locationAddress).toLowerCase().includes(q);
@@ -174,6 +199,12 @@ export default {
       this.$router.push('/cameras/' + id);
     },
     onCreated() {
+      this.store.fetchEdgeStatus();
+    },
+    openEdit(camera) {
+      this.editTarget = camera;
+    },
+    onUpdated() {
       this.store.fetchEdgeStatus();
     },
     confirmDelete(camera) {
@@ -218,6 +249,7 @@ export default {
   align-items: center;
   gap: 0.75rem;
   margin-bottom: 1rem;
+  flex-wrap: wrap;
 }
 .search-input {
   flex: 1;
@@ -234,6 +266,18 @@ export default {
 .search-input::placeholder { color: var(--text-muted); }
 .filter-counts { display: flex; gap: 0.5rem; }
 .count-badge { font-size: 11px; }
+
+.status-pills { display: flex; gap: 4px; }
+.pill {
+  background: none; border: 1px solid var(--border-dim);
+  border-radius: 20px; color: var(--text-muted);
+  cursor: pointer; font-size: 11px; padding: 4px 10px;
+  transition: all var(--transition); white-space: nowrap;
+}
+.pill:hover, .pill.active { border-color: var(--border-bright); color: var(--text-primary); background: var(--bg-hover); }
+.pill-green.active { border-color: rgba(0,255,198,0.5); color: var(--green); background: rgba(0,255,198,0.07); }
+.pill-amber.active { border-color: rgba(255,180,0,0.5); color: var(--amber); background: rgba(255,180,0,0.07); }
+.pill-dim.active   { border-color: var(--border-bright); color: var(--text-secondary); }
 
 /* Table */
 .table-panel { padding: 0; overflow-x: auto; }
@@ -264,7 +308,7 @@ export default {
 .col-status  { width: 28px; padding-left: 16px !important; }
 .col-num     { text-align: right; width: 70px; }
 .col-time    { text-align: right; width: 90px; }
-.col-actions { width: 36px; text-align: center; }
+.col-actions { width: 64px; text-align: center; white-space: nowrap; }
 
 .cam-id   { color: var(--cyan-dim); font-weight: 500; }
 .cam-name { font-weight: 500; }
@@ -282,12 +326,13 @@ export default {
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  font-size: 11px;
+  font-size: 12px;
   padding: 3px 6px;
   border-radius: var(--radius-sm);
   transition: color var(--transition), background var(--transition);
 }
-.action-btn:hover { color: var(--red); background: var(--red-dim); }
+.action-edit:hover   { color: var(--cyan); background: rgba(0,200,255,0.08); }
+.action-delete:hover { color: var(--red);  background: var(--red-dim); }
 
 /* Skeleton */
 .skeleton-table { padding: 1rem; display: flex; flex-direction: column; gap: 0.5rem; }

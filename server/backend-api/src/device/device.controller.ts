@@ -165,9 +165,24 @@ export class DeviceController {
   @Patch('detections/:id')
   async updateDetection(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() body: { archived?: boolean },
+    @Body()
+    body: {
+      archived?: boolean;
+      licensePlate?: string;
+      vehicleMake?: string;
+      vehicleModel?: string;
+      vehicleColor?: string;
+      vehicleType?: string;
+      status?: string;
+    },
   ) {
     return this.deviceService.updateDetection(id, body);
+  }
+
+  @Delete('detections/:id')
+  async deleteDetection(@Param('id', ParseUUIDPipe) id: string) {
+    await this.deviceService.deleteDetection(id);
+    return { ok: true };
   }
 
   @Get('camera-health')

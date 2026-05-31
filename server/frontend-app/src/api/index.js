@@ -34,8 +34,10 @@ export const api = {
     return req('GET', `/detections?${q}`);
   },
   getDetection:     (id) => req('GET', `/detections/${id}`),
-  archiveDetection: (id) => req('PATCH', `/detections/${id}`, { archived: true }),
-  unarchiveDetection:(id)=> req('PATCH', `/detections/${id}`, { archived: false }),
+  archiveDetection:   (id)     => req('PATCH',  `/detections/${id}`, { archived: true }),
+  unarchiveDetection: (id)     => req('PATCH',  `/detections/${id}`, { archived: false }),
+  editDetection:      (id, d)  => req('PATCH',  `/detections/${id}`, d),
+  deleteDetection:    (id)     => req('DELETE', `/detections/${id}`),
   getDetectionImageUrl: (id) => `${BASE}/detections/${id}/image`,
 
   // Camera Health
