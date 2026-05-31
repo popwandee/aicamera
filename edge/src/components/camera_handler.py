@@ -835,13 +835,10 @@ class CameraHandler:
                 )
                 
                 # Set framerate using FrameDurationLimits (in microseconds).
-                # min and max are different so the ISP can extend the shutter in low-light
-                # instead of compensating with gain.
-                #   min_duration = target framerate floor  (e.g. 66 666 µs = 15 FPS)
-                #   max_duration = 2× floor              (e.g. 133 333 µs =  7.5 FPS max drop)
-                # Gives the ISP headroom to keep noise low while maintaining detection throughput.
+                # min == max enforces a fixed framerate; the ISP compensates low-light
+                # with gain rather than extending the shutter (keeps FPS consistent).
                 frame_duration_min_us = int(1000000 / DEFAULT_FRAMERATE)
-                frame_duration_max_us = frame_duration_min_us * 2   # allow up to 2× shutter extension
+                frame_duration_max_us = frame_duration_min_us  # fixed FPS, no ISP slowdown
                 if "controls" not in config:
                     config["controls"] = {}
                 config["controls"]["FrameDurationLimits"] = (frame_duration_min_us, frame_duration_max_us)
