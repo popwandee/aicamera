@@ -185,7 +185,10 @@ class HealthMonitor:
                     INSERT INTO health_checks (timestamp, component, status, message, details)
                     VALUES (?, ?, ?, ?, ?)
                 """, (timestamp, component, status, message, details_json))
-                self.db_manager.connection.commit()
+                try:
+                    self.db_manager.connection.commit()
+                except Exception:
+                    pass  # No active transaction (autocommit or already committed)
                 
         except Exception as e:
             self.logger.error(f"Failed to log health check result: {e}")

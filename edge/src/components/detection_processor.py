@@ -841,6 +841,7 @@ class DetectionProcessor:
                 self.last_logged_states['vehicles_detected'] = vehicles_count
             
             # Update processing statistics
+            self.processing_stats['total_processed'] += 1
             self.processing_stats['vehicles_detected'] += vehicles_count
             self.processing_stats['processing_time_ms'] = processing_time
             
