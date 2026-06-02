@@ -2061,17 +2061,30 @@ class DetectionProcessor:
                 
                 for detection in detections:
                     best_track = self._find_best_track_match(detection, current_time)
-                    
+
                     if best_track:
-                        # Update existing track
+                        # Update existing track — same vehicle continuing across frames
                         self._update_track(best_track, detection, frame, current_time)
                         updated_tracks.append(best_track)
                         matched_detections.add(id(detection))
+                        self.logger.info(
+                            f"[TRACK_UPDATE] track={best_track.track_id} "
+                            f"frame_count={best_track.frame_count} "
+                            f"score={best_track.best_frame_score:.3f} "
+                            f"plates={len(best_track.plate_candidates)} "
+                            f"ocr_submitted={best_track.ocr_submitted}"
+                        )
                     else:
-                        # Create new track
+                        # Create new track — new vehicle entered frame
                         new_track = self._create_new_track(detection, frame, current_time)
                         updated_tracks.append(new_track)
                         matched_detections.add(id(detection))
+                        x1, y1, x2, y2 = new_track.bbox
+                        self.logger.info(
+                            f"[TRACK_NEW] track={new_track.track_id} "
+                            f"conf={new_track.confidence:.3f} "
+                            f"size={int(x2-x1)}×{int(y2-y1)}px — new vehicle"
+                        )
                 
                 # Update active tracks
                 self.active_tracks = {track.track_id: track for track in updated_tracks}
@@ -2388,13 +2401,18 @@ class DetectionProcessor:
                 current_time = time.time()
                 
                 for track in tracks:
-                    # Check if track should be kept based on deduplication rules
                     if self._should_keep_track(track, current_time):
                         filtered_tracks.append(track)
                     else:
-                        self.logger.debug(f"🔧 [DEDUPLICATION] Filtered out track {track.track_id}")
-                
-                self.logger.debug(f"🔧 [DEDUPLICATION] Kept {len(filtered_tracks)} out of {len(tracks)} tracks")
+                        self.logger.info(
+                            f"[DEDUP_FILTER] track={track.track_id} removed "
+                            f"(too similar to another active track)"
+                        )
+
+                self.logger.info(
+                    f"[DEDUP_SUMMARY] kept={len(filtered_tracks)}/{len(tracks)} tracks "
+                    f"after deduplication"
+                )
                 return filtered_tracks
                 
         except Exception as e:
@@ -2421,7 +2439,11 @@ class DetectionProcessor:
                     # Check similarity
                     iou = self._calculate_iou(track.bbox, existing_track.bbox)
                     if iou > self.iou_threshold:
-                        self.logger.debug(f"🔧 [DEDUPLICATION] Track {track.track_id} similar to {existing_track_id} (IoU: {iou:.3f}, time: {time_diff:.1f}s)")
+                        self.logger.info(
+                            f"[DEDUP_MATCH] track={track.track_id} overlaps "
+                            f"track={existing_track_id} iou={iou:.3f} "
+                            f"age={time_diff:.1f}s → filtered as duplicate"
+                        )
                         return False
             
             return True

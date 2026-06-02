@@ -388,11 +388,17 @@ class DetectionManager:
                             # Mark track as saved
                             self._mark_track_saved(track)
                     
-                    self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: Step 2.5 completed - {len(tracks_to_save)} tracks to save after deduplication")
-                    
+                    self.logger.info(
+                        f"[TRACKING] active={len(tracks)} after dedup → "
+                        f"save={len(tracks_to_save)} skip={len(tracks)-len(tracks_to_save)}"
+                    )
+
                     # If no tracks to save, skip processing
                     if not tracks_to_save:
-                        self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: all vehicles are duplicates - skipping save")
+                        self.logger.info(
+                            f"[DEDUP_SKIP] All {len(tracks)} vehicle(s) are duplicates "
+                            f"— no DB insert this frame"
+                        )
                         return None
                     
                 except Exception as e:
@@ -629,16 +635,38 @@ class DetectionManager:
             if track_id in self.recent_tracks:
                 track_info = self.recent_tracks[track_id]
                 time_since_saved = current_time - track_info['last_saved']
-                
-                # Check time threshold
+
                 if time_since_saved < self.reentry_time_threshold:
-                    # Check IoU similarity
                     if hasattr(self.detection_processor, '_calculate_iou'):
                         iou = self.detection_processor._calculate_iou(track.bbox, track_info['bbox'])
                         if iou > self.iou_threshold:
-                            self.logger.debug(f"🔧 [DEDUPLICATION] Track {track_id} is duplicate (IoU: {iou:.3f}, time: {time_since_saved:.1f}s)")
+                            self.logger.info(
+                                f"[DEDUP_BLOCK] track={track_id} blocked "
+                                f"iou={iou:.3f} time_since_saved={time_since_saved:.1f}s "
+                                f"(threshold: iou>{self.iou_threshold} within {self.reentry_time_threshold}s) "
+                                f"prev_plate='{track_info.get('plate_text', '?')}' — NOT saving to DB"
+                            )
                             return False
-            
+                        else:
+                            self.logger.info(
+                                f"[DEDUP_PASS_IOU] track={track_id} iou={iou:.3f} < threshold={self.iou_threshold} "
+                                f"— vehicle moved, allowing save"
+                            )
+                    else:
+                        self.logger.info(
+                            f"[DEDUP_PASS_TIME] track={track_id} time_since_saved={time_since_saved:.1f}s "
+                            f"(no IoU check available)"
+                        )
+                else:
+                    self.logger.info(
+                        f"[DEDUP_REENTRY] track={track_id} re-entered after {time_since_saved:.1f}s "
+                        f"(threshold={self.reentry_time_threshold}s) — allowing new save"
+                    )
+            else:
+                self.logger.info(
+                    f"[DEDUP_NEW] track={track_id} first time seen — allowing save"
+                )
+
             return True
             
         except Exception as e:
@@ -654,11 +682,19 @@ class DetectionManager:
         """
         try:
             track_id = track.track_id
+            plate_text = ''
+            if track.ocr_results:
+                plate_text = track.ocr_results[-1].get('text', '') if track.ocr_results else ''
             self.recent_tracks[track_id] = {
                 'last_saved': time.time(),
                 'bbox': track.bbox.copy() if isinstance(track.bbox, list) else track.bbox,
-                'plate_text': ''  # Will be updated if OCR results available
+                'plate_text': plate_text
             }
+            self.logger.info(
+                f"[TRACK_SAVED] track={track_id} plate='{plate_text or '?'}' "
+                f"frames={track.frame_count} score={track.best_frame_score:.3f} "
+                f"— marked as saved, dedup active for {self.reentry_time_threshold}s"
+            )
         except Exception as e:
             self.logger.warning(f"Error marking track as saved: {e}")
     
@@ -676,7 +712,10 @@ class DetectionManager:
                 del self.recent_tracks[track_id]
             
             if tracks_to_remove:
-                self.logger.debug(f"🔧 [DEDUPLICATION] Cleaned up {len(tracks_to_remove)} old tracks")
+                self.logger.info(
+                    f"[DEDUP_CLEANUP] Removed {len(tracks_to_remove)} expired track(s) "
+                    f"from recent_tracks memory: {tracks_to_remove}"
+                )
         except Exception as e:
             self.logger.warning(f"Error cleaning up old tracks: {e}")
     
