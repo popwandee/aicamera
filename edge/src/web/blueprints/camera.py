@@ -883,64 +883,53 @@ def _generate_error_placeholder(message):
         bytes: Placeholder frame data
     """
     try:
-        # Create a simple error placeholder image
-        import numpy as np
-        
-        # Create a 640x480 image with gradient background
-        img = np.zeros((480, 640, 3), dtype=np.uint8)
-        
-        # Create gradient background (dark to lighter)
-        for y in range(480):
-            intensity = int(20 + (y / 480) * 40)  # 20 to 60
+        # Placeholder dimensions must match LORES_RESOLUTION so the browser sees
+        # the same aspect ratio as the live stream — avoids layout jump on reconnect.
+        ph_w, ph_h = LORES_RESOLUTION  # e.g. (640, 360) for 16:9
+
+        img = np.zeros((ph_h, ph_w, 3), dtype=np.uint8)
+
+        # Gradient background (dark to lighter)
+        for y in range(ph_h):
+            intensity = int(20 + (y / ph_h) * 40)
             img[y, :] = (intensity, intensity, intensity)
-        
-        # Add text to the image
+
         font = cv2.FONT_HERSHEY_SIMPLEX
         font_scale = 0.8
-        color = (255, 255, 255)  # White text
+        color = (255, 255, 255)
         thickness = 2
-        
-        # Add error icon/indicator
-        cv2.circle(img, (320, 120), 40, (0, 0, 255), 3)  # Red circle
-        cv2.putText(img, "!", (310, 140), font, 1.5, (0, 0, 255), 3)  # Exclamation mark
-        
-        # Add title
-        cv2.putText(img, "Camera Error", (200, 200), font, 1.2, (0, 0, 255), 2)
-        
-        # Split message into lines for better readability
+
+        cx, cy = ph_w // 2, ph_h // 4
+        cv2.circle(img, (cx, cy), 40, (0, 0, 255), 3)
+        cv2.putText(img, "!", (cx - 10, cy + 15), font, 1.5, (0, 0, 255), 3)
+        cv2.putText(img, "Camera Error", (ph_w // 2 - 120, ph_h // 2 - 20),
+                    font, 1.2, (0, 0, 255), 2)
+
+        # Split message into lines
         words = message.split()
         lines = []
         current_line = ""
-        
         for word in words:
             test_line = current_line + " " + word if current_line else word
-            # Estimate text width (rough calculation)
-            if len(test_line) > 30:  # Approximate character limit
+            if len(test_line) > 30:
                 lines.append(current_line)
                 current_line = word
             else:
                 current_line = test_line
-        
         if current_line:
             lines.append(current_line)
-        
-        # Display message lines
-        y_position = 250
+
+        y_position = ph_h // 2 + 20
         line_height = 35
-        
         for line in lines:
-            # Get text size for centering
-            (text_width, text_height), baseline = cv2.getTextSize(line, font, font_scale, thickness)
-            x_position = (640 - text_width) // 2
+            (text_width, _), _ = cv2.getTextSize(line, font, font_scale, thickness)
+            x_position = (ph_w - text_width) // 2
             cv2.putText(img, line, (x_position, y_position), font, font_scale, color, thickness)
             y_position += line_height
-        
-        # Add timestamp
+
         timestamp = datetime.now().strftime("%H:%M:%S")
-        cv2.putText(img, f"Time: {timestamp}", (50, 450), font, 0.6, (150, 150, 150), 1)
-        
-        # Add retry indicator
-        cv2.putText(img, "Retrying...", (500, 450), font, 0.6, (0, 255, 0), 1)
+        cv2.putText(img, f"Time: {timestamp}", (20, ph_h - 20), font, 0.6, (150, 150, 150), 1)
+        cv2.putText(img, "Retrying...", (ph_w - 140, ph_h - 20), font, 0.6, (0, 255, 0), 1)
         
         # Encode to JPEG with good quality
         ret, buffer = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, 85])

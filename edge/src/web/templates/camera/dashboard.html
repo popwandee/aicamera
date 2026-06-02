@@ -19,13 +19,13 @@
 {% block additional_css %}
 <link href="{{ url_for('static', filename='css/camera.css', v=timestamp) }}" rel="stylesheet">
 <style>
-/* Video Container and Controls Styles */
+/* Video Container — aspect-ratio matches 16:9 camera stream (LORES 640×360) */
 .video-container-compact {
     position: relative;
     background: #000;
     border-radius: 0.5rem;
-    /* Allow metadata below to expand fully */
-    overflow: visible;
+    overflow: hidden;
+    aspect-ratio: 16 / 9;
     box-shadow: 0 0.15rem 1.75rem 0 rgba(58, 59, 69, 0.15);
 }
 
@@ -70,7 +70,7 @@
 
 .video-feed-compact {
     width: 100%;
-    height: auto;
+    height: 100%;
     display: block;
     object-fit: contain;
     background: #000;

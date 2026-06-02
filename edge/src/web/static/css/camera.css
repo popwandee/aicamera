@@ -17,26 +17,23 @@
     padding: 0.75rem;
 }
 
-/* Compact Video Container */
+/* Compact Video Container — 16:9 matches IMX708 sensor and detection pipeline */
 .video-container-compact {
     position: relative;
     background: #000;
     border-radius: 6px;
-    /* Allow content below (metadata) to render without clipping */
-    overflow: visible;
-    min-height: 350px;
-    /* Remove vertical clamp to avoid affecting subsequent sections */
-    max-height: none;
+    overflow: hidden;
+    /* aspect-ratio keeps the container at the same ratio as the camera stream.
+       16/9 matches MAIN_RESOLUTION 1280×720 and LORES_RESOLUTION 640×360.
+       No min-height needed — the ratio drives the height from the container width. */
+    aspect-ratio: 16 / 9;
 }
 
 .video-feed-compact {
     width: 100%;
-    height: auto;
+    height: 100%;
     display: block;
-    min-height: 350px;
-    /* Let the image size be governed by its container without clamping */
-    max-height: none;
-    object-fit: contain;
+    object-fit: contain;   /* show full frame without cropping; black bars if AR drifts */
 }
 
 /* Video Status Overlay */
@@ -180,29 +177,8 @@
 }
 
 /* Responsive Design for Compact Layout */
-@media (max-width: 1200px) {
-    .video-container-compact {
-        min-height: 300px;
-        max-height: none;
-    }
-    
-    .video-feed-compact {
-        min-height: 300px;
-        max-height: none;
-    }
-}
-
 @media (max-width: 768px) {
-    .video-container-compact {
-        min-height: 250px;
-        max-height: none;
-    }
-    
-    .video-feed-compact {
-        min-height: 250px;
-        max-height: none;
-    }
-    
+    /* aspect-ratio handles sizing automatically — no min-height needed */
     .control-btn-compact {
         min-width: 45px;
         font-size: 0.7rem;
@@ -257,23 +233,5 @@ code {
     margin-bottom: 0;
 }
 
-/* First Viewport Optimization */
-@media (min-height: 600px) {
-    .video-container-compact {
-        min-height: 400px;
-    }
-    
-    .video-feed-compact {
-        min-height: 400px;
-    }
-}
-
-@media (min-height: 800px) {
-    .video-container-compact {
-        min-height: 500px;
-    }
-    
-    .video-feed-compact {
-        min-height: 500px;
-    }
-}
+/* aspect-ratio: 16/9 on .video-container-compact makes viewport-height breakpoints
+   with min-height unnecessary — container scales naturally with page width. */

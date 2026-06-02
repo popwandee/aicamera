@@ -84,8 +84,12 @@ CAMERA_FOCUS_MODE = os.getenv("CAMERA_FOCUS_MODE", "auto")  # "auto" or "manual"
 CAMERA_MANUAL_FOCUS = float(os.getenv("CAMERA_MANUAL_FOCUS", "0.3"))  # 0.0 to 1.0
 
 # Main and Lores stream resolutions - Can be overridden via environment variables
-MAIN_RESOLUTION = tuple(map(int, os.getenv("MAIN_RESOLUTION", "640x640").split('x')))
-LORES_RESOLUTION = tuple(map(int, os.getenv("LORES_RESOLUTION", "640x480").split('x')))  # LPR optimized: 640x640 for web preview/streaming
+# IMX708 sensor is natively 16:9 (2304×1296).  Both streams must share the same
+# aspect ratio so the web UI preview matches what the detection pipeline processes.
+# MAIN: 1280×720 (16:9) gives the detection pipeline enough resolution for small plates.
+# LORES: 640×360 (16:9) is the UI preview — same ratio as MAIN so bbox overlays align.
+MAIN_RESOLUTION  = tuple(map(int, os.getenv("MAIN_RESOLUTION",  "1280x720").split('x')))
+LORES_RESOLUTION = tuple(map(int, os.getenv("LORES_RESOLUTION", "640x360").split('x')))
 DEFAULT_FRAMERATE = int(os.getenv("CAMERA_FPS", "30"))
 DEFAULT_BRIGHTNESS = float(os.getenv("CAMERA_BRIGHTNESS", "0.0"))  # -1.0 to 1.0
 DEFAULT_CONTRAST = float(os.getenv("CAMERA_CONTRAST", "1.0"))    # 0.0 to 2.0
