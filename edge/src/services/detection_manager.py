@@ -356,8 +356,16 @@ class DetectionManager:
             if not vehicle_boxes:
                 self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: no vehicles detected - skipping to next frame")
                 return None
-            
+
             self.detection_stats['total_vehicles_detected'] += len(vehicle_boxes)
+            for vb in vehicle_boxes:
+                x1, y1, x2, y2 = vb['bbox']
+                vw, vh = int(x2 - x1), int(y2 - y1)
+                self.logger.info(
+                    f"[VEHICLE] conf={vb.get('score', 0):.3f} "
+                    f"size={vw}×{vh}px "
+                    f"bbox=[{x1:.0f},{y1:.0f},{x2:.0f},{y2:.0f}]"
+                )
             
             # Step 2.5: Vehicle tracking and deduplication (if enabled)
             tracks_to_save = []
@@ -397,10 +405,18 @@ class DetectionManager:
             self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: Step 3 completed - plates detected: {len(plate_boxes)}")
             
             if not plate_boxes:
-                self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: no license plates detected")
-                # Still save vehicle detection results
+                self.logger.info(f"[PLATE_NONE] No license plates detected in {len(vehicle_boxes)} vehicle(s)")
             else:
                 self.detection_stats['total_plates_detected'] += len(plate_boxes)
+                for pb in plate_boxes:
+                    x1, y1, x2, y2 = pb['bbox']
+                    pw, ph = int(x2 - x1), int(y2 - y1)
+                    ar = round(pw / ph, 2) if ph > 0 else 0
+                    self.logger.info(
+                        f"[PLATE] conf={pb.get('score', 0):.3f} "
+                        f"size={pw}×{ph}px ar={ar} "
+                        f"bbox=[{x1:.0f},{y1:.0f},{x2:.0f},{y2:.0f}]"
+                    )
             
             # Step 4: OCR on detected plates
             self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: Step 4 - calling detection_processor.perform_ocr()")
@@ -515,21 +531,35 @@ class DetectionManager:
             
             # Always insert into DB; image save failure only means no image path
             if not original_path:
-                self.logger.warning("Image save failed — inserting detection record without image path")
+                self.logger.warning("[DB_SAVE] Image save failed — inserting record without image path")
             elif not os.path.exists(original_path):
-                self.logger.warning(f"Image path missing on disk after save: {original_path} — inserting record without image")
+                self.logger.warning(f"[DB_SAVE] Image missing on disk after write: {original_path}")
                 detection_record['original_image_path'] = ''
+
             if self.database_manager:
+                plate_text = ocr_results[0].get('text', '?') if ocr_results else '—'
+                ocr_conf  = ocr_results[0].get('confidence', 0) if ocr_results else 0
+                ocr_valid = ocr_results[0].get('valid_thai', False) if ocr_results else False
+                ocr_meth  = ocr_results[0].get('ocr_method', '?') if ocr_results else '—'
+                t_db = time.time()
                 self.database_manager.insert_detection_result(detection_record)
-            
+                db_ms = (time.time() - t_db) * 1000
+                self.logger.info(
+                    f"[DB_SAVE] plate='{plate_text}' valid={ocr_valid} "
+                    f"conf={ocr_conf:.3f} method={ocr_meth} "
+                    f"vehicles={len(vehicle_boxes)} plates={len(plate_boxes)} "
+                    f"img={'✓' if original_path else '✗'} "
+                    f"db={db_ms:.0f}ms total={processing_time*1000:.0f}ms"
+                )
+            else:
+                self.logger.warning("[DB_SAVE] No database_manager — detection NOT stored")
+
             # Update statistics
-            self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: updating processing statistics")
             self._update_processing_stats(processing_time)
             self.detection_stats['last_detection'] = datetime.now().isoformat()
-            
             self.logger.info(
-                f"🔧 [DETECTION_MANAGER] process_frame: Detection completed: {len(vehicle_boxes)} vehicles, "
-                f"{len(plate_boxes)} plates, {len(ocr_results)} OCR results in {processing_time:.3f}s"
+                f"[PIPELINE_DONE] vehicles={len(vehicle_boxes)} plates={len(plate_boxes)} "
+                f"ocr={len(ocr_results)} total={processing_time*1000:.0f}ms"
             )
             
             self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: returning detection record with {len(vehicle_boxes)} vehicles, {len(plate_boxes)} plates, {len(ocr_results)} OCR results")

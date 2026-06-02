@@ -247,14 +247,27 @@ class OcrQueueWorker:
     def _run_ocr(self, task: OcrTask) -> OcrResult:
         """Execute OCR for one task.  Runs in worker thread."""
         t0 = time.perf_counter()
+        queue_wait_ms = (t0 - task.submitted_at) * 1000
+        h, w = (task.plate_crop.shape[0], task.plate_crop.shape[1]) \
+               if task.plate_crop is not None and task.plate_crop.ndim >= 2 else (0, 0)
+        self.logger.info(
+            f"[OCR_START] track={task.track_id} "
+            f"crop={w}×{h}px queue_wait={queue_wait_ms:.0f}ms "
+            f"pending={self._ocr_queue.qsize()}"
+        )
         try:
             from edge.src.components.thai_lp_ocr import (
                 preprocess_plate_crop,
                 validate_thai_plate,
             )
 
+            t_pre = time.perf_counter()
             preprocessed = preprocess_plate_crop(task.plate_crop.copy())
+            pre_ms = (time.perf_counter() - t_pre) * 1000
+
+            t_tess = time.perf_counter()
             thai_result = self.thai_lp_ocr.read_plate(preprocessed)
+            tess_ms = (time.perf_counter() - t_tess) * 1000
 
             text = thai_result.get('text', '') if thai_result else ''
             confidence = thai_result.get('confidence', 0.0) if thai_result else 0.0
@@ -263,11 +276,12 @@ class OcrQueueWorker:
                 validation = validate_thai_plate(text)
                 valid = validation.get('valid', False)
 
-            elapsed_ms = (time.perf_counter() - t0) * 1000
-            self.logger.debug(
-                f"[OCR_WORKER] track_id={task.track_id} "
-                f"text='{text}' valid={valid} "
-                f"elapsed={elapsed_ms:.0f}ms"
+            total_ms = (time.perf_counter() - t0) * 1000
+            self.logger.info(
+                f"[OCR_RESULT] track={task.track_id} "
+                f"text='{text}' valid={valid} conf={confidence:.3f} "
+                f"preprocess={pre_ms:.0f}ms tesseract={tess_ms:.0f}ms "
+                f"total={total_ms:.0f}ms queue_wait={queue_wait_ms:.0f}ms"
             )
             return OcrResult(
                 track_id=task.track_id,
@@ -285,8 +299,8 @@ class OcrQueueWorker:
             self._stats['errors'] += 1
             elapsed_ms = (time.perf_counter() - t0) * 1000
             self.logger.error(
-                f"[OCR_WORKER] OCR error track_id={task.track_id} "
-                f"elapsed={elapsed_ms:.0f}ms: {e}"
+                f"[OCR_ERROR] track={task.track_id} "
+                f"elapsed={elapsed_ms:.0f}ms error={e}"
             )
             return OcrResult(
                 track_id=task.track_id,

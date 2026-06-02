@@ -833,12 +833,21 @@ class DetectionProcessor:
                     filtered_boxes.append(box)
             
             processing_time = (time.time() - start_time) * 1000
-            
-            # Only log significant changes in detection results
+
+            # Log per-vehicle details at INFO — always visible in field test logs
             vehicles_count = len(filtered_boxes)
             if vehicles_count != self.last_logged_states['vehicles_detected']:
                 self.opt_logger.logger.info(f"🚗 Vehicles detected: {vehicles_count} (filtered from {len(vehicle_boxes)})")
                 self.last_logged_states['vehicles_detected'] = vehicles_count
+            for box in filtered_boxes:
+                x1, y1, x2, y2 = box['bbox']
+                vw, vh = int(x2 - x1), int(y2 - y1)
+                self.logger.info(
+                    f"[VEHICLE] conf={box.get('score', 0):.3f} "
+                    f"size={vw}×{vh}px "
+                    f"bbox=[{x1:.0f},{y1:.0f},{x2:.0f},{y2:.0f}] "
+                    f"detect_time={processing_time:.0f}ms"
+                )
             
             # Update processing statistics
             self.processing_stats['total_processed'] += 1
@@ -930,11 +939,22 @@ class DetectionProcessor:
                             'vehicle_idx': i,
                             'vehicle_bbox': vehicle_box['bbox']
                         }
-                        
+
+                        pw, ph = int(full_x2 - full_x1), int(full_y2 - full_y1)
+                        ar = round(pw / ph, 2) if ph > 0 else 0
                         detected_plates.append(plate_data)
-                        self.logger.debug(f"🔧 [DETECTION_PROCESSOR] detect_license_plates: vehicle {i} plate {j} passed filter (confidence: {confidence:.3f})")
+                        self.logger.info(
+                            f"[PLATE] conf={confidence:.3f} "
+                            f"size={pw}×{ph}px ar={ar} "
+                            f"bbox=[{full_x1:.0f},{full_y1:.0f},{full_x2:.0f},{full_y2:.0f}] "
+                            f"vehicle={i}"
+                        )
                     else:
-                        self.logger.debug(f"🔧 [DETECTION_PROCESSOR] detect_license_plates: vehicle {i} plate {j} filtered out (confidence: {confidence:.3f} < {self.plate_confidence_threshold})")
+                        pw, ph = int(lp_x2 - lp_x1), int(lp_y2 - lp_y1)
+                        self.logger.info(
+                            f"[PLATE_SKIP] conf={confidence:.3f} < thresh={self.plate_confidence_threshold} "
+                            f"size={pw}×{ph}px vehicle={i}"
+                        )
                 
             except Exception as e:
                 self.logger.warning(f"🔧 [DETECTION_PROCESSOR] detect_license_plates: error detecting plates in vehicle {i}: {e}")
@@ -1892,13 +1912,34 @@ class DetectionProcessor:
                                 frame_shape: tuple) -> bool:
         """Gatekeeper — decide whether this track should be queued for OCR."""
         if track.ocr_submitted:
+            # Silent: already handled, logged at submit time
             return False
         if len(track.plate_candidates) < self._ocr_min_plate_frames:
+            self.logger.info(
+                f"[OCR_GATE] SKIP track={track.track_id}: "
+                f"plate_frames={len(track.plate_candidates)} < min={self._ocr_min_plate_frames} "
+                f"(need more frames — vehicle moving too fast?)"
+            )
             return False
         if track.best_frame_score < self._ocr_min_frame_score:
+            self.logger.info(
+                f"[OCR_GATE] SKIP track={track.track_id}: "
+                f"frame_score={track.best_frame_score:.3f} < min={self._ocr_min_frame_score} "
+                f"(image too blurry or low confidence)"
+            )
             return False
         if not self._plate_in_roi(plate_bbox, frame_shape):
+            cx = (plate_bbox[0] + plate_bbox[2]) / 2
+            cy = (plate_bbox[1] + plate_bbox[3]) / 2
+            self.logger.info(
+                f"[OCR_GATE] SKIP track={track.track_id}: "
+                f"plate center ({cx:.0f},{cy:.0f}) outside ROI zone"
+            )
             return False
+        self.logger.info(
+            f"[OCR_GATE] PASS track={track.track_id}: "
+            f"frames={len(track.plate_candidates)} score={track.best_frame_score:.3f} — submitting for OCR"
+        )
         return True
 
     def submit_for_ocr(self, track: 'VehicleTrack', plate_bbox: List[float],
@@ -1934,9 +1975,19 @@ class DetectionProcessor:
         accepted = self.ocr_queue_worker.submit(task)
         if accepted:
             track.ocr_submitted = True
-            self.logger.debug(
-                f"[ASYNC_OCR] Submitted track_id={track.track_id} "
-                f"score={track.best_frame_score:.3f}"
+            best_lap = max((s for s, _ in track.plate_crop_buffer), default=0) \
+                       if track.plate_crop_buffer else 0
+            ch, cw = (plate_crop.shape[0], plate_crop.shape[1]) \
+                     if plate_crop is not None and plate_crop.ndim >= 2 else (0, 0)
+            self.logger.info(
+                f"[OCR_SUBMIT] track={track.track_id} "
+                f"crop={cw}×{ch}px blur={best_lap:.0f} "
+                f"score={track.best_frame_score:.3f} det_conf={det_confidence:.3f} "
+                f"queue_depth={self.ocr_queue_worker.queue_size}"
+            )
+        else:
+            self.logger.warning(
+                f"[OCR_SUBMIT_DROP] track={track.track_id} — queue full, task dropped"
             )
         return accepted
 
@@ -1972,10 +2023,12 @@ class DetectionProcessor:
                 'track_id': r.track_id,
             }
             results.append(ocr_entry)
+            e2e_ms = (r.completed_at - r.frame_timestamp) * 1000 if r.frame_timestamp else 0
             self.logger.info(
-                f"[ASYNC_OCR] ✅ track_id={r.track_id} "
+                f"[OCR_DONE] ✅ track={r.track_id} "
                 f"text='{r.text}' valid={r.valid_thai} "
-                f"conf={r.confidence:.3f}"
+                f"conf={r.confidence:.3f} method={r.method} "
+                f"e2e={e2e_ms:.0f}ms (frame→OCR complete)"
             )
         return results
 
@@ -2758,22 +2811,29 @@ class DetectionProcessor:
             original_path = os.path.join(IMAGE_SAVE_DIR, original_filename)
             
             # Apply storage optimization
+            t_write = time.perf_counter()
             if self.storage_optimization:
-                # Use 85% JPEG quality
                 success = cv2.imwrite(original_path, storage_frame, [cv2.IMWRITE_JPEG_QUALITY, self.image_quality])
             else:
                 success = cv2.imwrite(original_path, storage_frame)
-            
+            t_write_ms = (time.perf_counter() - t_write) * 1000
+
             if not success or not os.path.exists(original_path):
-                self.logger.error(f"Failed to save enhanced detection image: {original_path}")
+                self.logger.error(f"[IMG_SAVE] FAIL write {original_path}")
                 return {'success': False, 'error': 'Image save failed'}
-            
+
             # Verify file size
             file_size = os.path.getsize(original_path)
             if file_size <= 0:
-                self.logger.error(f"Saved image file is empty: {original_path}")
+                self.logger.error(f"[IMG_SAVE] FAIL empty file {original_path}")
                 return {'success': False, 'error': 'Empty image file'}
-            
+
+            self.logger.info(
+                f"[IMG_SAVE] {original_filename} "
+                f"size={file_size//1024}KB write={t_write_ms:.0f}ms "
+                f"quality={self.image_quality}% tracks={len(tracks)} plates={len(plates)}"
+            )
+
             storage_results = {
                 'success': True,
                 'original_image_path': original_path,
@@ -2786,8 +2846,6 @@ class DetectionProcessor:
                 'plates_count': len(plates),
                 'ocr_results_count': len(ocr_results)
             }
-            
-            self.logger.info(f"🔧 [STORAGE] Enhanced detection saved: {original_path} ({file_size} bytes, quality: {self.image_quality}%)")
             
             return storage_results
             
