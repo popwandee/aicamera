@@ -381,16 +381,16 @@ class DetectionManager:
                     # Apply deduplication rules
                     filtered_tracks = self.detection_processor.apply_deduplication_rules(tracks)
                     
-                    # Check which tracks should be saved (not duplicates)
+                    # Check which tracks should be saved (not duplicates).
+                    # Do NOT mark yet — mark only after a successful DB insert so that
+                    # a frame with no visible plate doesn't block a later front-view save.
                     for track in filtered_tracks:
                         if self._should_save_detection(track):
                             tracks_to_save.append(track)
-                            # Mark track as saved
-                            self._mark_track_saved(track)
-                    
+
                     self.logger.info(
                         f"[TRACKING] active={len(tracks)} after dedup → "
-                        f"save={len(tracks_to_save)} skip={len(tracks)-len(tracks_to_save)}"
+                        f"eligible={len(tracks_to_save)} skip={len(tracks)-len(tracks_to_save)}"
                     )
 
                     # If no tracks to save, skip processing
@@ -433,15 +433,31 @@ class DetectionManager:
                 if ocr_results:
                     self.detection_stats['successful_ocr'] += len(ocr_results)
             
-            # Step 5: Determine which frame to save (best frame from track if available)
+            # Step 5: Gate on plate visibility — defer save when no plate is detected yet.
+            # This prevents saving rear/side views before the plate comes into frame.
+            if not plate_boxes:
+                # Vehicle detected but no plate visible. Don't save; don't mark tracks.
+                # The vehicle will be re-evaluated in the next frame(s).
+                self.logger.info(
+                    f"[SAVE_DEFER] Vehicle detected but no plate visible — "
+                    f"skipping save, keeping tracks eligible for next frame"
+                )
+                return None
+
+            # Select the best frame to save — prefer a track that already has plate
+            # candidates so the saved image shows the plate, not the rear/side.
             frame_to_save = frame
             if self.tracking_enabled and tracks_to_save:
-                # Use best frame from the first track (or combine best frames from multiple tracks)
-                # For simplicity, use best frame from the track with highest score
-                best_track = max(tracks_to_save, key=lambda t: t.best_frame_score)
+                tracks_with_plates = [t for t in tracks_to_save if t.plate_candidates]
+                candidate_tracks   = tracks_with_plates if tracks_with_plates else tracks_to_save
+                best_track = max(candidate_tracks, key=lambda t: t.best_frame_score)
                 if best_track.best_frame_data is not None:
                     frame_to_save = best_track.best_frame_data
-                    self.logger.debug(f"🔧 [DETECTION_MANAGER] Using best frame from track {best_track.track_id} (score: {best_track.best_frame_score:.3f})")
+                    self.logger.info(
+                        f"[BEST_FRAME] track={best_track.track_id} "
+                        f"score={best_track.best_frame_score:.3f} "
+                        f"has_plates={bool(tracks_with_plates)}"
+                    )
             
             # Step 6: Save only original image (optimized for disk space)
             self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: Step 6 - calling detection_processor.save_detection_results()")
@@ -559,6 +575,13 @@ class DetectionManager:
                 )
             else:
                 self.logger.warning("[DB_SAVE] No database_manager — detection NOT stored")
+
+            # Mark tracks as saved NOW (after successful DB insert).
+            # Doing this here — not in step 2.5 — means frames without a visible plate
+            # don't consume the dedup slot, letting later front-view frames be saved.
+            if self.tracking_enabled and tracks_to_save:
+                for track in tracks_to_save:
+                    self._mark_track_saved(track)
 
             # Update statistics
             self._update_processing_stats(processing_time)

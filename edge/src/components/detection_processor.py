@@ -227,7 +227,7 @@ class DetectionProcessor:
         self.tracking_enabled = TRACKING_ENABLED
         self.next_track_id = 1
         self.active_tracks: Dict[int, VehicleTrack] = {}
-        self.track_timeout = 5.0  # seconds
+        self.track_timeout = 8.0  # seconds (extended from 5s for roadside vehicles at speed)
         self.reentry_time_threshold = REENTRY_TIME_THRESHOLD  # seconds for deduplication (from config)
         self.iou_threshold = IOU_THRESHOLD  # IoU threshold for tracking (from config)
         
@@ -1805,13 +1805,14 @@ class DetectionProcessor:
                 }
 
             # ── Aspect Ratio Sanity Check ─────────────────────────────────────
-            # Thai LP ≈ 2.8–3.8:1  |  reject garbage detections (squares, tall boxes)
+            # Thai LP ≈ 2.8–3.8:1.  Camera angle + distance foreshorten the plate,
+            # so allow down to 1.2 (was 1.5) to catch slightly angled views.
             aspect_ratio = w / max(h, 1)
-            if not (1.5 <= aspect_ratio <= 6.0):
+            if not (1.2 <= aspect_ratio <= 6.0):
                 return {
                     'is_acceptable': False,
                     'reason': f'Aspect ratio {aspect_ratio:.2f} invalid for Thai LP '
-                            f'(expected 1.5–6.0, got {w}×{h}px)'
+                            f'(expected 1.2–6.0, got {w}×{h}px)'
                 }
 
             # ── Convert to Grayscale ──────────────────────────────────────────
@@ -1821,11 +1822,12 @@ class DetectionProcessor:
                 gray = plate_region
 
             # ── Sharpness Check (Laplacian Variance) ──────────────────────────
-            # Normalize threshold by plate area — small crops naturally have lower variance
+            # Roadside mounting produces laplacian 20–40 even for real plates due to
+            # viewing distance and vehicle speed. Base of 15.0 (was 30.0) prevents
+            # rejecting all detections at typical deployment distances.
             laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
-            # Scale threshold: large plate → stricter (more expected detail)
             area_factor   = min(w * h / (128 * 40), 2.0)   # normalize to "good" size
-            min_sharpness = 30.0 * area_factor              # 30–60 range
+            min_sharpness = 15.0 * area_factor              # 15–30 range (was 30–60)
             if laplacian_var < min_sharpness:
                 return {
                     'is_acceptable': False,
@@ -2141,37 +2143,73 @@ class DetectionProcessor:
             self.logger.warning(f"Track cleanup error: {e}")
     
     def _find_best_track_match(self, detection: Dict[str, Any], current_time: float) -> Optional[VehicleTrack]:
-        """Find best matching track for detection."""
+        """
+        Find best matching track for detection.
+
+        Primary match:  IoU > iou_threshold  (existing behaviour).
+        Fallback match: centre-point proximity, used when a moving vehicle shifts
+                        enough between frames that IoU drops below threshold.
+                        Only activates within half of track_timeout to avoid
+                        matching unrelated vehicles.
+        """
         try:
-            best_track = None
-            best_iou = 0.0
-            
+            best_track        = None
+            best_iou          = 0.0
+            best_center_track = None
+            best_center_dist  = float('inf')
+            # Max normalised centre-distance to accept as the same vehicle.
+            # 0.4 means the centre can move up to 40 % of the detection's diagonal.
+            CENTER_DIST_LIMIT = 0.4
+
             detection_bbox = detection.get('bbox', [])
             if not detection_bbox:
                 return None
-            
+
+            dx1, dy1, dx2, dy2 = detection_bbox
+            dcx = (dx1 + dx2) / 2
+            dcy = (dy1 + dy2) / 2
+            det_diag = max(((dx2 - dx1) ** 2 + (dy2 - dy1) ** 2) ** 0.5, 1.0)
+
             for track in self.active_tracks.values():
-                # Check if track is recent enough
                 if current_time - track.last_seen > self.track_timeout:
                     continue
-                
-                # Calculate IoU
+
                 iou = self._calculate_iou(detection_bbox, track.bbox)
-                # ─── [DIAG H4] IoU Logging ──────────────────────────
-                if iou > 0:  # log เฉพาะที่มีการ overlap บ้าง
+
+                if iou > 0:
                     self.logger.debug(
-                        f"[IOUcheck] track={track.track_id} | "
-                        f"iou={iou:.3f} | "
-                        f"threshold={self.iou_threshold} | "
+                        f"[IOUcheck] track={track.track_id} iou={iou:.3f} "
                         f"{'MATCH' if iou > self.iou_threshold else 'NO_MATCH'}"
                     )
-                # ────────────────────────────────────────────────────
+
                 if iou > self.iou_threshold and iou > best_iou:
-                    best_iou = iou
+                    best_iou   = iou
                     best_track = track
-            
-            return best_track
-            
+                elif iou <= self.iou_threshold:
+                    # Fallback: centre-point distance (catches fast-moving vehicles)
+                    time_gap = current_time - track.last_seen
+                    if time_gap < self.track_timeout / 2:
+                        tx1, ty1, tx2, ty2 = track.bbox
+                        tcx = (tx1 + tx2) / 2
+                        tcy = (ty1 + ty2) / 2
+                        norm_dist = ((dcx - tcx) ** 2 + (dcy - tcy) ** 2) ** 0.5 / det_diag
+                        if norm_dist < CENTER_DIST_LIMIT and norm_dist < best_center_dist:
+                            best_center_dist  = norm_dist
+                            best_center_track = track
+
+            if best_track:
+                return best_track
+
+            if best_center_track:
+                self.logger.info(
+                    f"[TRACK_CENTERMATCH] track={best_center_track.track_id} "
+                    f"matched by centre-dist={best_center_dist:.2f} "
+                    f"(IoU too low — vehicle moved between frames)"
+                )
+                return best_center_track
+
+            return None
+
         except Exception as e:
             self.logger.warning(f"Track matching error: {e}")
             return None
