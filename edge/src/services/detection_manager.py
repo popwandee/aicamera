@@ -334,13 +334,15 @@ class DetectionManager:
         self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame called with frame shape: {frame.shape if frame is not None else 'None'}")
         
         start_time = time.time()
-        
+        # Unique 6-digit token derived from memory address — changes every time a NEW
+        # frame object is allocated (including frame.copy()).  Used to detect when the
+        # detection frame and the saved image are from different moments.
+        detect_fid = id(frame) % 1_000_000
+
         try:
             self.detection_stats['total_frames_processed'] += 1
-            self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: total frames processed: {self.detection_stats['total_frames_processed']}")
-            
+
             # Step 1: Validate and enhance frame
-            self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: Step 1 - calling detection_processor.validate_and_enhance_frame()")
             enhanced_frame = self.detection_processor.validate_and_enhance_frame(frame)
             if enhanced_frame is None:
                 self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: Step 1 failed - frame validation failed")
@@ -362,7 +364,7 @@ class DetectionManager:
                 x1, y1, x2, y2 = vb['bbox']
                 vw, vh = int(x2 - x1), int(y2 - y1)
                 self.logger.info(
-                    f"[VEHICLE] conf={vb.get('score', 0):.3f} "
+                    f"[VEHICLE] fid={detect_fid} conf={vb.get('score', 0):.3f} "
                     f"size={vw}×{vh}px "
                     f"bbox=[{x1:.0f},{y1:.0f},{x2:.0f},{y2:.0f}]"
                 )
@@ -411,7 +413,7 @@ class DetectionManager:
             self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: Step 3 completed - plates detected: {len(plate_boxes)}")
             
             if not plate_boxes:
-                self.logger.info(f"[PLATE_NONE] No license plates detected in {len(vehicle_boxes)} vehicle(s)")
+                self.logger.info(f"[PLATE_NONE] fid={detect_fid} — no plates in {len(vehicle_boxes)} vehicle(s)")
             else:
                 self.detection_stats['total_plates_detected'] += len(plate_boxes)
                 for pb in plate_boxes:
@@ -419,7 +421,7 @@ class DetectionManager:
                     pw, ph = int(x2 - x1), int(y2 - y1)
                     ar = round(pw / ph, 2) if ph > 0 else 0
                     self.logger.info(
-                        f"[PLATE] conf={pb.get('score', 0):.3f} "
+                        f"[PLATE] fid={detect_fid} conf={pb.get('score', 0):.3f} "
                         f"size={pw}×{ph}px ar={ar} "
                         f"bbox=[{x1:.0f},{y1:.0f},{x2:.0f},{y2:.0f}]"
                     )
@@ -453,11 +455,26 @@ class DetectionManager:
                 best_track = max(candidate_tracks, key=lambda t: t.best_frame_score)
                 if best_track.best_frame_data is not None:
                     frame_to_save = best_track.best_frame_data
-                    self.logger.info(
-                        f"[BEST_FRAME] track={best_track.track_id} "
-                        f"score={best_track.best_frame_score:.3f} "
-                        f"has_plates={bool(tracks_with_plates)}"
-                    )
+
+            save_fid = id(frame_to_save) % 1_000_000
+            if detect_fid != save_fid:
+                self.logger.warning(
+                    f"[FRAME_MISMATCH] detect_fid={detect_fid} save_fid={save_fid} — "
+                    f"detection bboxes are from a DIFFERENT frame than the saved image! "
+                    f"Plate bbox in DB will NOT align with saved JPEG."
+                )
+            else:
+                self.logger.info(
+                    f"[FRAME_SAME] fid={detect_fid} — detection and saved image are the same frame"
+                )
+            if self.tracking_enabled and tracks_to_save and 'best_track' in dir():
+                self.logger.info(
+                    f"[FRAME_SELECT] track={best_track.track_id} "
+                    f"score={best_track.best_frame_score:.3f} "
+                    f"frame_count={best_track.frame_count} "
+                    f"has_plate_candidates={bool(tracks_with_plates)} "
+                    f"save_fid={save_fid}"
+                )
             
             # Step 6: Save only original image (optimized for disk space)
             self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: Step 6 - calling detection_processor.save_detection_results()")
@@ -567,7 +584,8 @@ class DetectionManager:
                 self.database_manager.insert_detection_result(detection_record)
                 db_ms = (time.time() - t_db) * 1000
                 self.logger.info(
-                    f"[DB_SAVE] plate='{plate_text}' valid={ocr_valid} "
+                    f"[DB_SAVE] detect_fid={detect_fid} save_fid={save_fid} "
+                    f"plate='{plate_text}' valid={ocr_valid} "
                     f"conf={ocr_conf:.3f} method={ocr_meth} "
                     f"vehicles={len(vehicle_boxes)} plates={len(plate_boxes)} "
                     f"img={'✓' if original_path else '✗'} "

@@ -993,15 +993,16 @@ class DetectionProcessor:
                 # Extract license plate region using safe padding
                 bbox = plate_box['bbox']
                 self.logger.debug(f"🔧 [DETECTION_PROCESSOR] perform_ocr: plate {i} bbox: {bbox}")
-                # ─── [DIAG H2] บันทึกขนาด bbox ก่อน crop ──────────────────
+                # Log plate size + frame token before crop
                 bw = int(bbox[2] - bbox[0])
                 bh = int(bbox[3] - bbox[1])
+                frame_fid = id(frame) % 1_000_000
                 self.logger.info(
-                    f"[LP_SIZE] track={plate_box.get('vehicle_idx','?')} "
-                    f"bbox_w={bw}px bbox_h={bh}px "
-                    f"det_conf={plate_box.get('score',0):.3f}"
+                    f"[LP_SIZE] fid={frame_fid} plate={i} "
+                    f"size={bw}×{bh}px "
+                    f"det_conf={plate_box.get('score',0):.3f} "
+                    f"bbox=[{bbox[0]:.0f},{bbox[1]:.0f},{bbox[2]:.0f},{bbox[3]:.0f}]"
                 )
-                # ─────────────────────────────────────────────────────────────
                 # ใช้ crop_with_safe_padding เพื่อขยายขอบ 15% สำหรับ OCR
                 plate_region, crop_info = self.crop_with_safe_padding(frame, bbox, padding_ratio=0.15)
                 
@@ -1009,10 +1010,22 @@ class DetectionProcessor:
                     self.logger.debug(f"🔧 [DETECTION_PROCESSOR] perform_ocr: plate {i} region is empty, skipping")
                     continue
 
-                # Check plate quality before OCR processing
+                # Check plate quality before OCR processing — log metrics ALWAYS
                 quality_check = self._check_plate_quality(plate_region)
-                if not quality_check['is_acceptable']:
-                    self.logger.warning(f"🔧 [DETECTION_PROCESSOR] perform_ocr: plate {i} quality too low - {quality_check['reason']}, skipping OCR")
+                qm = quality_check.get('metrics', {})
+                if quality_check['is_acceptable']:
+                    self.logger.info(
+                        f"[PLATE_QUALITY] plate={i} PASS "
+                        f"size={qm.get('size','?')} ar={qm.get('aspect','?')} "
+                        f"sharp={qm.get('sharpness','?')} bright={qm.get('brightness','?')} "
+                        f"contrast={qm.get('contrast','?')} "
+                        f"upscale={qm.get('upscale_w','?')}×"
+                    )
+                else:
+                    self.logger.warning(
+                        f"[PLATE_QUALITY] plate={i} FAIL reason={quality_check['reason']} "
+                        f"bbox={bbox}"
+                    )
                     continue
                 
                 # Enhanced OCR preprocessing: Use enhance_for_ocr() for better OCR accuracy
@@ -2231,18 +2244,19 @@ class DetectionProcessor:
             
             # Update best frame if current frame is better
             current_score = self._calculate_frame_score(detection, frame)
+            prev_score = track.best_frame_score
             if current_score > track.best_frame_score:
+                old_fid = id(track.best_frame_data) % 1_000_000 if track.best_frame_data is not None else 0
                 track.best_frame_score = current_score
                 track.best_frame_data = frame.copy()
-                self.logger.debug(f"🔧 [TRACKING] Updated best frame for track {track.track_id} with score {current_score:.3f}")
-                # ─── [DIAG H3] Best Frame Updated ──────────────────────
+                new_fid = id(track.best_frame_data) % 1_000_000
                 self.logger.info(
-                    f"[FRAME] track_id={track.track_id} | "
-                    f"new_best_score={current_score:.3f} | "
-                    f"prev_score={track.best_frame_score:.3f} | "
-                    f"frame_count={track.frame_count}"
+                    f"[BEST_FRAME_UPDATE] track={track.track_id} "
+                    f"score {prev_score:.3f}→{current_score:.3f} "
+                    f"old_fid={old_fid} new_fid={new_fid} "
+                    f"frame_count={track.frame_count} "
+                    f"plates_so_far={len(track.plate_candidates)}"
                 )
-                # ────────────────────────────────────────────────────────
         except Exception as e:
             self.logger.warning(f"Track update error: {e}")
     
