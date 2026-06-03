@@ -203,63 +203,64 @@ class ParallelOCRProcessor:
         """
         Select the best OCR result from Hailo and Tesseract.
 
-        Selection criteria:
-        1. Higher confidence score
-        2. Text quality (length, character patterns)
-        3. Method preference (Hailo for speed, Tesseract for Thai)
+        Priority rules (in order):
+        1. Tesseract wins when validate_thai_plate() passes AND confidence ≥ MIN_THAI_CONF
+           (or ≥ 60 % of Hailo confidence). Thai plate structure is more valuable than
+           raw digit accuracy — Hailo lacks Thai consonants in its character set.
+        2. Hailo wins when Tesseract confidence is too low to trust even a valid-format result.
+        3. Otherwise prefer whichever engine has higher confidence.
         """
         if not hailo_result and not tesseract_result:
             return {'success': False, 'error': 'No OCR results available'}
-
         if not hailo_result:
             return tesseract_result
-
         if not tesseract_result:
             return hailo_result
 
-        # Both results available - compare
-        hailo_success = hailo_result.get('success', False)
+        hailo_success     = hailo_result.get('success', False)
         tesseract_success = tesseract_result.get('success', False)
 
         if not hailo_success and not tesseract_success:
             return {'success': False, 'error': 'Both OCR methods failed'}
-
         if not hailo_success:
             return tesseract_result
-
         if not tesseract_success:
             return hailo_result
 
-        # Both successful - compare confidence
         hailo_conf = hailo_result.get('confidence', 0.0)
-        thai_conf = tesseract_result.get('confidence', 0.0)
-
-        # Prefer Thai OCR ONLY when it passed validate_thai_plate (structural check).
-        # Raw PSM-11 output can contain Thai chars but still be garbage — validation
-        # confirms the letters+digits format is present.
+        thai_conf  = tesseract_result.get('confidence', 0.0)
         thai_validated = tesseract_result.get('validation', {}).get('valid', False)
-        confidence_threshold = 0.1
 
-        if thai_validated and (thai_conf - hailo_conf) > -confidence_threshold:
-            self.logger.debug(
-                f"Plate {plate_idx}: Selected Tesseract (valid plate format, "
-                f"conf: {thai_conf:.3f} vs hailo: {hailo_conf:.3f})"
+        # Minimum absolute confidence required to trust a Tesseract valid-format result.
+        # Below this, Tesseract's text is likely noise even though it looks like a plate.
+        MIN_THAI_CONF = 0.35
+
+        def _log(winner, reason):
+            hailo_txt = hailo_result.get('text', '')
+            thai_txt  = tesseract_result.get('text', '')
+            self.logger.info(
+                f"[OCR_SELECT] plate={plate_idx} → {winner} | "
+                f"hailo='{hailo_txt}' {hailo_conf:.3f} | "
+                f"thai='{thai_txt}' {thai_conf:.3f} valid={thai_validated} | "
+                f"reason={reason}"
             )
-            return {
-                **tesseract_result,
-                'selection_reason': 'Valid Thai plate format detected',
-            }
 
-        # Otherwise prefer higher confidence
+        if thai_validated:
+            # Tesseract structurally valid Thai plate.
+            # Accept when confidence is sufficient OR at least 60 % of Hailo's.
+            if thai_conf >= MIN_THAI_CONF or thai_conf >= hailo_conf * 0.60:
+                _log('Tesseract', 'valid Thai plate format detected')
+                return {**tesseract_result, 'selection_reason': 'Valid Thai plate format detected'}
+            # Valid format but very low confidence → Hailo digits are more reliable
+            _log('Hailo', f'Thai valid but conf {thai_conf:.3f} < min {MIN_THAI_CONF}')
+            return {**hailo_result, 'selection_reason': 'Higher confidence (Thai valid but low conf)'}
+
+        # No valid Thai structure from Tesseract → prefer higher raw confidence
         if hailo_conf >= thai_conf:
-            self.logger.debug(
-                f"Plate {plate_idx}: Selected Hailo OCR (conf: {hailo_conf:.3f} vs thai: {thai_conf:.3f})"
-            )
+            _log('Hailo', 'higher confidence')
             return {**hailo_result, 'selection_reason': 'Higher confidence'}
         else:
-            self.logger.debug(
-                f"Plate {plate_idx}: Selected Tesseract (conf: {thai_conf:.3f} vs hailo: {hailo_conf:.3f})"
-            )
+            _log('Tesseract', 'higher confidence')
             return {**tesseract_result, 'selection_reason': 'Higher confidence'}
     
     def cleanup(self):

@@ -24,7 +24,10 @@ from typing import Dict, Any, Optional, List
 import numpy as np
 
 from edge.src.core.utils.logging_config import get_logger
-from edge.src.core.config import DETECTION_INTERVAL, AUTO_START_DETECTION, STARTUP_DELAY, IMAGE_SAVE_DIR, TRACKING_ENABLED, REENTRY_TIME_THRESHOLD, IOU_THRESHOLD
+from edge.src.core.config import (
+    DETECTION_INTERVAL, AUTO_START_DETECTION, STARTUP_DELAY, IMAGE_SAVE_DIR,
+    TRACKING_ENABLED, REENTRY_TIME_THRESHOLD, IOU_THRESHOLD, AICAMERA_ID,
+)
 from edge.src.core.dependency_container import get_service
 
 logger = get_logger(__name__)
@@ -94,7 +97,11 @@ class DetectionManager:
         self.recent_tracks = {}  # track_id -> {'last_saved': timestamp, 'bbox': bbox, 'plate_text': text}
         self.track_cleanup_interval = 300.0  # Clean up old tracks every 5 minutes
         self.last_track_cleanup = time.time()
-        
+
+        # Async OCR pending updates: track_id → db_record_id
+        # When async OCR completes we update the existing record with plate text.
+        self._pending_ocr_updates: Dict[int, int] = {}
+
         self.logger.info(f"DetectionManager initialized (tracking: {self.tracking_enabled})")
     
     def initialize(self) -> bool:
@@ -426,12 +433,48 @@ class DetectionManager:
                         f"bbox=[{x1:.0f},{y1:.0f},{x2:.0f},{y2:.0f}]"
                     )
             
-            # Step 4: OCR on detected plates
-            self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: Step 4 - calling detection_processor.perform_ocr()")
+            # Step 4a: Poll completed async OCR results from background worker.
+            # Results belong to plate crops submitted in earlier frames.
             ocr_results = []
+            async_worker = getattr(self.detection_processor, 'ocr_queue_worker', None)
+
+            if async_worker:
+                polled = self.detection_processor.poll_ocr_results()
+                if polled:
+                    ocr_results = polled
+                    # Update any pending DB records whose OCR is now complete
+                    for res in polled:
+                        tid = res.get('track_id')
+                        rid = self._pending_ocr_updates.pop(tid, None)
+                        if rid and self.database_manager:
+                            self._update_db_ocr(rid, [res])
+                    self.logger.info(
+                        f"[OCR_POLLED] {len(polled)} async result(s) ready "
+                        f"(pending_updates remaining: {len(self._pending_ocr_updates)})"
+                    )
+
+            # Step 4b: Submit current plates to async queue (non-blocking ~0ms).
+            # The result will arrive in a future frame via poll above.
+            # Fall back to sync OCR only when the async worker is absent.
             if plate_boxes:
-                ocr_results = self.detection_processor.perform_ocr(enhanced_frame, plate_boxes)  # BGR: internal OCR preprocessing uses COLOR_BGR2GRAY / COLOR_BGR2LAB
-                self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: Step 4 completed - OCR results: {len(ocr_results)}")
+                if async_worker:
+                    n_submitted = self._submit_plates_to_ocr_queue(
+                        plate_boxes, enhanced_frame, tracks_to_save or [])
+                    if n_submitted:
+                        self.logger.info(
+                            f"[OCR_ASYNC_SUBMIT] fid={detect_fid} "
+                            f"{n_submitted}/{len(plate_boxes)} plate(s) queued — "
+                            f"Tesseract runs in background (~1.3s), "
+                            f"result via next poll"
+                        )
+                    # ocr_results already set from poll above (may be empty this frame)
+                else:
+                    # Sync fallback: blocks ~1.3s but ensures OCR is always available
+                    ocr_results = self.detection_processor.perform_ocr(enhanced_frame, plate_boxes)
+                    self.logger.debug(
+                        f"[OCR_SYNC] fid={detect_fid} sync OCR fallback "
+                        f"(no async worker): {len(ocr_results)} result(s)"
+                    )
                 if ocr_results:
                     self.detection_stats['successful_ocr'] += len(ocr_results)
             
@@ -581,7 +624,7 @@ class DetectionManager:
                 ocr_valid = ocr_results[0].get('valid_thai', False) if ocr_results else False
                 ocr_meth  = ocr_results[0].get('ocr_method', '?') if ocr_results else '—'
                 t_db = time.time()
-                self.database_manager.insert_detection_result(detection_record)
+                _last_record_id = self.database_manager.insert_detection_result(detection_record)
                 db_ms = (time.time() - t_db) * 1000
                 self.logger.info(
                     f"[DB_SAVE] detect_fid={detect_fid} save_fid={save_fid} "
@@ -595,11 +638,20 @@ class DetectionManager:
                 self.logger.warning("[DB_SAVE] No database_manager — detection NOT stored")
 
             # Mark tracks as saved NOW (after successful DB insert).
-            # Doing this here — not in step 2.5 — means frames without a visible plate
-            # don't consume the dedup slot, letting later front-view frames be saved.
             if self.tracking_enabled and tracks_to_save:
                 for track in tracks_to_save:
                     self._mark_track_saved(track)
+
+            # Register this DB record as awaiting async OCR update.
+            if async_worker and plate_boxes and not ocr_results:
+                last_id = _last_record_id if self.database_manager else None
+                if last_id and tracks_to_save:
+                    for track in tracks_to_save:
+                        self._pending_ocr_updates[track.track_id] = last_id
+                    self.logger.info(
+                        f"[OCR_PENDING] record={last_id} waiting for async OCR "
+                        f"(track_ids={[t.track_id for t in tracks_to_save]})"
+                    )
 
             # Update statistics
             self._update_processing_stats(processing_time)
@@ -650,6 +702,71 @@ class DetectionManager:
         
         self.logger.info("Detection loop stopped")
     
+    def _submit_plates_to_ocr_queue(self, plate_boxes: list, frame, tracks: list) -> int:
+        """
+        Submit plate crops directly to the async OCR worker (non-blocking).
+        Returns number of tasks successfully enqueued.
+        Bypasses the track-based gating used by submit_for_ocr() so the
+        legacy process_frame() path can also use the async queue.
+        """
+        from edge.src.components.ocr_queue_worker import OcrTask
+        worker = getattr(self.detection_processor, 'ocr_queue_worker', None)
+        if not worker:
+            return 0
+
+        submitted = 0
+        track_id = tracks[0].track_id if tracks else 0
+
+        for plate in plate_boxes:
+            bbox = plate.get('bbox', [])
+            if len(bbox) != 4:
+                continue
+            x1, y1, x2, y2 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
+            crop = frame[y1:y2, x1:x2]
+            if crop.size == 0:
+                continue
+
+            task = OcrTask(
+                track_id=track_id,
+                plate_crop=crop.copy(),
+                bbox=bbox,
+                det_confidence=float(plate.get('score', 0)),
+                frame_timestamp=time.time(),
+                camera_id=str(AICAMERA_ID),
+            )
+            if worker.submit(task):
+                submitted += 1
+
+        return submitted
+
+    def _update_db_ocr(self, record_id: int, ocr_results: list) -> None:
+        """Update an existing detection_results record with completed async OCR text."""
+        if not self.database_manager or not ocr_results:
+            return
+        try:
+            import json
+            best = max(ocr_results, key=lambda r: r.get('confidence', 0))
+            plate_text = best.get('text', '')
+            conf       = best.get('confidence', 0)
+            method     = best.get('ocr_method', 'async_tesseract')
+            ocr_json   = json.dumps(ocr_results)
+
+            conn = self.database_manager.connection
+            if conn:
+                conn.execute(
+                    """UPDATE detection_results
+                       SET ocr_results = ?, plates_count = MAX(plates_count, 1)
+                       WHERE id = ?""",
+                    (ocr_json, record_id)
+                )
+                conn.commit()
+                self.logger.info(
+                    f"[OCR_UPDATE] record={record_id} "
+                    f"plate='{plate_text}' conf={conf:.3f} method={method}"
+                )
+        except Exception as e:
+            self.logger.warning(f"[OCR_UPDATE] Failed to update record {record_id}: {e}")
+
     def _should_save_detection(self, track) -> bool:
         """
         Check if a track should be saved (not a duplicate).
