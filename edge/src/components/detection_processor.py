@@ -950,7 +950,12 @@ class DetectionProcessor:
                             f"vehicle={i}"
                         )
                     else:
-                        pw, ph = int(lp_x2 - lp_x1), int(lp_y2 - lp_y1)
+                        # lp_x1/lp_x2 not yet assigned (bbox only unpacked in the if-branch above)
+                        if 'bbox' in lp_box:
+                            _lx1, _ly1, _lx2, _ly2 = lp_box['bbox']
+                            pw, ph = int(_lx2 - _lx1), int(_ly2 - _ly1)
+                        else:
+                            pw, ph = 0, 0
                         self.logger.info(
                             f"[PLATE_SKIP] conf={confidence:.3f} < thresh={self.plate_confidence_threshold} "
                             f"size={pw}×{ph}px vehicle={i}"
