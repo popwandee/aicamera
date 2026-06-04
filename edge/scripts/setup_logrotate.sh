@@ -46,10 +46,12 @@ EOF
 sudo systemctl kill --kill-who=main -s SIGUSR2 systemd-journald 2>/dev/null || sudo systemctl restart systemd-journald
 echo "   -> journald reloaded"
 
-echo "[3/3] Installing cron jobs (daily chromium cleanup + weekly hailort backup cleanup)..."
+echo "[3/3] Installing cron jobs (hourly chromium cleanup + weekly hailort backup cleanup)..."
 sudo tee /etc/cron.d/aicamera-cleanup > /dev/null << 'EOF'
-# Chromium kiosk stores BrowserMetrics in /tmp — not auto-cleaned, fills disk over weeks
-0 3 * * * root find /tmp/chromium-kiosk/BrowserMetrics/ -type f -mtime +1 -delete 2>/dev/null; find /tmp/chromium-kiosk/BrowserMetrics/ -mindepth 1 -maxdepth 1 -type d -empty -delete 2>/dev/null
+# Chromium BrowserMetrics — MUST use -mmin (not -mtime): Chromium continuously updates
+# file mtimes, so -mtime +1 always returns 0 even with GB of accumulated files.
+# Run hourly; delete files not modified in the last 2 hours.
+0 * * * * root find /tmp/chromium-kiosk/BrowserMetrics/ -type f -mmin +120 -delete 2>/dev/null; find /tmp/chromium-kiosk/BrowserMetrics/ -mindepth 1 -maxdepth 1 -type d -empty -delete 2>/dev/null
 # Keep only 3 most-recent hailort backup logs
 30 3 * * 0 camuser ls -t /home/camuser/aicamera/edge/logs/hailort_backup_*.log 2>/dev/null | tail -n +4 | xargs rm -f 2>/dev/null
 EOF
