@@ -1,1105 +1,682 @@
 #!/usr/bin/env python3
 """
-Detection Manager Service for AI Camera v1.3
+Detection Manager — AI Camera edge module.
 
-This service manages the complete detection workflow:
-- Coordinates with camera service to receive image frames
-- Orchestrates the detection pipeline using DetectionProcessor
-- Manages detection timing and intervals
-- Handles database storage of detection results
-- Provides detection status and management APIs
+Orchestrates the full LPR pipeline per frame:
+  enhance → detect vehicles → track (pass 1) → detect plates
+  → track (pass 2, wire plate context) → OCR → save JPEG → DB
 
-Author: AI Camera Team
-Version: 1.3  
-Date: August 2025
+Async OCR path  (preferred):
+  Plate crops are submitted to OcrQueueWorker (non-blocking).
+  Results are polled each frame and patched back into the DB record.
+
+Sync OCR fallback:
+  Used when no OcrQueueWorker is attached to the DetectionProcessor.
+
+Deduplication — two layers:
+  1. IoU + reentry_time_threshold  per track_id
+  2. Plate-text window             per normalised plate string (default 60 s)
 """
 
+import json
+import os
 import threading
 import time
-import queue
-import logging
-import os
 from datetime import datetime
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, List, Optional
+
 import numpy as np
 
-from edge.src.core.utils.logging_config import get_logger
 from edge.src.core.config import (
-    DETECTION_INTERVAL, AUTO_START_DETECTION, STARTUP_DELAY, IMAGE_SAVE_DIR,
+    DETECTION_INTERVAL, AUTO_START_DETECTION, STARTUP_DELAY,
     TRACKING_ENABLED, REENTRY_TIME_THRESHOLD, IOU_THRESHOLD, AICAMERA_ID,
 )
 from edge.src.core.dependency_container import get_service
+from edge.src.core.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
 
 
 class DetectionManager:
-    """
-    Detection Manager Service for orchestrating AI detection workflow.
-    
-    This service provides:
-    - Detection pipeline management
-    - Integration with camera service
-    - Detection timing and scheduling
-    - Database integration for results
-    - Status monitoring and reporting
-    
-    Workflow:
-    1. Receive images from camera service
-    2. Image frame validation and enhancing for vehicle detection model
-    3. Vehicle detection - if not found, skip and continue next loop
-    4. If found vehicle object, perform license plate detection
-    5. Crop license plate then perform OCR
-    6. Save original image with license plate detection result bounding box drawing
-    7. Insert information from OCR and MODEL detection results into SQLite
-    """
-    
+    """Orchestrates the AI detection pipeline for one edge camera."""
+
+    # ──────────────────────────────────────────────────────────────────
+    # Lifecycle
+    # ──────────────────────────────────────────────────────────────────
+
     def __init__(self, detection_processor=None, database_manager=None, logger=None):
-        """
-        Initialize Detection Manager.
-        
-        Args:
-            detection_processor: DetectionProcessor component instance
-            database_manager: DatabaseManager component instance
-            logger: Logger instance
-        """
         self.detection_processor = detection_processor
-        self.database_manager = database_manager
-        self.logger = logger or get_logger(__name__)
-        
-        # Detection state
-        self.is_running = False
-        self.detection_thread = None
-        self.detection_queue = queue.Queue(maxsize=10)
-        
-        # Statistics tracking
-        self.detection_stats = {
-            'started_at': None,
-            'total_frames_processed': 0,
-            'total_vehicles_detected': 0,
-            'total_plates_detected': 0,
-            'successful_ocr': 0,
-            'failed_detections': 0,
-            'last_detection': None,
-            'processing_time_avg': 0.0
-        }
-        
-        # Configuration
+        self.database_manager    = database_manager
+        self.logger              = logger or get_logger(__name__)
+
+        self.is_running         = False
+        self.detection_thread: Optional[threading.Thread] = None
         self.detection_interval = DETECTION_INTERVAL
-        self.auto_start_enabled = AUTO_START_DETECTION  # Auto-start detection from config
-        
-        # Tracking configuration
-        self.tracking_enabled = TRACKING_ENABLED
+        self.auto_start_enabled = AUTO_START_DETECTION
+
+        self.detection_stats: Dict[str, Any] = {
+            'started_at':              None,
+            'total_frames_processed':  0,
+            'total_vehicles_detected': 0,
+            'total_plates_detected':   0,
+            'successful_ocr':          0,
+            'failed_detections':       0,
+            'last_detection':          None,
+            'processing_time_avg':     0.0,
+        }
+
+        # Tracking / dedup config
+        self.tracking_enabled       = TRACKING_ENABLED
         self.reentry_time_threshold = REENTRY_TIME_THRESHOLD
-        self.iou_threshold = IOU_THRESHOLD
-        
-        # Track storage for deduplication
-        self.recent_tracks = {}  # track_id -> {'last_saved': timestamp, 'bbox': bbox, 'plate_text': text}
-        self.track_cleanup_interval = 300.0  # Clean up old tracks every 5 minutes
-        self.last_track_cleanup = time.time()
+        self.iou_threshold          = IOU_THRESHOLD
 
-        # ── FIX: Plate-text based dedup ──────────────────────────────────────────
-        # Prevents multiple DB records for the same license plate within a time window.
-        # Handles cases where track_id resets (IoU drops) but the same physical vehicle
-        # is still in frame — e.g. parked/slow-moving cars.
-        self.recent_plate_texts: Dict[str, float] = {}   # normalised_text → last_saved_timestamp
-        self.plate_text_dedup_window: float = 60.0       # seconds; tune via config if needed
-        # ────────────────────────────────────────────────────────────────────────
+        # Layer-1 dedup: IoU + time per track_id
+        self.recent_tracks: Dict[int, Dict] = {}
+        self.track_cleanup_interval         = 300.0   # s
+        self.last_track_cleanup             = time.time()
 
-        # Async OCR pending updates: track_id → db_record_id
-        # When async OCR completes we update the existing record with plate text.
+        # Layer-2 dedup: same normalised plate text within window
+        self.recent_plate_texts: Dict[str, float] = {}
+        self.plate_text_dedup_window              = 60.0   # s
+
+        # Async OCR: track_id → pending DB record id
         self._pending_ocr_updates: Dict[int, int] = {}
 
-        self.logger.info(f"DetectionManager initialized (tracking: {self.tracking_enabled})")
-    
+        self.logger.info(f"DetectionManager initialised (tracking={self.tracking_enabled})")
+
+    # ── init / start / stop ───────────────────────────────────────────
+
     def initialize(self) -> bool:
-        """
-        Initialize the detection manager and load models.
-        
-        Returns:
-            bool: True if initialization successful, False otherwise
-        """
-        self.logger.debug(f"🔧 [DETECTION_MANAGER] initialize called")
-        
-        try:
-            self.logger.info("🔧 [DETECTION_MANAGER] Initializing Detection Manager...")
-            
-            # Initialize detection processor models
-            if self.detection_processor:
-                self.logger.debug(f"🔧 [DETECTION_MANAGER] initialize: calling detection_processor.load_models()")
-                success = self.detection_processor.load_models()
-                self.logger.debug(f"🔧 [DETECTION_MANAGER] initialize: detection_processor.load_models() returned: {success}")
-                
-                if success:
-                    self.logger.info("🔧 [DETECTION_MANAGER] Detection models loaded successfully")
-                    
-                    # Initialize database if available
-                    if self.database_manager:
-                        self.logger.debug(f"🔧 [DETECTION_MANAGER] initialize: calling database_manager.initialize()")
-                        db_success = self.database_manager.initialize()
-                        self.logger.debug(f"🔧 [DETECTION_MANAGER] initialize: database_manager.initialize() returned: {db_success}")
-                        
-                        if db_success:
-                            self.logger.info("🔧 [DETECTION_MANAGER] Database initialized successfully")
-                        else:
-                            self.logger.warning("🔧 [DETECTION_MANAGER] Database initialization failed")
-                    else:
-                        self.logger.debug(f"🔧 [DETECTION_MANAGER] initialize: no database_manager available")
-                    
-                    # Auto-start detection if enabled
-                    if self.auto_start_enabled:
-                        self.logger.info("🔧 [DETECTION_MANAGER] 🤖 Auto-start detection enabled - starting detection automatically")
-                        return self._auto_start_detection()
-                    else:
-                        self.logger.info("🔧 [DETECTION_MANAGER] Auto-start detection disabled - ready for manual start")
-                        return True
-                else:
-                    self.logger.error("🔧 [DETECTION_MANAGER] Failed to load detection models")
-                    return False
-            else:
-                self.logger.error("🔧 [DETECTION_MANAGER] Detection processor not available")
-                return False
-                
-        except Exception as e:
-            self.logger.error(f"🔧 [DETECTION_MANAGER] Error initializing detection manager: {e}")
+        if not self.detection_processor:
+            self.logger.error("Detection processor not available")
             return False
-    
+        try:
+            if not self.detection_processor.load_models():
+                self.logger.error("Failed to load detection models")
+                return False
+            self.logger.info("Detection models loaded")
+            if self.database_manager and not self.database_manager.initialize():
+                self.logger.warning("Database initialisation failed")
+            return self._auto_start_detection() if self.auto_start_enabled else True
+        except Exception as e:
+            self.logger.error(f"initialize: {e}")
+            return False
+
     def _auto_start_detection(self) -> bool:
-        """
-        Auto-start detection functionality.
-        
-        Returns:
-            bool: True if auto-start successful, False otherwise
-        """
         try:
-            self.logger.info("🚀 Starting detection auto-start sequence...")
-            
-            # Wait for startup delay to ensure camera is fully ready
-            self.logger.info(f"⏱️  Waiting {STARTUP_DELAY} seconds for camera to be ready...")
+            self.logger.info(f"Auto-start: waiting {STARTUP_DELAY}s for camera …")
             time.sleep(STARTUP_DELAY)
-            
-            # Verify camera is streaming before starting detection
-            camera_manager = get_service('camera_manager')
-            if camera_manager:
-                camera_status = camera_manager.get_status()
-                if camera_status.get('streaming', False):
-                    self.logger.info("✅ Camera confirmed streaming - starting detection")
-                    
-                    # Start detection using existing method
-                    if self.start_detection():
-                        self.logger.info("✅ Detection auto-started successfully")
-                        return True
-                    else:
-                        self.logger.error("❌ Failed to auto-start detection")
-                        return False
-                else:
-                    self.logger.warning("⚠️  Camera not streaming - detection auto-start delayed")
-                    # Could implement retry logic here if needed
-                    return False
-            else:
-                self.logger.error("❌ Camera manager not available")
-                return False
-                
-        except Exception as e:
-            self.logger.error(f"❌ Error during detection auto-start: {e}")
+            cam = get_service('camera_manager')
+            if cam and cam.get_status().get('streaming', False):
+                if self.start_detection():
+                    self.logger.info("Detection auto-started ✓")
+                    return True
+            self.logger.warning("Camera not streaming — auto-start deferred")
             return False
-    
-    def _is_camera_ready(self, camera_manager) -> bool:
-        """
-        Check if camera is ready for detection.
-        
-        Args:
-            camera_manager: CameraManager instance
-            
-        Returns:
-            bool: True if camera is ready, False otherwise
-        """
-        try:
-            status = camera_manager.get_status()
-            return status.get('initialized', False) and status.get('streaming', False)
         except Exception as e:
-            self.logger.debug(f"Error checking camera status: {e}")
+            self.logger.error(f"_auto_start_detection: {e}")
             return False
-    
+
     def start_detection(self) -> bool:
-        """
-        Start the detection service.
-        
-        Returns:
-            bool: True if started successfully, False otherwise
-        """
         if self.is_running:
-            self.logger.debug("Detection service already running")
             return True
-        
-        try:
-            self.logger.info("Starting detection service...")
-            
-            # Check if detection processor is ready
-            if not self.detection_processor or not self.detection_processor.models_loaded:
-                self.logger.error("Detection processor not ready - models not loaded")
-                return False
-            
-            # Start detection thread
-            self.is_running = True
-            self.detection_thread = threading.Thread(
-                target=self._detection_loop,
-                name="DetectionThread",
-                daemon=True
-            )
-            self.detection_thread.start()
-            
-            # Update statistics
-            self.detection_stats['started_at'] = datetime.now().isoformat()
-            
-            self.logger.info("Detection service started successfully")
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Error starting detection service: {e}")
-            self.is_running = False
+        if not self.detection_processor or not self.detection_processor.models_loaded:
+            self.logger.error("Models not loaded — cannot start detection")
             return False
-    
+        self.is_running = True
+        self.detection_thread = threading.Thread(
+            target=self._detection_loop, name="DetectionThread", daemon=True)
+        self.detection_thread.start()
+        self.detection_stats['started_at'] = datetime.now().isoformat()
+        self.logger.info("Detection started")
+        return True
+
     def stop_detection(self) -> bool:
-        """
-        Stop the detection service.
-        
-        Returns:
-            bool: True if stopped successfully, False otherwise
-        """
         if not self.is_running:
-            self.logger.warning("Detection service not running")
             return True
-        
-        try:
-            self.logger.info("Stopping detection service...")
-            
-            # Signal thread to stop
-            self.is_running = False
-            
-            # Wait for thread to finish
-            if self.detection_thread and self.detection_thread.is_alive():
-                self.detection_thread.join(timeout=5.0)
-                
-                if self.detection_thread.is_alive():
-                    self.logger.warning("Detection thread did not stop gracefully")
+        self.is_running = False
+        if self.detection_thread and self.detection_thread.is_alive():
+            self.detection_thread.join(timeout=5.0)
+        self.detection_thread = None
+        self.logger.info("Detection stopped")
+        return True
+
+    def cleanup(self):
+        self.stop_detection()
+        if self.detection_processor:
+            try:
+                self.detection_processor.cleanup()
+            except Exception as e:
+                self.logger.warning(f"cleanup: {e}")
+
+    # ──────────────────────────────────────────────────────────────────
+    # Detection loop
+    # ──────────────────────────────────────────────────────────────────
+
+    def _detection_loop(self):
+        self.logger.info("Detection loop started")
+        while self.is_running:
+            try:
+                cam = get_service('camera_manager')
+                if cam and self._is_camera_ready(cam):
+                    self.process_frame_from_camera(cam)
                 else:
-                    self.logger.info("Detection thread stopped successfully")
-            
-            self.detection_thread = None
-            
-            self.logger.info("Detection service stopped")
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Error stopping detection service: {e}")
-            return False
-    
-    def process_frame_from_camera(self, camera_manager) -> Optional[Dict[str, Any]]:
-        """
-        Process a single frame from the camera manager.
-        
-        Args:
-            camera_manager: CameraManager service instance
-            
-        Returns:
-            Optional[Dict[str, Any]]: Detection results or None if processing failed
-        """
-        self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame_from_camera called with camera_manager: {camera_manager is not None}")
-        
+                    self.logger.debug("Camera not ready — waiting")
+                time.sleep(self.detection_interval)
+            except Exception as e:
+                self.logger.error(f"Detection loop error: {e}")
+                time.sleep(1.0)
+        self.logger.info("Detection loop stopped")
+
+    def _is_camera_ready(self, cam) -> bool:
         try:
-            if not camera_manager:
-                self.logger.warning(f"🔧 [DETECTION_MANAGER] process_frame_from_camera failed: camera manager not available")
+            s = cam.get_status()
+            return s.get('initialized', False) and s.get('streaming', False)
+        except Exception:
+            return False
+
+    def process_frame_from_camera(self, camera_manager) -> Optional[Dict[str, Any]]:
+        try:
+            frame = camera_manager.camera_handler.capture_frame(
+                source="buffer", stream_type="main", include_metadata=False)
+            if frame is None or not isinstance(frame, np.ndarray):
                 return None
-            
-            # Capture main frame from camera for detection processing
-            self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame_from_camera: calling camera_manager.camera_handler.capture_frame(source='buffer', stream_type='main', include_metadata=False)")
-            frame = camera_manager.camera_handler.capture_frame(source="buffer", stream_type="main", include_metadata=False)
-            self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame_from_camera: camera_handler.capture_frame() returned frame type: {type(frame)}")
-            
-            if frame is None:
-                self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame_from_camera: no frame available from camera")
-                return None
-            
-            # Camera manager returns numpy array directly, not dict
-            if isinstance(frame, np.ndarray):
-                self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame_from_camera: frame is numpy array with shape: {frame.shape}, calling process_frame()")
-                result = self.process_frame(frame)
-                self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame_from_camera: process_frame() returned: {result is not None}")
-                return result
-            else:
-                self.logger.error(f"🔧 [DETECTION_MANAGER] process_frame_from_camera failed: invalid frame data format: expected numpy array, got {type(frame)}")
-                return None
-            
+            return self.process_frame(frame)
         except Exception as e:
-            self.logger.error(f"🔧 [DETECTION_MANAGER] process_frame_from_camera error: {e}")
+            self.logger.error(f"process_frame_from_camera: {e}")
             self.detection_stats['failed_detections'] += 1
             return None
-    
+
+    # ──────────────────────────────────────────────────────────────────
+    # Core pipeline
+    # ──────────────────────────────────────────────────────────────────
+
     def process_frame(self, frame) -> Optional[Dict[str, Any]]:
         """
-        Process a single frame through the complete detection pipeline with tracking and deduplication.
-        
-        Args:
-            frame: Image frame as numpy array
-            
-        Returns:
-            Optional[Dict[str, Any]]: Detection results or None if processing failed
+        Run one LPR frame through the full pipeline.
+        Returns a detection-record dict on success, None otherwise.
+        None may mean "nothing to save this frame" — not necessarily an error.
         """
-        self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame called with frame shape: {frame.shape if frame is not None else 'None'}")
-        
-        start_time = time.time()
-        # Unique 6-digit token derived from memory address — changes every time a NEW
-        # frame object is allocated (including frame.copy()).  Used to detect when the
-        # detection frame and the saved image are from different moments.
+        t0         = time.time()
         detect_fid = id(frame) % 1_000_000
+        self.detection_stats['total_frames_processed'] += 1
 
         try:
-            self.detection_stats['total_frames_processed'] += 1
-
-            # Step 1: Validate and enhance frame
-            enhanced_frame = self.detection_processor.validate_and_enhance_frame(frame)
-            if enhanced_frame is None:
-                self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: Step 1 failed - frame validation failed")
+            # 1. Validate & enhance
+            enhanced = self.detection_processor.validate_and_enhance_frame(frame)
+            if enhanced is None:
                 return None
-            
-            self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: Step 1 completed - enhanced frame shape: {enhanced_frame.shape}")
-            
-            # Step 2: Vehicle detection — pass enhanced_frame (BGR) so detect_vehicles COLOR_BGR2RGB is correct
-            self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: Step 2 - calling detection_processor.detect_vehicles()")
-            vehicle_boxes, mapping_info = self.detection_processor.detect_vehicles(enhanced_frame)  # BGR: validate_and_enhance_frame converts RGB→BGR
-            self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: Step 2 completed - vehicles detected: {len(vehicle_boxes)}")
-            
+
+            # 2. Vehicle detection
+            vehicle_boxes, mapping_info = self.detection_processor.detect_vehicles(enhanced)
             if not vehicle_boxes:
-                self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: no vehicles detected - skipping to next frame")
                 return None
-
             self.detection_stats['total_vehicles_detected'] += len(vehicle_boxes)
             for vb in vehicle_boxes:
                 x1, y1, x2, y2 = vb['bbox']
-                vw, vh = int(x2 - x1), int(y2 - y1)
                 self.logger.info(
-                    f"[VEHICLE] fid={detect_fid} conf={vb.get('score', 0):.3f} "
-                    f"size={vw}×{vh}px "
-                    f"bbox=[{x1:.0f},{y1:.0f},{x2:.0f},{y2:.0f}]"
-                )
-            
-            # Step 2.5: Vehicle tracking (first pass — vehicle-level, no plate info yet)
-            tracks_to_save = []
-            if self.tracking_enabled and hasattr(self.detection_processor, 'update_vehicle_tracks'):
-                self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: Step 2.5 - updating vehicle tracks")
-                try:
-                    vehicle_detections = [{'bbox': vb['bbox'], 'score': vb.get('score', 0.0)} for vb in vehicle_boxes]
-                    tracks = self.detection_processor.update_vehicle_tracks(vehicle_detections, frame)
-                    filtered_tracks = self.detection_processor.apply_deduplication_rules(tracks)
+                    f"[VEHICLE] fid={detect_fid} conf={vb.get('score',0):.3f} "
+                    f"size={int(x2-x1)}×{int(y2-y1)}px")
 
-                    for track in filtered_tracks:
-                        if self._should_save_detection(track):
-                            tracks_to_save.append(track)
+            # 3. Tracking pass 1 — vehicle level (no plate info yet)
+            tracks_to_save = self._tracking_pass1(vehicle_boxes, frame, detect_fid)
+            if tracks_to_save is not None and not tracks_to_save:
+                return None   # all vehicles are duplicates
 
-                    self.logger.info(
-                        f"[TRACKING] active={len(tracks)} after dedup → "
-                        f"eligible={len(tracks_to_save)} skip={len(tracks)-len(tracks_to_save)}"
-                    )
-
-                    if not tracks_to_save:
-                        self.logger.info(
-                            f"[DEDUP_SKIP] All {len(tracks)} vehicle(s) are duplicates "
-                            f"— no DB insert this frame"
-                        )
-                        return None
-
-                except Exception as e:
-                    self.logger.warning(f"🔧 [DETECTION_MANAGER] Tracking error, falling back to non-tracking mode: {e}")
-                    tracks_to_save = None
-
-            # Step 3: License plate detection — pass enhanced_frame (BGR)
-            self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: Step 3 - calling detection_processor.detect_license_plates()")
-            plate_boxes = self.detection_processor.detect_license_plates(enhanced_frame, vehicle_boxes, mapping_info)
-            self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: Step 3 completed - plates detected: {len(plate_boxes)}")
-
-            # ── FIX Step 3.5: Second tracking pass — wire plate_bbox into _update_track ──
-            # Now that we know which frames have a visible plate, update best_frame_data
-            # with plate_bbox context so OCR crops come from front-view frames only.
-            if self.tracking_enabled and tracks_to_save and plate_boxes and \
-               hasattr(self.detection_processor, '_update_track'):
-                try:
-                    # Build vehicle_idx → plate_bbox lookup
-                    # plate_boxes entries carry 'vehicle_idx' (index into vehicle_boxes)
-                    vidx_to_plate: Dict[int, List[float]] = {}
-                    for pb in plate_boxes:
-                        vidx = pb.get('vehicle_idx', -1)
-                        if vidx >= 0 and vidx not in vidx_to_plate:
-                            vidx_to_plate[vidx] = pb['bbox']
-
-                    # Match each eligible track to a plate via IoU (track.bbox ↔ vehicle_boxes)
-
-                    current_t = time.time()
-                    for track in tracks_to_save:
-                        best_plate_for_track: Optional[List[float]] = None
-                        best_iou = 0.0
-                        for vidx, plate_bbox in vidx_to_plate.items():
-                            if vidx < len(vehicle_boxes):
-                                v_bbox = vehicle_boxes[vidx]['bbox']
-                                iou = self.detection_processor._calculate_iou(track.bbox, v_bbox)
-                                if iou > best_iou:
-                                    best_iou = iou
-                                    best_plate_for_track = plate_bbox
-                        # Re-run _update_track with plate context
-                        detection_dict = {'bbox': track.bbox, 'score': track.confidence}
-                        self.detection_processor._update_track(
-                            track, detection_dict, frame, current_t,
-                            plate_bbox=best_plate_for_track
-                        )
-                        if best_plate_for_track:
-                            self.logger.debug(
-                                f"[TRACK_PLATE_WIRE] track={track.track_id} "
-                                f"plate_bbox={[round(v,0) for v in best_plate_for_track]} "
-                                f"iou_match={best_iou:.3f}"
-                            )
-                except Exception as e:
-                    self.logger.warning(f"[TRACK_PLATE_WIRE] Error wiring plate_bbox to track: {e}")
-            # ────────────────────────────────────────────────────────────────────
-            
-            if not plate_boxes:
-                self.logger.info(f"[PLATE_NONE] fid={detect_fid} — no plates in {len(vehicle_boxes)} vehicle(s)")
-            else:
+            # 4. Plate detection
+            plate_boxes = self.detection_processor.detect_license_plates(
+                enhanced, vehicle_boxes, mapping_info)
+            if plate_boxes:
                 self.detection_stats['total_plates_detected'] += len(plate_boxes)
                 for pb in plate_boxes:
                     x1, y1, x2, y2 = pb['bbox']
-                    pw, ph = int(x2 - x1), int(y2 - y1)
-                    ar = round(pw / ph, 2) if ph > 0 else 0
+                    pw, ph = int(x2-x1), int(y2-y1)
+                    ar_str = f" ar={pw/ph:.2f}" if ph > 0 else ""
                     self.logger.info(
-                        f"[PLATE] fid={detect_fid} conf={pb.get('score', 0):.3f} "
-                        f"size={pw}×{ph}px ar={ar} "
-                        f"bbox=[{x1:.0f},{y1:.0f},{x2:.0f},{y2:.0f}]"
-                    )
-            
-            # Step 4a: Poll completed async OCR results from background worker.
-            # Results belong to plate crops submitted in earlier frames.
-            ocr_results = []
-            async_worker = getattr(self.detection_processor, 'ocr_queue_worker', None)
+                        f"[PLATE] fid={detect_fid} conf={pb.get('score',0):.3f} "
+                        f"size={pw}×{ph}px{ar_str}")
 
-            if async_worker:
-                polled = self.detection_processor.poll_ocr_results()
-                if polled:
-                    ocr_results = polled
-                    # Update any pending DB records whose OCR is now complete
-                    for res in polled:
-                        tid = res.get('track_id')
-                        rid = self._pending_ocr_updates.pop(tid, None)
-                        if rid and self.database_manager:
-                            self._update_db_ocr(rid, [res])
-                    self.logger.info(
-                        f"[OCR_POLLED] {len(polled)} async result(s) ready "
-                        f"(pending_updates remaining: {len(self._pending_ocr_updates)})"
-                    )
+            # 5. Tracking pass 2 — wire plate context so best_frame_data
+            #    is only updated on frames where a plate is visible
+            if tracks_to_save and plate_boxes:
+                self._tracking_pass2(tracks_to_save, vehicle_boxes, plate_boxes, frame)
 
-            # Step 4b: Submit current plates to async queue (non-blocking ~0ms).
-            # The result will arrive in a future frame via poll above.
-            # Fall back to sync OCR only when the async worker is absent.
-            if plate_boxes:
-                if async_worker:
-                    n_submitted = self._submit_plates_to_ocr_queue(
-                        plate_boxes, enhanced_frame, tracks_to_save or [])
-                    if n_submitted:
-                        self.logger.info(
-                            f"[OCR_ASYNC_SUBMIT] fid={detect_fid} "
-                            f"{n_submitted}/{len(plate_boxes)} plate(s) queued — "
-                            f"Tesseract runs in background (~1.3s), "
-                            f"result via next poll"
-                        )
-                    # ocr_results already set from poll above (may be empty this frame)
-                else:
-                    # Sync fallback: blocks ~1.3s but ensures OCR is always available
-                    ocr_results = self.detection_processor.perform_ocr(enhanced_frame, plate_boxes)
-                    self.logger.debug(
-                        f"[OCR_SYNC] fid={detect_fid} sync OCR fallback "
-                        f"(no async worker): {len(ocr_results)} result(s)"
-                    )
-                if ocr_results:
-                    self.detection_stats['successful_ocr'] += len(ocr_results)
-            
-            # Step 5: Gate on plate visibility — defer save when no plate is detected yet.
-            # This prevents saving rear/side views before the plate comes into frame.
+            # Gate: skip save if no plate visible this frame
             if not plate_boxes:
-                # Vehicle detected but no plate visible. Don't save; don't mark tracks.
-                # The vehicle will be re-evaluated in the next frame(s).
                 self.logger.info(
-                    f"[SAVE_DEFER] Vehicle detected but no plate visible — "
-                    f"skipping save, keeping tracks eligible for next frame"
-                )
+                    f"[SAVE_DEFER] fid={detect_fid} "
+                    "no plate visible — keeping tracks eligible for next frame")
                 return None
 
-            # ── FIX: Always save the CURRENT frame (same object used for detection).  ──
-            # best_frame_data is a copy from a previous iteration; using it causes
-            # FRAME_MISMATCH — bbox coordinates are from enhanced_frame (this frame)
-            # but the JPEG shows a different moment.  best_frame_data is still used
-            # for OCR crop quality via plate_crop_buffer / submit_for_ocr().
-            frame_to_save = frame   # guaranteed: save_fid == detect_fid
+            # 6. OCR (async poll + submit, or sync fallback)
+            ocr_results = self._handle_ocr(
+                detect_fid, plate_boxes, enhanced, tracks_to_save or [])
 
-            save_fid = id(frame_to_save) % 1_000_000
-            # save_fid should always equal detect_fid now; log if somehow not
-            if detect_fid != save_fid:
-                self.logger.error(
-                    f"[FRAME_MISMATCH_UNEXPECTED] detect_fid={detect_fid} save_fid={save_fid} — "
-                    f"unexpected mismatch after fix; investigate frame allocation."
-                )
-            else:
-                self.logger.info(
-                    f"[FRAME_SAME] fid={detect_fid} — detection and saved image are the same frame ✓"
-                )
-            if self.tracking_enabled and tracks_to_save:
-                tracks_with_plates = [t for t in tracks_to_save if t.plate_candidates]
-                candidate_tracks   = tracks_with_plates if tracks_with_plates else tracks_to_save
-                best_track = max(candidate_tracks, key=lambda t: t.best_frame_score)
-                self.logger.info(
-                    f"[FRAME_SELECT] track={best_track.track_id} "
-                    f"score={best_track.best_frame_score:.3f} "
-                    f"frame_count={best_track.frame_count} "
-                    f"has_plate_candidates={bool(tracks_with_plates)} "
-                    f"save_fid={save_fid} (current frame — aligned with bboxes)"
-                )
-            
-            # Step 6: Save only original image (optimized for disk space)
-            self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: Step 6 - calling detection_processor.save_detection_results()")
+            # 7. Save JPEG — always use current frame so bbox alignment is guaranteed
+            self.logger.info(f"[FRAME_SAME] fid={detect_fid} — saving current frame ✓")
             original_path, _, _, _ = self.detection_processor.save_detection_results(
-                frame_to_save, vehicle_boxes, plate_boxes, ocr_results
-            )
-            self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: Step 6 completed - original_path: {original_path}")
-            
-            # Calculate processing time
-            processing_time = time.time() - start_time
-            self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: processing time: {processing_time:.3f}s")
-            
-            # Step 6: Store results in database (only original image path)
-            self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: Step 6 - creating detection record")
-            detection_record = {
-                'timestamp': datetime.now().isoformat(),
-                'vehicles_count': len(vehicle_boxes),
-                'plates_count': len(plate_boxes),
-                'ocr_results': ocr_results,
-                'original_image_path': original_path or '',
-                'vehicle_detections': vehicle_boxes,
-                'plate_detections': plate_boxes,
-                'processing_time_ms': processing_time * 1000.0,  # Convert to milliseconds
-                'coordinate_mapping': mapping_info  # เก็บ mapping_info สำหรับ frontend
-            }
-            
-            # Extract parallel OCR data from OCR results
-            if ocr_results:
-                # Collect all Hailo and EasyOCR results
-                hailo_ocr_results = []
-                easyocr_results = []
-                best_ocr_method = 'none'
-                parallel_ocr_success = False
-                ocr_processing_time_ms = 0.0
-                hailo_ocr_confidence = 0.0
-                easyocr_confidence = 0.0
-                hailo_processing_time_ms = 0.0
-                easyocr_processing_time_ms = 0.0
-                hailo_ocr_error = ''
-                easyocr_error = ''
-                
-                for ocr_result in ocr_results:
-                    # Extract Hailo OCR data
-                    hailo_ocr = ocr_result.get('hailo_ocr', {})
-                    if hailo_ocr.get('success'):
-                        hailo_ocr_results.append({
-                            'text': hailo_ocr.get('text', ''),
-                            'confidence': hailo_ocr.get('confidence', 0.0),
-                            'success': True
-                        })
-                        hailo_ocr_confidence = max(hailo_ocr_confidence, hailo_ocr.get('confidence', 0.0))
-                    else:
-                        hailo_ocr_error = hailo_ocr.get('error', '')
-                    
-                    # Extract EasyOCR data
-                    easyocr = ocr_result.get('easyocr', {})
-                    if easyocr.get('success'):
-                        easyocr_results.append({
-                            'text': easyocr.get('text', ''),
-                            'confidence': easyocr.get('confidence', 0.0),
-                            'success': True
-                        })
-                        easyocr_confidence = max(easyocr_confidence, easyocr.get('confidence', 0.0))
-                    else:
-                        easyocr_error = easyocr.get('error', '')
-                    
-                    # Get best method and processing time from parallel processing metadata
-                    parallel_metadata = ocr_result.get('parallel_processing', {})
-                    if parallel_metadata:
-                        parallel_ocr_success = parallel_metadata.get('parallel_success', False)
-                        ocr_processing_time_ms = parallel_metadata.get('processing_time', 0.0) * 1000.0
-                        hailo_processing_time_ms = parallel_metadata.get('hailo_time', 0.0) * 1000.0
-                        easyocr_processing_time_ms = parallel_metadata.get('easyocr_time', 0.0) * 1000.0
-                        best_ocr_method = parallel_metadata.get('selection_reason', 'none')
-                    else:
-                        # Fallback to OCR method from result
-                        best_ocr_method = ocr_result.get('ocr_method', 'none')
-                
-                # Add parallel OCR data to detection record
-                detection_record.update({
-                    'hailo_ocr_results': hailo_ocr_results,
-                    'easyocr_results': easyocr_results,
-                    'best_ocr_method': best_ocr_method,
-                    'ocr_processing_time_ms': ocr_processing_time_ms,
-                    'parallel_ocr_success': parallel_ocr_success,
-                    'hailo_ocr_confidence': hailo_ocr_confidence,
-                    'easyocr_confidence': easyocr_confidence,
-                    'hailo_processing_time_ms': hailo_processing_time_ms,
-                    'easyocr_processing_time_ms': easyocr_processing_time_ms,
-                    'hailo_ocr_error': hailo_ocr_error,
-                    'easyocr_error': easyocr_error
-                })
-            
-            # Always insert into DB; image save failure only means no image path
-            if not original_path:
-                self.logger.warning("[DB_SAVE] Image save failed — inserting record without image path")
-            elif not os.path.exists(original_path):
-                self.logger.warning(f"[DB_SAVE] Image missing on disk after write: {original_path}")
-                detection_record['original_image_path'] = ''
+                frame, vehicle_boxes, plate_boxes, ocr_results)
 
-            if self.database_manager:
-                plate_text = ocr_results[0].get('text', '?') if ocr_results else '—'
-                ocr_conf  = ocr_results[0].get('confidence', 0) if ocr_results else 0
-                ocr_valid = ocr_results[0].get('valid_thai', False) if ocr_results else False
-                ocr_meth  = ocr_results[0].get('ocr_method', '?') if ocr_results else '—'
-                t_db = time.time()
-                _last_record_id = self.database_manager.insert_detection_result(detection_record)
-                db_ms = (time.time() - t_db) * 1000
-                self.logger.info(
-                    f"[DB_SAVE] detect_fid={detect_fid} save_fid={save_fid} "
-                    f"plate='{plate_text}' valid={ocr_valid} "
-                    f"conf={ocr_conf:.3f} method={ocr_meth} "
-                    f"vehicles={len(vehicle_boxes)} plates={len(plate_boxes)} "
-                    f"img={'✓' if original_path else '✗'} "
-                    f"db={db_ms:.0f}ms total={processing_time*1000:.0f}ms"
-                )
-            else:
-                self.logger.warning("[DB_SAVE] No database_manager — detection NOT stored")
+            # 8. Build record and persist to DB
+            processing_time = time.time() - t0
+            record    = self._build_record(vehicle_boxes, plate_boxes, ocr_results,
+                                           original_path, mapping_info, processing_time)
+            record_id = self._persist_record(detect_fid, record, ocr_results, original_path)
 
-            # Mark tracks as saved NOW (after successful DB insert).
+            # 9. Mark tracks saved; register pending async OCR update
             if self.tracking_enabled and tracks_to_save:
                 for track in tracks_to_save:
                     self._mark_track_saved(track)
 
-            # Register this DB record as awaiting async OCR update.
-            if async_worker and plate_boxes and not ocr_results:
-                last_id = _last_record_id if self.database_manager else None
-                if last_id and tracks_to_save:
-                    for track in tracks_to_save:
-                        self._pending_ocr_updates[track.track_id] = last_id
-                    self.logger.info(
-                        f"[OCR_PENDING] record={last_id} waiting for async OCR "
-                        f"(track_ids={[t.track_id for t in tracks_to_save]})"
-                    )
+            async_worker = getattr(self.detection_processor, 'ocr_queue_worker', None)
+            if async_worker and plate_boxes and not ocr_results and record_id and tracks_to_save:
+                for track in tracks_to_save:
+                    self._pending_ocr_updates[track.track_id] = record_id
+                self.logger.info(
+                    f"[OCR_PENDING] record={record_id} "
+                    f"tracks={[t.track_id for t in tracks_to_save]}")
 
-            # Update statistics
             self._update_processing_stats(processing_time)
             self.detection_stats['last_detection'] = datetime.now().isoformat()
             self.logger.info(
-                f"[PIPELINE_DONE] vehicles={len(vehicle_boxes)} plates={len(plate_boxes)} "
-                f"ocr={len(ocr_results)} total={processing_time*1000:.0f}ms"
-            )
-            
-            self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: returning detection record with {len(vehicle_boxes)} vehicles, {len(plate_boxes)} plates, {len(ocr_results)} OCR results")
-            return detection_record
-            
+                f"[PIPELINE_DONE] fid={detect_fid} "
+                f"vehicles={len(vehicle_boxes)} plates={len(plate_boxes)} "
+                f"ocr={len(ocr_results)} total={processing_time*1000:.0f}ms")
+            return record
+
         except Exception as e:
-            self.logger.error(f"🔧 [DETECTION_MANAGER] process_frame error: {e}")
+            self.logger.error(f"[PROCESS_FRAME_ERROR] fid={detect_fid} {e}")
             self.detection_stats['failed_detections'] += 1
             return None
-    
-    def _detection_loop(self):
+
+    # ──────────────────────────────────────────────────────────────────
+    # Pipeline helpers
+    # ──────────────────────────────────────────────────────────────────
+
+    def _tracking_pass1(self, vehicle_boxes, frame, detect_fid) -> Optional[List]:
         """
-        Main detection loop running in separate thread.
-        
-        This loop continuously processes frames from the camera when detection is active.
+        IoU tracking + dedup on vehicle detections.
+        Returns:
+          - List of eligible tracks  (may be empty → all duplicates → skip frame)
+          - None                     → tracking disabled or error → fall through
         """
-        self.logger.info("Detection loop started")
-        
-        # Get camera manager from dependency container    
-        while self.is_running:
-            try:
-                # Get camera manager
-                camera_manager = get_service('camera_manager')
-                if camera_manager and self._is_camera_ready(camera_manager):
-                    # Process frame from camera
-                    result = self.process_frame_from_camera(camera_manager)
-                    
-                    if result:
-                        self.logger.debug("Frame processed successfully")
-                    else:
-                        self.logger.debug("Frame processing returned no results")
-                else:
-                    self.logger.debug("Camera not active, waiting...")
-                
-                # Wait for next detection interval
-                time.sleep(self.detection_interval)
-                
-            except Exception as e:
-                self.logger.error(f"Error in detection loop: {e}")
-                time.sleep(1.0)  # Wait before retry
-        
-        self.logger.info("Detection loop stopped")
-    
-    def _submit_plates_to_ocr_queue(self, plate_boxes: list, frame, tracks: list) -> int:
+        if not self.tracking_enabled or \
+                not hasattr(self.detection_processor, 'update_vehicle_tracks'):
+            return None
+        try:
+            dets     = [{'bbox': vb['bbox'], 'score': vb.get('score', 0.0)}
+                        for vb in vehicle_boxes]
+            tracks   = self.detection_processor.update_vehicle_tracks(dets, frame)
+            filtered = self.detection_processor.apply_deduplication_rules(tracks)
+            eligible = [t for t in filtered if self._should_save_detection(t)]
+            self.logger.info(
+                f"[TRACKING] fid={detect_fid} active={len(tracks)} "
+                f"filtered={len(filtered)} eligible={len(eligible)}")
+            if not eligible:
+                self.logger.info(
+                    f"[DEDUP_SKIP] fid={detect_fid} "
+                    f"all {len(tracks)} vehicle(s) are duplicates — skip save")
+            return eligible
+        except Exception as e:
+            self.logger.warning(f"[TRACKING_PASS1] {e} — falling back to no-tracking mode")
+            return None
+
+    def _tracking_pass2(self, tracks_to_save, vehicle_boxes, plate_boxes, frame):
         """
-        Submit plate crops directly to the async OCR worker (non-blocking).
-        Returns number of tasks successfully enqueued.
-        Bypasses the track-based gating used by submit_for_ocr() so the
-        legacy process_frame() path can also use the async queue.
+        Wire plate_bbox into _update_track so best_frame_data is only replaced
+        when the plate is actually visible.  Also populates plate_candidates
+        so the OCR gating condition (min plate frames) is satisfied.
         """
-        from edge.src.components.ocr_queue_worker import OcrTask
-        worker = getattr(self.detection_processor, 'ocr_queue_worker', None)
-        if not worker:
-            return 0
-
-        submitted = 0
-        track_id = tracks[0].track_id if tracks else 0
-
-        for plate in plate_boxes:
-            bbox = plate.get('bbox', [])
-            if len(bbox) != 4:
-                continue
-            x1, y1, x2, y2 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
-            crop = frame[y1:y2, x1:x2]
-            if crop.size == 0:
-                continue
-
-            task = OcrTask(
-                track_id=track_id,
-                plate_crop=crop.copy(),
-                bbox=bbox,
-                det_confidence=float(plate.get('score', 0)),
-                frame_timestamp=time.time(),
-                camera_id=str(AICAMERA_ID),
-            )
-            if worker.submit(task):
-                submitted += 1
-
-        return submitted
-
-    def _update_db_ocr(self, record_id: int, ocr_results: list) -> None:
-        """Update an existing detection_results record with completed async OCR text."""
-        if not self.database_manager or not ocr_results:
+        if not hasattr(self.detection_processor, '_update_track'):
             return
         try:
-            import json
-            best = max(ocr_results, key=lambda r: r.get('confidence', 0))
-            plate_text = best.get('text', '')
-            conf       = best.get('confidence', 0)
-            method     = best.get('ocr_method', 'async_tesseract')
-            ocr_json   = json.dumps(ocr_results)
+            # Build vehicle_idx → best plate box lookup
+            vidx_to_pb: Dict[int, Dict] = {}
+            for pb in plate_boxes:
+                vidx = pb.get('vehicle_idx', -1)
+                if vidx >= 0 and vidx not in vidx_to_pb:
+                    vidx_to_pb[vidx] = pb
 
-            conn = self.database_manager.connection
-            if conn:
-                conn.execute(
-                    """UPDATE detection_results
-                       SET ocr_results = ?, plates_count = MAX(plates_count, 1)
-                       WHERE id = ?""",
-                    (ocr_json, record_id)
-                )
-                conn.commit()
-                self.logger.info(
-                    f"[OCR_UPDATE] record={record_id} "
-                    f"plate='{plate_text}' conf={conf:.3f} method={method}"
-                )
+            now = time.time()
+            for track in tracks_to_save:
+                best_pb  = None
+                best_iou = 0.0
+                for vidx, pb in vidx_to_pb.items():
+                    if vidx < len(vehicle_boxes):
+                        iou = self.detection_processor._calculate_iou(
+                            track.bbox, vehicle_boxes[vidx]['bbox'])
+                        if iou > best_iou:
+                            best_iou = iou
+                            best_pb  = pb
+
+                plate_bbox = best_pb['bbox'] if best_pb else None
+                self.detection_processor._update_track(
+                    track, {'bbox': track.bbox, 'score': track.confidence},
+                    frame, now, plate_bbox=plate_bbox)
+
+                # Populate plate_candidates (needed by submit_for_ocr gating)
+                if best_pb and best_pb not in track.plate_candidates:
+                    track.plate_candidates.append(best_pb)
+
+                if plate_bbox:
+                    self.logger.debug(
+                        f"[TRACK_PLATE_WIRE] track={track.track_id} "
+                        f"iou={best_iou:.3f} "
+                        f"plate_candidates={len(track.plate_candidates)}")
         except Exception as e:
-            self.logger.warning(f"[OCR_UPDATE] Failed to update record {record_id}: {e}")
+            self.logger.warning(f"[TRACKING_PASS2] {e}")
+
+    def _handle_ocr(self, detect_fid, plate_boxes, enhanced_frame, tracks) -> List[Dict]:
+        """
+        Poll completed async OCR results; submit new plate crops to the queue.
+        Falls back to synchronous OCR when no async worker is present.
+        """
+        async_worker = getattr(self.detection_processor, 'ocr_queue_worker', None)
+        ocr_results: List[Dict] = []
+
+        # Poll results from earlier frames
+        if async_worker:
+            polled = self.detection_processor.poll_ocr_results()
+            if polled:
+                ocr_results.extend(polled)
+                for res in polled:
+                    rid = self._pending_ocr_updates.pop(res.get('track_id'), None)
+                    if rid and self.database_manager:
+                        self._update_db_ocr(rid, [res])
+                self.logger.info(
+                    f"[OCR_POLLED] fid={detect_fid} {len(polled)} result(s) "
+                    f"pending_remaining={len(self._pending_ocr_updates)}")
+
+        # Submit this frame's plates
+        if plate_boxes:
+            if async_worker:
+                n = self._submit_ocr_for_tracks(tracks, detect_fid)
+                if n:
+                    self.logger.info(
+                        f"[OCR_ASYNC_SUBMIT] fid={detect_fid} "
+                        f"{n} task(s) queued for background Tesseract")
+            else:
+                # Sync fallback — blocks ~1.3 s per plate
+                ocr_results = self.detection_processor.perform_ocr(
+                    enhanced_frame, plate_boxes)
+                self.logger.info(
+                    f"[OCR_SYNC] fid={detect_fid} "
+                    f"{len(ocr_results)} result(s) (no async worker)")
+
+        if ocr_results:
+            self.detection_stats['successful_ocr'] += len(ocr_results)
+        return ocr_results
+
+    def _submit_ocr_for_tracks(self, tracks, detect_fid: int) -> int:
+        """
+        Submit OCR tasks via detection_processor.submit_for_ocr (gated).
+        Gating: plate_candidates, best_frame_score, ROI zone, ocr_submitted flag.
+        """
+        submitted = 0
+        for track in tracks:
+            if not track.plate_candidates:
+                continue
+            best_plate = max(track.plate_candidates, key=lambda p: p.get('score', 0.0))
+            frame_shape = (
+                track.best_frame_data.shape
+                if track.best_frame_data is not None else (0, 0, 3))
+            ok = self.detection_processor.submit_for_ocr(
+                track          = track,
+                plate_bbox     = best_plate['bbox'],
+                det_confidence = best_plate.get('score', 0.0),
+                frame_timestamp= time.time(),
+                camera_id      = str(AICAMERA_ID),
+                frame_shape    = frame_shape,
+            )
+            if ok:
+                submitted += 1
+        return submitted
+
+    def _build_record(self, vehicle_boxes, plate_boxes, ocr_results,
+                      original_path, mapping_info, processing_time) -> Dict[str, Any]:
+        """Assemble the dict for database insertion."""
+        record: Dict[str, Any] = {
+            'timestamp':           datetime.now().isoformat(),
+            'vehicles_count':      len(vehicle_boxes),
+            'plates_count':        len(plate_boxes),
+            'ocr_results':         ocr_results,
+            'original_image_path': original_path or '',
+            'vehicle_detections':  vehicle_boxes,
+            'plate_detections':    plate_boxes,
+            'processing_time_ms':  processing_time * 1000.0,
+            'coordinate_mapping':  mapping_info,
+        }
+        if ocr_results:
+            best = max(ocr_results, key=lambda r: r.get('confidence', 0))
+            record.update({
+                'best_ocr_text':   best.get('text', ''),
+                'best_ocr_conf':   best.get('confidence', 0.0),
+                'best_ocr_method': best.get('ocr_method', 'none'),
+            })
+        return record
+
+    def _persist_record(self, detect_fid, record, ocr_results, original_path) -> Optional[int]:
+        """Write record to DB; return its id."""
+        if not original_path:
+            self.logger.warning("[DB_SAVE] no image path — inserting without image")
+        elif not os.path.exists(original_path):
+            self.logger.warning(f"[DB_SAVE] image missing after write: {original_path}")
+            record['original_image_path'] = ''
+
+        if not self.database_manager:
+            self.logger.warning("[DB_SAVE] no database_manager — record NOT stored")
+            return None
+
+        plate_text = ocr_results[0].get('text', '?')    if ocr_results else '—'
+        ocr_conf   = ocr_results[0].get('confidence', 0) if ocr_results else 0
+        ocr_meth   = ocr_results[0].get('ocr_method', '?') if ocr_results else '—'
+
+        t_db = time.time()
+        record_id = self.database_manager.insert_detection_result(record)
+        db_ms = (time.time() - t_db) * 1000
+        self.logger.info(
+            f"[DB_SAVE] fid={detect_fid} id={record_id} "
+            f"plate='{plate_text}' conf={ocr_conf:.3f} method={ocr_meth} "
+            f"v={record['vehicles_count']} p={record['plates_count']} "
+            f"img={'✓' if original_path else '✗'} db={db_ms:.0f}ms")
+        return record_id
+
+    # ──────────────────────────────────────────────────────────────────
+    # Deduplication
+    # ──────────────────────────────────────────────────────────────────
 
     def _should_save_detection(self, track) -> bool:
         """
-        Check if a track should be saved (not a duplicate).
+        Two-layer duplicate guard.
 
-        Two-layer dedup:
-          1. IoU + time gate on track_id  (original behaviour)
-          2. Plate-text gate — block same normalised text within plate_text_dedup_window
-             This handles track_id resets caused by fast IoU drops (same physical vehicle,
-             new track_id) and catches OCR-confirmed duplicates the IoU gate can miss.
+        Layer 1 — IoU + time per track_id:
+          Blocks if track_id was saved within reentry_time_threshold *and*
+          current bbox overlaps the saved bbox by more than iou_threshold.
 
-        Args:
-            track: VehicleTrack object
-
-        Returns:
-            bool: True if should save, False if duplicate
+        Layer 2 — Plate-text window:
+          Blocks if the same normalised plate text was saved within
+          plate_text_dedup_window seconds, regardless of track_id.
+          Handles track_id resets caused by fast IoU drops on the same vehicle.
         """
         if not self.tracking_enabled:
             return True
-
         try:
-            current_time = time.time()
+            now = time.time()
+            # Periodic cleanup
+            if now - self.last_track_cleanup > self.track_cleanup_interval:
+                self._cleanup_old_tracks(now)
+                self.last_track_cleanup = now
 
-            # ── Periodic cleanup ─────────────────────────────────────────────────
-            if current_time - self.last_track_cleanup > self.track_cleanup_interval:
-                self._cleanup_old_tracks(current_time)
-                self.last_track_cleanup = current_time
-
-            # ── Layer 1: track_id + IoU + time ──────────────────────────────────
+            # Layer 1
             track_id = track.track_id
-            if track_id in self.recent_tracks:
-                track_info = self.recent_tracks[track_id]
-                time_since_saved = current_time - track_info['last_saved']
-
-                if time_since_saved < self.reentry_time_threshold:
-                    if hasattr(self.detection_processor, '_calculate_iou'):
-                        iou = self.detection_processor._calculate_iou(track.bbox, track_info['bbox'])
-                        if iou > self.iou_threshold:
-                            self.logger.info(
-                                f"[DEDUP_BLOCK] track={track_id} blocked "
-                                f"iou={iou:.3f} time_since_saved={time_since_saved:.1f}s "
-                                f"(threshold: iou>{self.iou_threshold} within {self.reentry_time_threshold}s) "
-                                f"prev_plate='{track_info.get('plate_text', '?')}' — NOT saving to DB"
-                            )
-                            return False
-                        else:
-                            self.logger.info(
-                                f"[DEDUP_PASS_IOU] track={track_id} iou={iou:.3f} < threshold={self.iou_threshold} "
-                                f"— vehicle moved, allowing save"
-                            )
-                    else:
+            info = self.recent_tracks.get(track_id)
+            if info:
+                elapsed = now - info['last_saved']
+                if elapsed < self.reentry_time_threshold:
+                    iou = (self.detection_processor._calculate_iou(
+                               track.bbox, info['bbox'])
+                           if hasattr(self.detection_processor, '_calculate_iou') else 1.0)
+                    if iou > self.iou_threshold:
                         self.logger.info(
-                            f"[DEDUP_PASS_TIME] track={track_id} time_since_saved={time_since_saved:.1f}s "
-                            f"(no IoU check available)"
-                        )
+                            f"[DEDUP_BLOCK] track={track_id} "
+                            f"iou={iou:.3f} elapsed={elapsed:.1f}s "
+                            f"prev='{info.get('plate_text','?')}' — skip")
+                        return False
+                    self.logger.info(
+                        f"[DEDUP_PASS_IOU] track={track_id} "
+                        f"iou={iou:.3f} < {self.iou_threshold} — vehicle moved, allow")
                 else:
                     self.logger.info(
-                        f"[DEDUP_REENTRY] track={track_id} re-entered after {time_since_saved:.1f}s "
-                        f"(threshold={self.reentry_time_threshold}s) — allowing new save"
-                    )
+                        f"[DEDUP_REENTRY] track={track_id} "
+                        f"elapsed={elapsed:.1f}s > {self.reentry_time_threshold}s — allow")
             else:
-                self.logger.info(
-                    f"[DEDUP_NEW] track={track_id} first time seen — allowing save"
-                )
+                self.logger.info(f"[DEDUP_NEW] track={track_id} first seen — allow")
 
-            # ── Layer 2: Plate-text dedup ────────────────────────────────────────
-            # Derive best plate text from track OCR results (may be empty before async OCR)
+            # Layer 2
             plate_text = ''
             if track.ocr_results:
                 plate_text = track.ocr_results[-1].get('text', '').strip()
-            norm_text = plate_text.upper().replace(' ', '') if plate_text else ''
-
-            if norm_text and len(norm_text) >= 3:  # ignore very short / empty results
-                last_seen = self.recent_plate_texts.get(norm_text)
-                if last_seen is not None:
-                    elapsed = current_time - last_seen
-                    if elapsed < self.plate_text_dedup_window:
-                        self.logger.info(
-                            f"[DEDUP_PLATE_TEXT] track={track_id} plate='{plate_text}' "
-                            f"seen {elapsed:.1f}s ago (window={self.plate_text_dedup_window}s) "
-                            f"— duplicate plate text, NOT saving to DB"
-                        )
-                        return False
-                    else:
-                        self.logger.info(
-                            f"[DEDUP_PLATE_TEXT_PASS] track={track_id} plate='{plate_text}' "
-                            f"last seen {elapsed:.1f}s ago — beyond window, allowing save"
-                        )
+            norm = plate_text.upper().replace(' ', '')
+            if len(norm) >= 3:
+                last = self.recent_plate_texts.get(norm)
+                if last and (now - last) < self.plate_text_dedup_window:
+                    self.logger.info(
+                        f"[DEDUP_PLATE_TEXT] track={track_id} "
+                        f"plate='{plate_text}' seen {now-last:.1f}s ago "
+                        f"(window={self.plate_text_dedup_window}s) — skip")
+                    return False
 
             return True
-
         except Exception as e:
-            self.logger.warning(f"Error checking if should save detection: {e}")
-            return True  # Default to saving if check fails
-    
-    def _mark_track_saved(self, track):
-        """
-        Mark a track as saved to prevent duplicate saves.
-        Also registers the plate text in recent_plate_texts for cross-track dedup.
+            self.logger.warning(f"_should_save_detection: {e}")
+            return True
 
-        Args:
-            track: VehicleTrack object
-        """
+    def _mark_track_saved(self, track):
+        """Record save; register plate text for Layer-2 dedup."""
         try:
-            now = time.time()
-            track_id = track.track_id
+            now        = time.time()
+            track_id   = track.track_id
             plate_text = ''
             if track.ocr_results:
-                plate_text = track.ocr_results[-1].get('text', '') if track.ocr_results else ''
+                plate_text = track.ocr_results[-1].get('text', '')
+
             self.recent_tracks[track_id] = {
                 'last_saved': now,
-                'bbox': track.bbox.copy() if isinstance(track.bbox, list) else track.bbox,
-                'plate_text': plate_text
+                'bbox':       list(track.bbox) if isinstance(track.bbox, list) else track.bbox,
+                'plate_text': plate_text,
             }
             self.logger.info(
                 f"[TRACK_SAVED] track={track_id} plate='{plate_text or '?'}' "
                 f"frames={track.frame_count} score={track.best_frame_score:.3f} "
-                f"— marked as saved, dedup active for {self.reentry_time_threshold}s"
-            )
+                f"— dedup active {self.reentry_time_threshold}s")
 
-            # ── FIX: Register plate text for cross-track dedup ───────────────
-            norm_text = plate_text.upper().replace(' ', '') if plate_text else ''
-            if norm_text and len(norm_text) >= 3:
-                self.recent_plate_texts[norm_text] = now
+            norm = plate_text.upper().replace(' ', '') if plate_text else ''
+            if len(norm) >= 3:
+                self.recent_plate_texts[norm] = now
                 self.logger.info(
-                    f"[PLATE_TEXT_REGISTERED] '{plate_text}' → dedup active "
-                    f"for {self.plate_text_dedup_window}s"
-                )
+                    f"[PLATE_TEXT_REGISTERED] '{plate_text}' "
+                    f"— dedup active {self.plate_text_dedup_window}s")
         except Exception as e:
-            self.logger.warning(f"Error marking track as saved: {e}")
-    
-    def _cleanup_old_tracks(self, current_time: float):
-        """Clean up old tracks from recent_tracks dictionary."""
+            self.logger.warning(f"_mark_track_saved: {e}")
+
+    def _cleanup_old_tracks(self, now: float):
+        """Remove stale entries from both dedup caches."""
+        cutoff = self.reentry_time_threshold * 2
+        for tid in [k for k, v in self.recent_tracks.items()
+                    if now - v['last_saved'] > cutoff]:
+            del self.recent_tracks[tid]
+        for k in [k for k, ts in self.recent_plate_texts.items()
+                  if now - ts > self.plate_text_dedup_window * 2]:
+            del self.recent_plate_texts[k]
+
+    # ──────────────────────────────────────────────────────────────────
+    # Async OCR DB patch
+    # ──────────────────────────────────────────────────────────────────
+
+    def _update_db_ocr(self, record_id: int, ocr_results: list):
+        """Patch an existing DB record with completed async OCR text."""
+        if not self.database_manager or not ocr_results:
+            return
         try:
-            tracks_to_remove = []
-            for track_id, track_info in self.recent_tracks.items():
-                time_since_saved = current_time - track_info['last_saved']
-                # Remove tracks older than reentry threshold * 2
-                if time_since_saved > (self.reentry_time_threshold * 2):
-                    tracks_to_remove.append(track_id)
-            
-            for track_id in tracks_to_remove:
-                del self.recent_tracks[track_id]
-            
-            if tracks_to_remove:
+            best  = max(ocr_results, key=lambda r: r.get('confidence', 0))
+            text  = best.get('text', '')
+            conf  = best.get('confidence', 0)
+            meth  = best.get('ocr_method', 'async_tesseract')
+            conn  = self.database_manager.connection
+            if conn:
+                conn.execute(
+                    "UPDATE detection_results "
+                    "SET ocr_results=?, plates_count=MAX(plates_count,1) WHERE id=?",
+                    (json.dumps(ocr_results), record_id))
+                conn.commit()
                 self.logger.info(
-                    f"[DEDUP_CLEANUP] Removed {len(tracks_to_remove)} expired track(s) "
-                    f"from recent_tracks memory: {tracks_to_remove}"
-                )
+                    f"[OCR_UPDATE] record={record_id} "
+                    f"plate='{text}' conf={conf:.3f} method={meth}")
         except Exception as e:
-            self.logger.warning(f"Error cleaning up old tracks: {e}")
-    
-    def _update_processing_stats(self, processing_time: float):
-        """Update processing time statistics."""
-        if self.detection_stats['processing_time_avg'] == 0.0:
-            self.detection_stats['processing_time_avg'] = processing_time
-        else:
-            # Simple moving average
-            alpha = 0.1
-            self.detection_stats['processing_time_avg'] = (
-                alpha * processing_time + 
-                (1 - alpha) * self.detection_stats['processing_time_avg']
-            )
-    
-    def _calculate_quality_metrics(self) -> Dict[str, float]:
-        """
-        Calculate quality metrics from detection statistics.
-        
-        Returns:
-            Dict[str, float]: Quality metrics for frontend progress bars
-        """
-        stats = self.detection_stats
-        
-        # Detection Accuracy: Based on successful vehicle detections vs total frames
-        total_frames = stats['total_frames_processed']
-        if total_frames > 0:
-            detection_accuracy = (stats['total_vehicles_detected'] / total_frames) * 100
-        else:
-            detection_accuracy = 0.0
-        
-        # OCR Accuracy: Based on successful OCR vs total plates detected
-        total_plates = stats['total_plates_detected']
-        if total_plates > 0:
-            ocr_accuracy = (stats['successful_ocr'] / total_plates) * 100
-        else:
-            ocr_accuracy = 0.0
-        
-        # System Reliability: Based on service uptime and error rate
-        if total_frames > 0:
-            error_rate = (stats['failed_detections'] / total_frames) * 100
-            system_reliability = max(0, 100 - error_rate)  # Higher is better
-        else:
-            system_reliability = 100.0  # No errors if no frames processed
-        
+            self.logger.warning(f"[OCR_UPDATE] record={record_id}: {e}")
+
+    # ──────────────────────────────────────────────────────────────────
+    # Stats / status
+    # ──────────────────────────────────────────────────────────────────
+
+    def _update_processing_stats(self, t: float):
+        avg = self.detection_stats['processing_time_avg']
+        self.detection_stats['processing_time_avg'] = (
+            t if avg == 0.0 else 0.1 * t + 0.9 * avg)
+
+    def _quality_metrics(self) -> Dict[str, float]:
+        s      = self.detection_stats
+        frames = s['total_frames_processed']
+        plates = s['total_plates_detected']
         return {
-            'detection_accuracy': round(detection_accuracy, 1),
-            'ocr_accuracy': round(ocr_accuracy, 1),
-            'system_reliability': round(system_reliability, 1)
+            'detection_accuracy': round(
+                s['total_vehicles_detected'] / frames * 100, 1) if frames else 0.0,
+            'ocr_accuracy': round(
+                s['successful_ocr'] / plates * 100, 1) if plates else 0.0,
+            'system_reliability': round(
+                max(0, 100 - s['failed_detections'] / frames * 100), 1) if frames else 100.0,
         }
-    
+
     def get_status(self) -> Dict[str, Any]:
-        """
-        Get current status of the detection manager.
-        
-        Returns:
-            Dict[str, Any]: Status information including statistics
-        """
-        self.logger.debug(f"🔧 [DETECTION_MANAGER] get_status called")
-        
-        processor_status = {}
+        proc: Dict = {}
         if self.detection_processor:
-            self.logger.debug(f"🔧 [DETECTION_MANAGER] get_status: calling detection_processor.get_status()")
-            processor_status = self.detection_processor.get_status()
-            self.logger.debug(f"🔧 [DETECTION_MANAGER] get_status: detection_processor.get_status() returned: {processor_status}")
-        
-        # Augment processor status with model names for UI mapping
-        if self.detection_processor:
+            proc = self.detection_processor.get_status()
             try:
-                self.logger.debug(f"🔧 [DETECTION_MANAGER] get_status: calling detection_processor.get_ocr_status()")
-                ocr_status = self.detection_processor.get_ocr_status()
-                processor_status.update({
-                    'vehicle_model_name': ocr_status.get('vehicle_model_name'),
-                    'lp_detection_model_name': ocr_status.get('lp_detection_model_name'),
-                    'lp_ocr_model_name': ocr_status.get('lp_ocr_model_name'),
-                    'easyocr_available': ocr_status.get('easyocr_available', False)
+                ocr = self.detection_processor.get_ocr_status()
+                proc.update({
+                    'vehicle_model_name':      ocr.get('vehicle_model_name'),
+                    'lp_detection_model_name': ocr.get('lp_detection_model_name'),
+                    'lp_ocr_model_name':       ocr.get('lp_ocr_model_name'),
                 })
-                self.logger.debug(f"🔧 [DETECTION_MANAGER] get_status: OCR status updated")
-            except Exception as e:
-                self.logger.debug(f"🔧 [DETECTION_MANAGER] get_status: error getting OCR status: {e}")
+            except Exception:
+                pass
 
-        # Calculate quality metrics from available statistics
-        self.logger.debug(f"🔧 [DETECTION_MANAGER] get_status: calculating quality metrics")
-        quality_metrics = self._calculate_quality_metrics()
-        
-        status = {
-            'service_running': self.is_running,
-            'detection_processor_status': processor_status,
-            'detection_interval': self.detection_interval,
-            'auto_start': self.auto_start_enabled,
-            'statistics': self.detection_stats.copy(),
-            'queue_size': self.detection_queue.qsize() if self.detection_queue else 0,
-            'thread_alive': self.detection_thread.is_alive() if self.detection_thread else False,
-            'last_update': datetime.now().isoformat(),
-            # Add quality metrics for frontend progress bars
-            'detection_accuracy': quality_metrics['detection_accuracy'],
-            'ocr_accuracy': quality_metrics['ocr_accuracy'],
-            'system_reliability': quality_metrics['system_reliability']
+        qm = self._quality_metrics()
+        return {
+            'service_running':            self.is_running,
+            'detection_processor_status': proc,
+            'detection_interval':         self.detection_interval,
+            'auto_start':                 self.auto_start_enabled,
+            'statistics':                 self.detection_stats.copy(),
+            'thread_alive': (
+                self.detection_thread.is_alive() if self.detection_thread else False),
+            'last_update':                datetime.now().isoformat(),
+            'detection_accuracy':         qm['detection_accuracy'],
+            'ocr_accuracy':               qm['ocr_accuracy'],
+            'system_reliability':         qm['system_reliability'],
         }
-        
-        self.logger.debug(f"🔧 [DETECTION_MANAGER] get_status: returning status: {status}")
-        return status
-    
-    def cleanup(self):
-        """Clean up resources and stop detection service."""
-        try:
-            self.logger.info("Cleaning up DetectionManager...")
-            
-            # Stop detection service
-            self.stop_detection()
-            
-            # Clean up detection processor
-            if self.detection_processor:
-                self.detection_processor.cleanup()
-            
-            self.logger.info("DetectionManager cleanup completed")
-            
-        except Exception as e:
-            self.logger.error(f"Error during DetectionManager cleanup: {e}")
 
 
-def create_detection_manager(detection_processor=None, database_manager=None, logger=None) -> DetectionManager:
-    """
-    Factory function to create DetectionManager with dependencies.
-    
-    Args:
-        detection_processor: DetectionProcessor component instance
-        database_manager: DatabaseManager component instance  
-        logger: Logger instance
-        
-    Returns:
-        DetectionManager: Configured DetectionManager instance
-    """
-    manager = DetectionManager(
+# ──────────────────────────────────────────────────────────────────────
+# Factory
+# ──────────────────────────────────────────────────────────────────────
+
+def create_detection_manager(detection_processor=None,
+                             database_manager=None,
+                             logger=None) -> DetectionManager:
+    """Return a new DetectionManager (does not call initialize())."""
+    return DetectionManager(
         detection_processor=detection_processor,
         database_manager=database_manager,
-        logger=logger
+        logger=logger,
     )
-    
-    # Initialize the manager
-    if manager.initialize():
-        logger.info("DetectionManager created and initialized successfully") if logger else None
-        return manager
-    else:
-        logger.error("Failed to initialize DetectionManager") if logger else None
-        return manager  # Return anyway, but not initialized
