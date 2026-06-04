@@ -61,18 +61,20 @@
     font-size: 0.75rem;
 }
 
-.video-feed-wrapper {
-    position: relative;
-    width: 100%;
-    height: auto;
-    display: block;
-}
+/* .video-feed-wrapper removed — img sits directly in the aspect-ratio container */
 
 .video-feed-compact {
+    /* Fill the aspect-ratio container completely.
+       Stream is 640×360 (16:9), container is 16:9 → object-fit:fill is distortion-free.
+       position:absolute + inset:0 ensures the image covers every pixel of the container
+       regardless of how the browser resolves the aspect-ratio box size. */
+    position: absolute;
+    top: 0;
+    left: 0;
     width: 100%;
     height: 100%;
     display: block;
-    object-fit: contain;
+    object-fit: fill;
     background: #000;
 }
 
@@ -527,25 +529,26 @@
                     </div>
                 </div>
                 
-                <!-- Video Container -->
+                <!-- Video Container
+                     16:9 aspect-ratio box — stream is 640×360 (16:9) from /camera/video_feed.
+                     img and overlay are position:absolute so they fill the sized container exactly.
+                     #capture-status is placed OUTSIDE this div to avoid overflow:hidden clipping. -->
                 <div class="video-container-compact">
-                    <!-- Video Feed Container with proper positioning -->
-                    <div class="video-feed-wrapper position-relative">
-                        <img id="video-feed" src="/camera/video_feed" class="video-feed-compact" alt="Camera Feed">
-                        <div id="video-status" class="video-status-overlay">
-                            <div class="video-status-content">
-                                <i class="fas fa-spinner fa-spin"></i>
-                                <span>Loading video feed...</span>
-                            </div>
+                    <img id="video-feed" src="/camera/video_feed"
+                         class="video-feed-compact" alt="Camera Feed">
+                    <div id="video-status" class="video-status-overlay">
+                        <div class="video-status-content">
+                            <i class="fas fa-spinner fa-spin"></i>
+                            <span>Loading video feed...</span>
                         </div>
                     </div>
-                    
-                    <!-- Capture Status Display -->
-                    <div id="capture-status" class="mt-2" style="display: none;">
-                        <div class="alert alert-info alert-sm mb-0">
-                            <i class="fas fa-info-circle me-1"></i>
-                            <span id="capture-status-text">Ready to capture</span>
-                        </div>
+                </div>
+
+                <!-- Capture Status — outside overflow:hidden so it is never clipped -->
+                <div id="capture-status" class="mt-2" style="display: none;">
+                    <div class="alert alert-info alert-sm mb-0">
+                        <i class="fas fa-info-circle me-1"></i>
+                        <span id="capture-status-text">Ready to capture</span>
                     </div>
                 </div>
             </div>
