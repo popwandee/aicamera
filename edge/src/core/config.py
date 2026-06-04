@@ -118,7 +118,7 @@ FOCUS_HEALTH_MIN_FOM = int(os.getenv("FOCUS_HEALTH_MIN_FOM", "150"))  # IMX708 o
 FOCUS_HEALTH_RETRY_ATTEMPTS = int(os.getenv("FOCUS_HEALTH_RETRY_ATTEMPTS", "2"))
 
 # Detection Settings - Can be overridden via environment variables
-DETECTION_INTERVAL = float(os.getenv("DETECTION_INTERVAL", "30.0"))  # Optimized to 30.0s for performance
+DETECTION_INTERVAL = float(os.getenv("DETECTION_INTERVAL", "0.1"))   # Sleep between detection loop iterations (s); 0.1 = ~10 fps detection, sufficient for vehicle tracking
 CONFIDENCE_THRESHOLD = float(os.getenv("DETECTION_CONFIDENCE_THRESHOLD", "0.8"))
 PLATE_CONFIDENCE_THRESHOLD = float(os.getenv("PLATE_CONFIDENCE_THRESHOLD", "0.6"))
 
