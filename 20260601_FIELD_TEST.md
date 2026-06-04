@@ -500,3 +500,77 @@ pm2 restart all   # or systemctl restart for each
 ---
 
 *Document created: 2026-06-01 | PWD Vision Works*
+
+aicamera1:
+
+
+ssh camuser@aicamera1
+# password: admin88366
+cd aicamera && git pull
+sudo systemctl restart aicamera_lpr.service
+sudo systemctl is-active aicamera_lpr.service
+aicamera2:
+
+
+ssh camuser@aicamera2
+# password: admin88366
+cd aicamera && git pull
+sudo systemctl restart aicamera_lpr.service
+sudo systemctl is-active aicamera_lpr.service
+
+Here's what each log prefix tells you during the field test:
+
+
+tail -f /home/camuser/aicamera/edge/logs/aicamera.log | grep -E "\[(VEHICLE|PLATE|OCR_GATE|OCR_SUBMIT|OCR_START|OCR_RESULT|OCR_DONE|IMG_SAVE|DB_SAVE|PIPELINE_DONE)\]"
+Prefix	What it tells you
+[VEHICLE]	Each detected vehicle: conf, size, bbox — อยู่ที่ไหนในเฟรม
+[PLATE]	Each detected plate: conf, size W×H, aspect ratio — เล็กเกินไปหรือเปล่า
+[PLATE_SKIP]	Plate ถูก filter ออก เพราะ conf ต่ำกว่า threshold
+[PLATE_NONE]	พบรถแต่ไม่พบป้าย — ระยะไกลเกิน, มุมผิด, หรือ model miss
+[OCR_GATE]	สำคัญที่สุด — PASS หรือ SKIP + เหตุผล: frames ไม่พอ / ภาพเบลอ / นอก ROI
+[OCR_SUBMIT]	ส่ง crop ไป queue: ขนาด crop, blur score, queue depth
+[OCR_START]	Worker รับ task: รอใน queue กี่ ms ก่อนเริ่ม OCR
+[OCR_RESULT]	ผล OCR: text, valid, conf, preprocess_ms, tesseract_ms
+[OCR_DONE]	e2e latency จาก frame capture จนถึง OCR เสร็จ
+[IMG_SAVE]	ขนาดไฟล์, write_ms — ถ้าสูง → SD card คือ bottleneck
+[DB_SAVE]	plate text ที่บันทึก, db_ms, total pipeline ms
+[PIPELINE_DONE]	สรุปต่อ detection event
+
+Bottleneck identification shortcuts:
+
+# Tesseract latency
+grep "OCR_RESULT" aicamera.log | awk '{for(i=1;i<=NF;i++) if($i~/tesseract=/) print $i}'
+
+# SD card write latency  
+grep "IMG_SAVE" aicamera.log | awk '{for(i=1;i<=NF;i++) if($i~/write=/) print $i}'
+
+# Pipeline total per detection
+grep "PIPELINE_DONE" aicamera.log | awk '{for(i=1;i<=NF;i++) if($i~/total=/) print $i}'
+
+# OCR gate skip reasons
+grep "OCR_GATE.*SKIP" aicamera.log | sort | uniq -c | sort -rn
+
+
+tracking & deduplication logs ที่เพิ่มมา:
+
+
+grep -E "\[(TRACK_NEW|TRACK_UPDATE|TRACK_SAVED|TRACKING|DEDUP_BLOCK|DEDUP_SKIP|DEDUP_NEW|DEDUP_REENTRY|DEDUP_MATCH|DEDUP_CLEANUP)\]" aicamera.log
+Prefix	ความหมาย
+[TRACK_NEW]	รถคันใหม่เข้าเฟรม สร้าง track ID ใหม่
+[TRACK_UPDATE]	รถคันเดิม (same track_id) อยู่ในเฟรมต่อ — frame_count เพิ่มขึ้น
+[TRACKING]	สรุปต่อเฟรม: กี่ track ที่ต้อง save vs skip
+[TRACK_SAVED]	บันทึก track ลง DB แล้ว — เริ่ม dedup window N วินาที
+[DEDUP_BLOCK]	บล็อก DB insert — IoU match + ยังอยู่ใน time window → รถคันเดิม ไม่บันทึกซ้ำ
+[DEDUP_SKIP]	ทุก vehicle ในเฟรมนี้เป็น duplicate — ข้ามทั้งหมด
+[DEDUP_NEW]	track ใหม่ ไม่เคยเห็นมาก่อน → อนุญาตบันทึก
+[DEDUP_REENTRY]	รถกลับมาหลัง time window — อนุญาตบันทึกใหม่
+[DEDUP_MATCH]	IoU overlap ระหว่าง 2 active tracks → กรองออก
+[DEDUP_CLEANUP]	ลบ track เก่าออกจาก memory หลัง timeout
+ยืนยัน: ถ้าไม่มีการบันทึกซ้ำ จะเห็น pattern นี้:
+
+[TRACK_NEW]    track=5 — รถเข้ามา
+[TRACK_UPDATE] track=5 frame_count=2 ...
+[TRACK_UPDATE] track=5 frame_count=3 ...
+[TRACK_SAVED]  track=5 plate='กข 1234' — บันทึกครั้งเดียว
+[DEDUP_BLOCK]  track=5 iou=0.87 time=1.2s — บล็อกครั้งต่อไป
+[DEDUP_SKIP]   All 1 vehicle(s) are duplicates — ไม่เขียน DB

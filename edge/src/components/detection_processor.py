@@ -2227,36 +2227,77 @@ class DetectionProcessor:
             self.logger.warning(f"Track matching error: {e}")
             return None
     
-    def _update_track(self, track: VehicleTrack, detection: Dict[str, Any], frame: np.ndarray, current_time: float):
-        """Update existing track with new detection."""
+    def _update_track(self, track: VehicleTrack, detection: Dict[str, Any],
+                      frame: np.ndarray, current_time: float,
+                      plate_bbox: Optional[List[float]] = None):
+        """
+        Update existing track with new detection.
+
+        Parameters
+        ----------
+        plate_bbox : Optional[List[float]]
+            Bounding box [x1,y1,x2,y2] of the licence plate detected in *this frame*,
+            or None when no plate was found.
+
+        ── FIX: best_frame_data now requires plate visibility ──────────────────
+        best_frame_data is used as the OCR source crop.  If it were updated for
+        every sharp vehicle frame (including side / rear views where no plate is
+        visible), OCR would consistently get a crop without the plate, causing
+        blank or wrong results AND saving rear-view images in the DB.
+
+        New policy:
+        • With plate_bbox   → update best_frame_data when score improves (same
+                              as before, but now we KNOW a plate is in the frame).
+        • Without plate_bbox → update score for tracking purposes but do NOT
+                              replace best_frame_data.  Keeps the most recent
+                              front-facing frame as the OCR source.
+        ────────────────────────────────────────────────────────────────────────
+        """
         try:
             # Update track properties
             track.bbox = detection.get('bbox', track.bbox)
             track.confidence = detection.get('score', track.confidence)
             track.last_seen = current_time
             track.frame_count += 1
-            
+
             # Update IoU history
             if track.iou_history:
                 prev_bbox = track.iou_history[-1] if track.iou_history else track.bbox
                 iou = self._calculate_iou(track.bbox, prev_bbox)
                 track.iou_history.append(iou)
-            
-            # Update best frame if current frame is better
-            current_score = self._calculate_frame_score(detection, frame)
+
+            # Score with plate sharpness bonus when plate is visible
+            current_score = self._calculate_frame_score(detection, frame, plate_bbox)
             prev_score = track.best_frame_score
-            if current_score > track.best_frame_score:
-                old_fid = id(track.best_frame_data) % 1_000_000 if track.best_frame_data is not None else 0
-                track.best_frame_score = current_score
-                track.best_frame_data = frame.copy()
-                new_fid = id(track.best_frame_data) % 1_000_000
-                self.logger.info(
-                    f"[BEST_FRAME_UPDATE] track={track.track_id} "
-                    f"score {prev_score:.3f}→{current_score:.3f} "
-                    f"old_fid={old_fid} new_fid={new_fid} "
-                    f"frame_count={track.frame_count} "
-                    f"plates_so_far={len(track.plate_candidates)}"
-                )
+
+            if plate_bbox is not None:
+                # Plate is visible in this frame — eligible to become best_frame_data
+                if current_score > track.best_frame_score:
+                    old_fid = id(track.best_frame_data) % 1_000_000 \
+                              if track.best_frame_data is not None else 0
+                    track.best_frame_score = current_score
+                    track.best_frame_data  = frame.copy()
+                    new_fid = id(track.best_frame_data) % 1_000_000
+                    self.logger.info(
+                        f"[BEST_FRAME_UPDATE] track={track.track_id} "
+                        f"score {prev_score:.3f}→{current_score:.3f} "
+                        f"old_fid={old_fid} new_fid={new_fid} "
+                        f"frame_count={track.frame_count} "
+                        f"plate_visible=YES plates_so_far={len(track.plate_candidates)}"
+                    )
+            else:
+                # No plate in this frame — update score for tracking only (no frame copy)
+                # This prevents rear/side views from becoming the OCR source
+                if current_score > track.best_frame_score:
+                    self.logger.debug(
+                        f"[BEST_FRAME_SKIP] track={track.track_id} "
+                        f"score {prev_score:.3f}→{current_score:.3f} "
+                        f"plate_visible=NO — keeping existing best_frame_data"
+                    )
+                    # Update score so dedup/gating reflects frame quality
+                    # but do NOT touch best_frame_data (no plate = no value for OCR)
+                    track.best_frame_score = current_score
+
         except Exception as e:
             self.logger.warning(f"Track update error: {e}")
     

@@ -98,6 +98,14 @@ class DetectionManager:
         self.track_cleanup_interval = 300.0  # Clean up old tracks every 5 minutes
         self.last_track_cleanup = time.time()
 
+        # ── FIX: Plate-text based dedup ──────────────────────────────────────────
+        # Prevents multiple DB records for the same license plate within a time window.
+        # Handles cases where track_id resets (IoU drops) but the same physical vehicle
+        # is still in frame — e.g. parked/slow-moving cars.
+        self.recent_plate_texts: Dict[str, float] = {}   # normalised_text → last_saved_timestamp
+        self.plate_text_dedup_window: float = 60.0       # seconds; tune via config if needed
+        # ────────────────────────────────────────────────────────────────────────
+
         # Async OCR pending updates: track_id → db_record_id
         # When async OCR completes we update the existing record with plate text.
         self._pending_ocr_updates: Dict[int, int] = {}
@@ -376,23 +384,15 @@ class DetectionManager:
                     f"bbox=[{x1:.0f},{y1:.0f},{x2:.0f},{y2:.0f}]"
                 )
             
-            # Step 2.5: Vehicle tracking and deduplication (if enabled)
+            # Step 2.5: Vehicle tracking (first pass — vehicle-level, no plate info yet)
             tracks_to_save = []
             if self.tracking_enabled and hasattr(self.detection_processor, 'update_vehicle_tracks'):
                 self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: Step 2.5 - updating vehicle tracks")
                 try:
-                    # Convert vehicle_boxes to detection format for tracking
                     vehicle_detections = [{'bbox': vb['bbox'], 'score': vb.get('score', 0.0)} for vb in vehicle_boxes]
-                    
-                    # Update tracks
                     tracks = self.detection_processor.update_vehicle_tracks(vehicle_detections, frame)
-                    
-                    # Apply deduplication rules
                     filtered_tracks = self.detection_processor.apply_deduplication_rules(tracks)
-                    
-                    # Check which tracks should be saved (not duplicates).
-                    # Do NOT mark yet — mark only after a successful DB insert so that
-                    # a frame with no visible plate doesn't block a later front-view save.
+
                     for track in filtered_tracks:
                         if self._should_save_detection(track):
                             tracks_to_save.append(track)
@@ -402,22 +402,64 @@ class DetectionManager:
                         f"eligible={len(tracks_to_save)} skip={len(tracks)-len(tracks_to_save)}"
                     )
 
-                    # If no tracks to save, skip processing
                     if not tracks_to_save:
                         self.logger.info(
                             f"[DEDUP_SKIP] All {len(tracks)} vehicle(s) are duplicates "
                             f"— no DB insert this frame"
                         )
                         return None
-                    
+
                 except Exception as e:
                     self.logger.warning(f"🔧 [DETECTION_MANAGER] Tracking error, falling back to non-tracking mode: {e}")
-                    tracks_to_save = None  # Fall back to non-tracking mode
-            
-            # Step 3: License plate detection — pass enhanced_frame (BGR) for correct internal color ops
+                    tracks_to_save = None
+
+            # Step 3: License plate detection — pass enhanced_frame (BGR)
             self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: Step 3 - calling detection_processor.detect_license_plates()")
             plate_boxes = self.detection_processor.detect_license_plates(enhanced_frame, vehicle_boxes, mapping_info)
             self.logger.debug(f"🔧 [DETECTION_MANAGER] process_frame: Step 3 completed - plates detected: {len(plate_boxes)}")
+
+            # ── FIX Step 3.5: Second tracking pass — wire plate_bbox into _update_track ──
+            # Now that we know which frames have a visible plate, update best_frame_data
+            # with plate_bbox context so OCR crops come from front-view frames only.
+            if self.tracking_enabled and tracks_to_save and plate_boxes and \
+               hasattr(self.detection_processor, '_update_track'):
+                try:
+                    # Build vehicle_idx → plate_bbox lookup
+                    # plate_boxes entries carry 'vehicle_idx' (index into vehicle_boxes)
+                    vidx_to_plate: Dict[int, List[float]] = {}
+                    for pb in plate_boxes:
+                        vidx = pb.get('vehicle_idx', -1)
+                        if vidx >= 0 and vidx not in vidx_to_plate:
+                            vidx_to_plate[vidx] = pb['bbox']
+
+                    # Match each eligible track to a plate via IoU (track.bbox ↔ vehicle_boxes)
+
+                    current_t = time.time()
+                    for track in tracks_to_save:
+                        best_plate_for_track: Optional[List[float]] = None
+                        best_iou = 0.0
+                        for vidx, plate_bbox in vidx_to_plate.items():
+                            if vidx < len(vehicle_boxes):
+                                v_bbox = vehicle_boxes[vidx]['bbox']
+                                iou = self.detection_processor._calculate_iou(track.bbox, v_bbox)
+                                if iou > best_iou:
+                                    best_iou = iou
+                                    best_plate_for_track = plate_bbox
+                        # Re-run _update_track with plate context
+                        detection_dict = {'bbox': track.bbox, 'score': track.confidence}
+                        self.detection_processor._update_track(
+                            track, detection_dict, frame, current_t,
+                            plate_bbox=best_plate_for_track
+                        )
+                        if best_plate_for_track:
+                            self.logger.debug(
+                                f"[TRACK_PLATE_WIRE] track={track.track_id} "
+                                f"plate_bbox={[round(v,0) for v in best_plate_for_track]} "
+                                f"iou_match={best_iou:.3f}"
+                            )
+                except Exception as e:
+                    self.logger.warning(f"[TRACK_PLATE_WIRE] Error wiring plate_bbox to track: {e}")
+            # ────────────────────────────────────────────────────────────────────
             
             if not plate_boxes:
                 self.logger.info(f"[PLATE_NONE] fid={detect_fid} — no plates in {len(vehicle_boxes)} vehicle(s)")
@@ -489,34 +531,34 @@ class DetectionManager:
                 )
                 return None
 
-            # Select the best frame to save — prefer a track that already has plate
-            # candidates so the saved image shows the plate, not the rear/side.
-            frame_to_save = frame
+            # ── FIX: Always save the CURRENT frame (same object used for detection).  ──
+            # best_frame_data is a copy from a previous iteration; using it causes
+            # FRAME_MISMATCH — bbox coordinates are from enhanced_frame (this frame)
+            # but the JPEG shows a different moment.  best_frame_data is still used
+            # for OCR crop quality via plate_crop_buffer / submit_for_ocr().
+            frame_to_save = frame   # guaranteed: save_fid == detect_fid
+
+            save_fid = id(frame_to_save) % 1_000_000
+            # save_fid should always equal detect_fid now; log if somehow not
+            if detect_fid != save_fid:
+                self.logger.error(
+                    f"[FRAME_MISMATCH_UNEXPECTED] detect_fid={detect_fid} save_fid={save_fid} — "
+                    f"unexpected mismatch after fix; investigate frame allocation."
+                )
+            else:
+                self.logger.info(
+                    f"[FRAME_SAME] fid={detect_fid} — detection and saved image are the same frame ✓"
+                )
             if self.tracking_enabled and tracks_to_save:
                 tracks_with_plates = [t for t in tracks_to_save if t.plate_candidates]
                 candidate_tracks   = tracks_with_plates if tracks_with_plates else tracks_to_save
                 best_track = max(candidate_tracks, key=lambda t: t.best_frame_score)
-                if best_track.best_frame_data is not None:
-                    frame_to_save = best_track.best_frame_data
-
-            save_fid = id(frame_to_save) % 1_000_000
-            if detect_fid != save_fid:
-                self.logger.warning(
-                    f"[FRAME_MISMATCH] detect_fid={detect_fid} save_fid={save_fid} — "
-                    f"detection bboxes are from a DIFFERENT frame than the saved image! "
-                    f"Plate bbox in DB will NOT align with saved JPEG."
-                )
-            else:
-                self.logger.info(
-                    f"[FRAME_SAME] fid={detect_fid} — detection and saved image are the same frame"
-                )
-            if self.tracking_enabled and tracks_to_save and 'best_track' in dir():
                 self.logger.info(
                     f"[FRAME_SELECT] track={best_track.track_id} "
                     f"score={best_track.best_frame_score:.3f} "
                     f"frame_count={best_track.frame_count} "
                     f"has_plate_candidates={bool(tracks_with_plates)} "
-                    f"save_fid={save_fid}"
+                    f"save_fid={save_fid} (current frame — aligned with bboxes)"
                 )
             
             # Step 6: Save only original image (optimized for disk space)
@@ -770,25 +812,31 @@ class DetectionManager:
     def _should_save_detection(self, track) -> bool:
         """
         Check if a track should be saved (not a duplicate).
-        
+
+        Two-layer dedup:
+          1. IoU + time gate on track_id  (original behaviour)
+          2. Plate-text gate — block same normalised text within plate_text_dedup_window
+             This handles track_id resets caused by fast IoU drops (same physical vehicle,
+             new track_id) and catches OCR-confirmed duplicates the IoU gate can miss.
+
         Args:
             track: VehicleTrack object
-            
+
         Returns:
             bool: True if should save, False if duplicate
         """
         if not self.tracking_enabled:
             return True
-        
+
         try:
             current_time = time.time()
-            
-            # Clean up old tracks periodically
+
+            # ── Periodic cleanup ─────────────────────────────────────────────────
             if current_time - self.last_track_cleanup > self.track_cleanup_interval:
                 self._cleanup_old_tracks(current_time)
                 self.last_track_cleanup = current_time
-            
-            # Check if this track was recently saved
+
+            # ── Layer 1: track_id + IoU + time ──────────────────────────────────
             track_id = track.track_id
             if track_id in self.recent_tracks:
                 track_info = self.recent_tracks[track_id]
@@ -825,8 +873,32 @@ class DetectionManager:
                     f"[DEDUP_NEW] track={track_id} first time seen — allowing save"
                 )
 
+            # ── Layer 2: Plate-text dedup ────────────────────────────────────────
+            # Derive best plate text from track OCR results (may be empty before async OCR)
+            plate_text = ''
+            if track.ocr_results:
+                plate_text = track.ocr_results[-1].get('text', '').strip()
+            norm_text = plate_text.upper().replace(' ', '') if plate_text else ''
+
+            if norm_text and len(norm_text) >= 3:  # ignore very short / empty results
+                last_seen = self.recent_plate_texts.get(norm_text)
+                if last_seen is not None:
+                    elapsed = current_time - last_seen
+                    if elapsed < self.plate_text_dedup_window:
+                        self.logger.info(
+                            f"[DEDUP_PLATE_TEXT] track={track_id} plate='{plate_text}' "
+                            f"seen {elapsed:.1f}s ago (window={self.plate_text_dedup_window}s) "
+                            f"— duplicate plate text, NOT saving to DB"
+                        )
+                        return False
+                    else:
+                        self.logger.info(
+                            f"[DEDUP_PLATE_TEXT_PASS] track={track_id} plate='{plate_text}' "
+                            f"last seen {elapsed:.1f}s ago — beyond window, allowing save"
+                        )
+
             return True
-            
+
         except Exception as e:
             self.logger.warning(f"Error checking if should save detection: {e}")
             return True  # Default to saving if check fails
@@ -834,17 +906,19 @@ class DetectionManager:
     def _mark_track_saved(self, track):
         """
         Mark a track as saved to prevent duplicate saves.
-        
+        Also registers the plate text in recent_plate_texts for cross-track dedup.
+
         Args:
             track: VehicleTrack object
         """
         try:
+            now = time.time()
             track_id = track.track_id
             plate_text = ''
             if track.ocr_results:
                 plate_text = track.ocr_results[-1].get('text', '') if track.ocr_results else ''
             self.recent_tracks[track_id] = {
-                'last_saved': time.time(),
+                'last_saved': now,
                 'bbox': track.bbox.copy() if isinstance(track.bbox, list) else track.bbox,
                 'plate_text': plate_text
             }
@@ -853,6 +927,15 @@ class DetectionManager:
                 f"frames={track.frame_count} score={track.best_frame_score:.3f} "
                 f"— marked as saved, dedup active for {self.reentry_time_threshold}s"
             )
+
+            # ── FIX: Register plate text for cross-track dedup ───────────────
+            norm_text = plate_text.upper().replace(' ', '') if plate_text else ''
+            if norm_text and len(norm_text) >= 3:
+                self.recent_plate_texts[norm_text] = now
+                self.logger.info(
+                    f"[PLATE_TEXT_REGISTERED] '{plate_text}' → dedup active "
+                    f"for {self.plate_text_dedup_window}s"
+                )
         except Exception as e:
             self.logger.warning(f"Error marking track as saved: {e}")
     

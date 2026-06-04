@@ -150,3 +150,49 @@ RuntimeMaxUse=50M
 | 2026-05-31 | `FrameDurationLimits` min==max (fixed FPS) | ต้องการ 30 fps คงที่สำหรับ LPR; ISP compensate low-light ด้วย gain แทน shutter time |
 | 2026-05-31 | Tesseract แทน EasyOCR/PaddleOCR | PaddleOCR segfault บน ARM64; EasyOCR ต้อง download โมเดลขนาดใหญ่ ไม่เหมาะ edge |
 | 2026-05-31 | logrotate ระดับ OS แทน Python handler | gunicorn เขียน log ตรงไปยังไฟล์ Python `TimedRotatingFileHandler` ใช้ไม่ได้กับ gunicorn |
+
+---
+
+## 8. Field Test Analysis — 2026-06-04 (16:12–16:15)
+
+### สรุปผล
+
+| กล้อง | Detection IDs | FRAME_MISMATCH rate | ปัญหาหลัก |
+|-------|-----------|-------------------|-----------| 
+| aicamera1 | 1725–1734 | 11/11 = **100%** | บันทึกผิดเฟรม, รถคันเดิมซ้ำ 3–4 รายการ |
+| aicamera2 | 1757–1765 | 9/9 = **100%** | ภาพข้างรถ (ไม่มีป้าย), ป้ายซ้ำทุก ~10 วิ |
+
+### Root Causes ที่พบ
+
+**Bug 1 (Critical): FRAME_MISMATCH 100%**
+- `detection_manager.py` L.494–500: `frame_to_save = best_track.best_frame_data` ใช้ frame เก่าจาก iteration ก่อน
+- `save_fid=579600` ถูกใช้ซ้ำ 4 ครั้งติดกัน (16:12:40–16:13:15) บน aicamera1
+- Detection bboxes คำนวณบน `enhanced_frame` (frame ปัจจุบัน) แต่ JPEG บันทึกจาก `best_frame_data` (frame เก่า) → ไม่ตรงกัน
+
+**Bug 2 (Critical): best_frame_data ไม่เชื่อมกับ plate visibility**
+- `_update_track()` อัปเดต `best_frame_data` ทุกครั้งที่ score ดีขึ้น โดยไม่รู้ว่ามีป้ายทะเบียนในเฟรมนั้นหรือไม่
+- เพราะ tracking update ทำก่อน plate detection → ได้ภาพด้านข้าง/ท้ายรถเป็น best frame
+
+**Bug 3 (High): Duplicate saves ทุก 9–17 วิ**
+- `reentry_time_threshold` + IoU dedup ไม่เพียงพอ เมื่อ IoU ตกต่ำ (รถเคลื่อน) → สร้าง track_id ใหม่ → ผ่าน dedup
+- ไม่มี plate-text based dedup
+
+### Fixes ที่ implement แล้ว (2026-06-05)
+
+| Fix | ไฟล์ | บรรทัด | ผล |
+|-----|------|--------|-----|
+| Fix 1: Always save current frame | `detection_manager.py` | L.539 | ยกเลิก FRAME_MISMATCH ทั้งหมด |
+| Fix 2: Plate-text dedup | `detection_manager.py` | L.101–107, L.818–900 | block ป้ายเดิมใน 60 วิ |
+| Fix 3: _update_track ต้องมี plate visible | `detection_processor.py` | L.2230–2300 | best_frame_data = front-view เท่านั้น |
+| Fix 4: Wire plate_bbox หลัง plate detection | `detection_manager.py` | L.421–462 | ส่ง plate context ไปให้ tracker |
+
+### Log Tokens ที่ต้องติดตามหลัง deploy
+
+```
+[FRAME_SAME]            — ต้องเห็น 100% (ไม่มี FRAME_MISMATCH อีก)
+[DEDUP_PLATE_TEXT]      — block ป้ายซ้ำ cross-track
+[PLATE_TEXT_REGISTERED] — ลงทะเบียนป้ายหลัง save
+[BEST_FRAME_SKIP]       — ไม่อัปเดต best_frame เมื่อไม่มีป้ายในเฟรม
+[BEST_FRAME_UPDATE] plate_visible=YES — อัปเดตเฉพาะเมื่อเห็นป้าย
+[TRACK_PLATE_WIRE]      — second pass เชื่อม plate bbox กับ track
+```
