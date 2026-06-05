@@ -675,6 +675,91 @@ def update_detection_config():
         }), 500
 
 
+
+@detection_bp.route('/roi', methods=['GET', 'POST'])
+def detection_roi():
+    """
+    GET  — return current ROI zone configuration.
+    POST — update ROI zone; persist to .env.production when persist=true.
+
+    POST body (JSON):
+        {
+            "enabled": true,
+            "x1": 0.15, "y1": 0.20,
+            "x2": 0.85, "y2": 0.80,
+            "persist": true          // optional, default false
+        }
+    """
+    try:
+        detection_manager = get_service('detection_manager')
+        processor = (
+            detection_manager.detection_processor
+            if detection_manager else None
+        )
+
+        if request.method == 'GET':
+            roi = (processor.get_roi_zone()
+                   if processor and hasattr(processor, 'get_roi_zone')
+                   else {'enabled': False, 'x1': 0.1, 'y1': 0.2,
+                         'x2': 0.9, 'y2': 0.8})
+            return jsonify({'success': True, 'roi': roi,
+                            'timestamp': datetime.now().isoformat()})
+
+        # POST — validate and apply
+        data = request.get_json(silent=True) or {}
+        try:
+            enabled = bool(data.get('enabled', False))
+            x1 = float(data['x1']); y1 = float(data['y1'])
+            x2 = float(data['x2']); y2 = float(data['y2'])
+        except (KeyError, TypeError, ValueError) as exc:
+            return jsonify({'success': False,
+                            'error': f'Invalid ROI parameters: {exc}'}), 400
+
+        if not (0 <= x1 < x2 <= 1 and 0 <= y1 < y2 <= 1):
+            return jsonify({'success': False,
+                            'error': 'Coordinates must satisfy 0 ≤ x1 < x2 ≤ 1 '
+                                     'and 0 ≤ y1 < y2 ≤ 1'}), 400
+
+        # Apply at runtime
+        applied = False
+        if processor and hasattr(processor, 'set_roi_zone'):
+            applied = processor.set_roi_zone(enabled, x1, y1, x2, y2)
+        else:
+            logger.warning('[ROI] Detection processor not available — '
+                           'ROI not applied at runtime')
+
+        # Persist to .env.production if requested
+        persisted = False
+        if data.get('persist', False):
+            env_path = '/home/camuser/aicamera/edge/installation/.env.production'
+            persisted = update_env_file(env_path, {
+                'ROI_ENABLED': 'true' if enabled else 'false',
+                'ROI_X1': f'{x1:.4f}',
+                'ROI_Y1': f'{y1:.4f}',
+                'ROI_X2': f'{x2:.4f}',
+                'ROI_Y2': f'{y2:.4f}',
+            })
+            if not persisted:
+                logger.warning('[ROI] Failed to persist ROI to .env.production')
+
+        roi_result = (processor.get_roi_zone()
+                      if applied and processor else
+                      {'enabled': enabled,
+                       'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2})
+
+        return jsonify({
+            'success': True,
+            'applied': applied,
+            'persisted': persisted,
+            'roi': roi_result,
+            'timestamp': datetime.now().isoformat(),
+        })
+
+    except Exception as exc:
+        logger.error(f'[ROI] Error in detection_roi: {exc}')
+        return jsonify({'success': False, 'error': str(exc)}), 500
+
+
 def update_env_file(file_path, updates):
     """
     Update .env.production file with new configuration values.

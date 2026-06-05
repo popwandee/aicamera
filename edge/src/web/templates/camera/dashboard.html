@@ -273,6 +273,52 @@
     color: #ffc107;
 }
 
+/* ── ROI Canvas Overlay ──────────────────────────────────────────────────── */
+#roi-canvas {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    cursor: crosshair;
+    z-index: 6;           /* above img(no z) and video-status-overlay(z:5) */
+    touch-action: none;   /* prevent scroll-hijack on mobile */
+}
+#roi-canvas.roi-idle {
+    cursor: default;
+    pointer-events: none; /* pass clicks through when not editing */
+}
+#roi-canvas.roi-draw  { cursor: crosshair; }
+#roi-canvas.roi-move  { cursor: grab; }
+#roi-canvas.roi-resize{ cursor: nwse-resize; }
+
+/* ROI status badge above the video */
+#roi-status-badge {
+    position: absolute;
+    top: 6px; right: 6px;
+    z-index: 7;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 700;
+    pointer-events: none;
+    transition: all .3s;
+}
+#roi-status-badge.enabled  { background: rgba(39,174,96,.85);  color:#fff; }
+#roi-status-badge.disabled { background: rgba(90,92,105,.75);  color:#eee; }
+#roi-status-badge.editing  { background: rgba(78,115,223,.9);  color:#fff; }
+
+/* Side-panel ROI card */
+.roi-coords-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px;
+    font-family: monospace;
+    font-size: 11px;
+}
+.roi-coord-item { background: var(--bs-light,#f8f9fc); border: 1px solid #dee2e6;
+                  border-radius: 4px; padding: 3px 6px; }
+.roi-coord-label { color: #6c757d; font-size: 10px; }
+.roi-coord-val   { font-weight: 700; color: #212529; }
+
 /* Legacy styles for backward compatibility */
 .metadata-grid {
     display: grid;
@@ -533,9 +579,14 @@
                      16:9 aspect-ratio box — stream is 640×360 (16:9) from /camera/video_feed.
                      img and overlay are position:absolute so they fill the sized container exactly.
                      #capture-status is placed OUTSIDE this div to avoid overflow:hidden clipping. -->
-                <div class="video-container-compact">
+                <div class="video-container-compact" id="video-container">
                     <img id="video-feed" src="/camera/video_feed"
                          class="video-feed-compact" alt="Camera Feed">
+                    <!-- ROI canvas — draws zone overlay; captures drag events in edit mode -->
+                    <canvas id="roi-canvas" class="roi-idle"
+                            aria-label="ROI zone editor — click Edit ROI to draw a zone"></canvas>
+                    <!-- ROI enabled/disabled badge -->
+                    <span id="roi-status-badge" class="disabled">ROI OFF</span>
                     <div id="video-status" class="video-status-overlay">
                         <div class="video-status-content">
                             <i class="fas fa-spinner fa-spin"></i>
@@ -673,6 +724,85 @@
                         <i class="fas fa-save me-1"></i> Update Config
                     </button>
                 </form>
+            </div>
+        </div>
+
+        <!-- ROI Trigger Zone -->
+        <div class="card compact-card mb-2" id="roi-control-card">
+            <div class="card-header compact-header">
+                <div class="d-flex align-items-center justify-content-between">
+                    <h6 class="card-title mb-0">
+                        <i class="fas fa-vector-square me-1"></i> ROI Trigger Zone
+                    </h6>
+                    <div class="form-check form-switch mb-0">
+                        <input class="form-check-input" type="checkbox"
+                               id="roi-enabled-toggle" title="Enable / disable ROI gate">
+                        <label class="form-check-label small" for="roi-enabled-toggle">Enable</label>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body compact-body">
+                <!-- instruction text -->
+                <p class="text-muted small mb-2" id="roi-instruction">
+                    คลิก <b>Edit ROI</b> แล้วลากบนภาพกล้องเพื่อกำหนด zone
+                </p>
+                <!-- coordinate display -->
+                <div class="roi-coords-grid mb-2" id="roi-coords-display">
+                    <div class="roi-coord-item">
+                        <div class="roi-coord-label">X1 (left)</div>
+                        <div class="roi-coord-val" id="rc-x1">—</div>
+                    </div>
+                    <div class="roi-coord-item">
+                        <div class="roi-coord-label">Y1 (top)</div>
+                        <div class="roi-coord-val" id="rc-y1">—</div>
+                    </div>
+                    <div class="roi-coord-item">
+                        <div class="roi-coord-label">X2 (right)</div>
+                        <div class="roi-coord-val" id="rc-x2">—</div>
+                    </div>
+                    <div class="roi-coord-item">
+                        <div class="roi-coord-label">Y2 (bottom)</div>
+                        <div class="roi-coord-val" id="rc-y2">—</div>
+                    </div>
+                </div>
+                <!-- Coverage indicator -->
+                <div class="mb-2">
+                    <div class="d-flex justify-content-between">
+                        <span class="small text-muted">Coverage</span>
+                        <span class="small" id="roi-coverage">—</span>
+                    </div>
+                    <div class="progress" style="height:5px">
+                        <div class="progress-bar bg-success" id="roi-coverage-bar"
+                             role="progressbar" style="width:0%"></div>
+                    </div>
+                </div>
+                <!-- Action buttons -->
+                <div class="d-flex gap-1 flex-wrap">
+                    <button id="roi-edit-btn" class="btn btn-sm btn-outline-primary flex-fill"
+                            title="Enter draw mode — drag on the video to set ROI">
+                        <i class="fas fa-draw-polygon me-1"></i>Edit ROI
+                    </button>
+                    <button id="roi-apply-btn" class="btn btn-sm btn-primary flex-fill" disabled
+                            title="Apply pending ROI to detection pipeline">
+                        <i class="fas fa-check me-1"></i>Apply
+                    </button>
+                    <button id="roi-reset-btn" class="btn btn-sm btn-outline-secondary"
+                            title="Reset to full-frame (no restriction)">
+                        <i class="fas fa-undo"></i>
+                    </button>
+                </div>
+                <!-- Persist checkbox -->
+                <div class="form-check mt-2">
+                    <input class="form-check-input" type="checkbox"
+                           id="roi-persist-check" checked>
+                    <label class="form-check-label small" for="roi-persist-check">
+                        บันทึกลง .env (ถาวร)
+                    </label>
+                </div>
+                <!-- Status message -->
+                <div id="roi-msg" class="mt-2" style="display:none">
+                    <div class="alert alert-sm mb-0 py-1 px-2 small" id="roi-msg-inner"></div>
+                </div>
             </div>
         </div>
 
@@ -1016,4 +1146,349 @@ document.addEventListener('DOMContentLoaded', function() {
     }, 5000);
 });
 </script>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════════════════
+   ROI Manager — interactive zone editor on top of the live camera stream.
+
+   Architecture:
+     • Reads current ROI from GET /detection/roi on page load.
+     • Renders a semi-transparent overlay: dim outside ROI, bright border + handles.
+     • "Edit ROI" enters draw mode: mousedown→drag→mouseup draws a new rectangle.
+     • Touch events mirror mouse events for tablet/mobile use.
+     • "Apply" POSTs normalised coords to /detection/roi.
+     • "Reset" sets x1=0, y1=0, x2=1, y2=1 (full frame = ROI effectively disabled).
+   ═══════════════════════════════════════════════════════════════════════════ */
+(function () {
+    'use strict';
+
+    /* ── state ─────────────────────────────────────────────────────────────── */
+    const STATE = {
+        // currently applied ROI (from server)
+        applied:  { enabled: false, x1: 0.1, y1: 0.2, x2: 0.9, y2: 0.8 },
+        // pending (drawn but not yet applied)
+        pending:  null,
+        editing:  false,
+        dragging: false,
+        dragStart: null,
+        loaded:   false,
+    };
+
+    /* ── DOM references ─────────────────────────────────────────────────────── */
+    const canvas     = document.getElementById('roi-canvas');
+    const ctx        = canvas ? canvas.getContext('2d') : null;
+    const badge      = document.getElementById('roi-status-badge');
+    const toggle     = document.getElementById('roi-enabled-toggle');
+    const editBtn    = document.getElementById('roi-edit-btn');
+    const applyBtn   = document.getElementById('roi-apply-btn');
+    const resetBtn   = document.getElementById('roi-reset-btn');
+    const persistChk = document.getElementById('roi-persist-check');
+    const msgBox     = document.getElementById('roi-msg');
+    const msgInner   = document.getElementById('roi-msg-inner');
+    const instrEl    = document.getElementById('roi-instruction');
+
+    if (!canvas || !ctx) return; // page doesn't have ROI elements
+
+    /* ── helpers ─────────────────────────────────────────────────────────────── */
+    function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+    function toNorm(clientX, clientY) {
+        const r = canvas.getBoundingClientRect();
+        return {
+            x: clamp((clientX - r.left)  / r.width,  0, 1),
+            y: clamp((clientY - r.top)   / r.height, 0, 1),
+        };
+    }
+
+    function roiFromDrag(a, b) {
+        return {
+            x1: Math.min(a.x, b.x), y1: Math.min(a.y, b.y),
+            x2: Math.max(a.x, b.x), y2: Math.max(a.y, b.y),
+        };
+    }
+
+    function updateCoordDisplay(roi) {
+        const fmt = v => v != null ? v.toFixed(3) : '—';
+        document.getElementById('rc-x1').textContent = fmt(roi ? roi.x1 : null);
+        document.getElementById('rc-y1').textContent = fmt(roi ? roi.y1 : null);
+        document.getElementById('rc-x2').textContent = fmt(roi ? roi.x2 : null);
+        document.getElementById('rc-y2').textContent = fmt(roi ? roi.y2 : null);
+        const cov = roi ? Math.round((roi.x2 - roi.x1) * (roi.y2 - roi.y1) * 100) : 0;
+        document.getElementById('roi-coverage').textContent = roi ? cov + '%' : '—';
+        document.getElementById('roi-coverage-bar').style.width = cov + '%';
+    }
+
+    function updateBadge(roi) {
+        if (!badge) return;
+        if (STATE.editing) {
+            badge.textContent = 'กำลัง Draw…';
+            badge.className = 'editing';
+        } else if (roi && roi.enabled) {
+            badge.textContent = 'ROI ON';
+            badge.className = 'enabled';
+        } else {
+            badge.textContent = 'ROI OFF';
+            badge.className = 'disabled';
+        }
+    }
+
+    function showMsg(text, type) {
+        if (!msgBox || !msgInner) return;
+        msgInner.className = 'alert alert-sm mb-0 py-1 px-2 small alert-' + (type || 'info');
+        msgInner.textContent = text;
+        msgBox.style.display = 'block';
+        clearTimeout(msgBox._timeout);
+        msgBox._timeout = setTimeout(() => { msgBox.style.display = 'none'; }, 4000);
+    }
+
+    /* ── canvas resize ─────────────────────────────────────────────────────── */
+    function resizeCanvas() {
+        const r = canvas.getBoundingClientRect();
+        if (r.width  === 0) return;
+        canvas.width  = r.width;
+        canvas.height = r.height;
+        drawROI();
+    }
+
+    const resizeObserver = new ResizeObserver(resizeCanvas);
+    const container = document.getElementById('video-container');
+    if (container) resizeObserver.observe(container);
+
+    /* ── drawing ────────────────────────────────────────────────────────────── */
+    function drawROI() {
+        if (!ctx) return;
+        const W = canvas.width, H = canvas.height;
+        if (W === 0 || H === 0) return;
+        ctx.clearRect(0, 0, W, H);
+
+        const roi = STATE.pending || STATE.applied;
+        if (!roi) return;
+
+        const px1 = roi.x1 * W, py1 = roi.y1 * H;
+        const px2 = roi.x2 * W, py2 = roi.y2 * H;
+        const pw  = px2 - px1,  ph  = py2 - py1;
+
+        const isActive = roi.enabled || STATE.editing || STATE.pending;
+
+        // Dim zone outside ROI
+        if (isActive) {
+            ctx.fillStyle = 'rgba(0,0,0,0.45)';
+            ctx.fillRect(0,   0,   W,   py1);               // top
+            ctx.fillRect(0,   py2, W,   H - py2);           // bottom
+            ctx.fillRect(0,   py1, px1, ph);                 // left
+            ctx.fillRect(px2, py1, W - px2, ph);             // right
+        }
+
+        // ROI rectangle border
+        const borderColor = STATE.editing
+            ? 'rgba(78,115,223,0.95)'
+            : roi.enabled ? 'rgba(39,174,96,0.95)' : 'rgba(150,150,150,0.6)';
+        ctx.strokeStyle = borderColor;
+        ctx.lineWidth   = STATE.editing ? 2.5 : 2;
+        ctx.setLineDash(STATE.editing ? [6, 3] : []);
+        ctx.strokeRect(px1, py1, pw, ph);
+        ctx.setLineDash([]);
+
+        // Label
+        ctx.font      = 'bold 11px system-ui, sans-serif';
+        ctx.fillStyle = borderColor;
+        const label   = STATE.editing
+            ? `${(roi.x2 - roi.x1).toFixed(2)} × ${(roi.y2 - roi.y1).toFixed(2)}`
+            : roi.enabled ? 'ROI' : '';
+        if (label) ctx.fillText(label, px1 + 4, py1 + 14);
+
+        // Corner handles (only show when editing or ROI active)
+        if (isActive) {
+            const hs = 7;
+            ctx.fillStyle = borderColor;
+            [[px1, py1], [px2, py1], [px1, py2], [px2, py2]].forEach(([hx, hy]) => {
+                ctx.fillRect(hx - hs/2, hy - hs/2, hs, hs);
+            });
+        }
+    }
+
+    /* ── API calls ──────────────────────────────────────────────────────────── */
+    async function fetchROI() {
+        try {
+            const res  = await fetch('/detection/roi');
+            const data = await res.json();
+            if (data.success && data.roi) {
+                STATE.applied = data.roi;
+                STATE.loaded  = true;
+                if (toggle) toggle.checked = !!data.roi.enabled;
+                updateCoordDisplay(data.roi);
+                updateBadge(data.roi);
+                drawROI();
+            }
+        } catch (e) {
+            console.warn('[ROI] Failed to fetch ROI:', e);
+        }
+    }
+
+    async function applyROI() {
+        const roi     = STATE.pending || STATE.applied;
+        const enabled = toggle ? toggle.checked : roi.enabled;
+        const persist = persistChk ? persistChk.checked : false;
+
+        // Validate minimum size (at least 5% in each dimension)
+        if ((roi.x2 - roi.x1) < 0.05 || (roi.y2 - roi.y1) < 0.05) {
+            showMsg('Zone เล็กเกินไป — ลากให้กว้างกว่านี้', 'warning');
+            return;
+        }
+
+        try {
+            applyBtn.disabled = true;
+            applyBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Applying…';
+
+            const res  = await fetch('/detection/roi', {
+                method:  'POST',
+                headers: {'Content-Type': 'application/json'},
+                body:    JSON.stringify({
+                    enabled, persist,
+                    x1: roi.x1, y1: roi.y1,
+                    x2: roi.x2, y2: roi.y2,
+                }),
+            });
+            const data = await res.json();
+
+            if (data.success) {
+                STATE.applied = data.roi;
+                STATE.pending = null;
+                updateCoordDisplay(data.roi);
+                updateBadge(data.roi);
+                drawROI();
+                const persisted = data.persisted ? ' (บันทึกแล้ว)' : '';
+                showMsg('✅ ROI ตั้งค่าแล้ว' + persisted, 'success');
+                applyBtn.disabled = true;
+            } else {
+                showMsg('❌ ' + (data.error || 'Apply ล้มเหลว'), 'danger');
+                applyBtn.disabled = false;
+            }
+        } catch (e) {
+            showMsg('❌ Network error: ' + e.message, 'danger');
+            applyBtn.disabled = false;
+        } finally {
+            applyBtn.innerHTML = '<i class="fas fa-check me-1"></i>Apply';
+        }
+    }
+
+    /* ── edit mode ──────────────────────────────────────────────────────────── */
+    function enterEditMode() {
+        STATE.editing = true;
+        STATE.pending = null;
+        canvas.classList.remove('roi-idle');
+        canvas.classList.add('roi-draw');
+        if (editBtn) {
+            editBtn.innerHTML = '<i class="fas fa-times me-1"></i>Cancel';
+            editBtn.classList.replace('btn-outline-primary', 'btn-outline-danger');
+        }
+        if (instrEl) instrEl.innerHTML = '<b>ลากบนภาพ</b> เพื่อวาด ROI · ปล่อยมือเพื่อยืนยัน';
+        updateBadge(STATE.applied);
+        drawROI();
+    }
+
+    function exitEditMode(cancelled) {
+        STATE.editing  = false;
+        STATE.dragging = false;
+        canvas.classList.remove('roi-draw', 'roi-move');
+        canvas.classList.add('roi-idle');
+        if (editBtn) {
+            editBtn.innerHTML = '<i class="fas fa-draw-polygon me-1"></i>Edit ROI';
+            editBtn.classList.replace('btn-outline-danger', 'btn-outline-primary');
+        }
+        if (instrEl) instrEl.innerHTML = 'คลิก <b>Edit ROI</b> แล้วลากบนภาพกล้องเพื่อกำหนด zone';
+        if (cancelled) { STATE.pending = null; drawROI(); }
+        updateBadge(STATE.applied);
+    }
+
+    /* ── pointer events ─────────────────────────────────────────────────────── */
+    function getPoint(e) {
+        if (e.touches && e.touches.length > 0) {
+            return toNorm(e.touches[0].clientX, e.touches[0].clientY);
+        }
+        return toNorm(e.clientX, e.clientY);
+    }
+
+    canvas.addEventListener('mousedown', onPointerDown);
+    canvas.addEventListener('mousemove', onPointerMove);
+    canvas.addEventListener('mouseup',   onPointerUp);
+    canvas.addEventListener('touchstart', e => { e.preventDefault(); onPointerDown(e); }, { passive: false });
+    canvas.addEventListener('touchmove',  e => { e.preventDefault(); onPointerMove(e); }, { passive: false });
+    canvas.addEventListener('touchend',   e => { e.preventDefault(); onPointerUp(e);   }, { passive: false });
+
+    function onPointerDown(e) {
+        if (!STATE.editing) return;
+        STATE.dragging  = true;
+        STATE.dragStart = getPoint(e);
+        canvas.classList.add('roi-move');
+    }
+
+    function onPointerMove(e) {
+        if (!STATE.editing || !STATE.dragging) return;
+        const cur = getPoint(e);
+        STATE.pending = roiFromDrag(STATE.dragStart, cur);
+        updateCoordDisplay(STATE.pending);
+        drawROI();
+    }
+
+    function onPointerUp(e) {
+        if (!STATE.editing || !STATE.dragging) return;
+        STATE.dragging = false;
+        canvas.classList.remove('roi-move');
+        const cur = getPoint(e);
+        STATE.pending = roiFromDrag(STATE.dragStart, cur);
+
+        if ((STATE.pending.x2 - STATE.pending.x1) < 0.02 ||
+            (STATE.pending.y2 - STATE.pending.y1) < 0.02) {
+            STATE.pending = null;
+            showMsg('Zone เล็กเกินไป — ลองใหม่', 'warning');
+            drawROI();
+            return;
+        }
+
+        updateCoordDisplay(STATE.pending);
+        if (applyBtn) applyBtn.disabled = false;
+        exitEditMode(false);
+        drawROI();
+    }
+
+    /* ── button wiring ──────────────────────────────────────────────────────── */
+    if (editBtn)  editBtn.addEventListener('click', () => {
+        STATE.editing ? exitEditMode(true) : enterEditMode();
+    });
+    if (applyBtn) applyBtn.addEventListener('click', applyROI);
+    if (resetBtn) resetBtn.addEventListener('click', () => {
+        STATE.pending = { x1: 0, y1: 0, x2: 1, y2: 1 };
+        if (toggle) toggle.checked = false;
+        updateCoordDisplay(STATE.pending);
+        if (applyBtn) applyBtn.disabled = false;
+        drawROI();
+        showMsg('Reset แล้ว — กด Apply เพื่อบันทึก', 'info');
+    });
+    if (toggle) toggle.addEventListener('change', () => {
+        STATE.applied.enabled = toggle.checked;
+        if (!STATE.pending && !applyBtn.disabled) {
+            // immediate visual feedback; user must still press Apply
+        }
+        updateBadge(STATE.applied);
+        drawROI();
+        // If there's no pending change, auto-apply the enable toggle
+        if (!STATE.pending) {
+            if (applyBtn) applyBtn.disabled = false;
+        }
+    });
+
+    /* ── init ───────────────────────────────────────────────────────────────── */
+    // Wait until the video image is sized before drawing
+    const img = document.getElementById('video-feed');
+    if (img) {
+        img.addEventListener('load', () => { resizeCanvas(); });
+    }
+    // Fetch after a short delay to let the page settle
+    setTimeout(() => { fetchROI(); resizeCanvas(); }, 800);
+    window.addEventListener('resize', resizeCanvas);
+
+}());
+</script>
+
 {% endblock %}

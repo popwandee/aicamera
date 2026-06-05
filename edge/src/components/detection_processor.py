@@ -46,7 +46,8 @@ from edge.src.core.config import (
     VEHICLE_DETECTION_MODEL, LICENSE_PLATE_DETECTION_MODEL, LICENSE_PLATE_OCR_MODEL,
     HEF_MODEL_PATH, MODEL_ZOO_URL, EASYOCR_LANGUAGES,
     IMAGE_SAVE_DIR, DATABASE_PATH, CONFIDENCE_THRESHOLD, PLATE_CONFIDENCE_THRESHOLD,
-    TRACKING_ENABLED, REENTRY_TIME_THRESHOLD, IOU_THRESHOLD
+    TRACKING_ENABLED, REENTRY_TIME_THRESHOLD, IOU_THRESHOLD,
+    ROI_ENABLED, ROI_X1, ROI_Y1, ROI_X2, ROI_Y2
 )
 from edge.src.components.async_ocr_loader import AsyncOCRLoader
 from edge.src.components.parallel_ocr_processor import ParallelOCRProcessor
@@ -221,11 +222,11 @@ class DetectionProcessor:
         self._ocr_min_plate_frames: int = 3    # wait for N frames before OCR
         self._ocr_min_frame_score: float = 0.3 # minimum best_frame_score
 
-        # ROI trigger zone (normalized 0-1, disabled by default)
+        # ROI trigger zone — loaded from config / .env (normalised 0-1)
         self._roi_zone = {
-            'enabled': False,
-            'x1': 0.1, 'y1': 0.2,
-            'x2': 0.9, 'y2': 0.8,
+            'enabled': ROI_ENABLED,
+            'x1': ROI_X1, 'y1': ROI_Y1,
+            'x2': ROI_X2, 'y2': ROI_Y2,
         }
         # ──────────────────────────────────────────────────────────────────
 
@@ -1511,6 +1512,34 @@ class DetectionProcessor:
             return plate_region
     
     # ── Async OCR Queue Methods ────────────────────────────────────────────────
+
+    # ── ROI public API ────────────────────────────────────────────────────────
+
+    def get_roi_zone(self) -> dict:
+        """Return current ROI zone dict (safe copy)."""
+        return dict(self._roi_zone)
+
+    def set_roi_zone(self, enabled: bool,
+                     x1: float, y1: float,
+                     x2: float, y2: float) -> bool:
+        """
+        Update the ROI trigger zone at runtime (no restart required).
+
+        Parameters are normalised image coordinates (0.0 – 1.0).
+        x1 < x2 and y1 < y2 must both hold; values are clamped to [0, 1].
+        Returns True on success, False on bad input.
+        """
+        x1, y1, x2, y2 = (max(0.0, min(1.0, v)) for v in (x1, y1, x2, y2))
+        if x1 >= x2 or y1 >= y2:
+            self.logger.warning(
+                f"[ROI] Invalid zone (x1={x1}, y1={y1}, x2={x2}, y2={y2}) — rejected")
+            return False
+        self._roi_zone = {'enabled': bool(enabled),
+                          'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2}
+        self.logger.info(
+            f"[ROI] Zone updated: enabled={enabled} "
+            f"({x1:.3f},{y1:.3f})→({x2:.3f},{y2:.3f})")
+        return True
 
     def _plate_in_roi(self, plate_bbox: List[float], frame_shape: tuple) -> bool:
         """Return True if plate center falls inside the configured ROI zone."""

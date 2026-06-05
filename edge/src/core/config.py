@@ -127,6 +127,15 @@ TRACKING_ENABLED = os.getenv("TRACKING_ENABLED", "true").lower() == "true"  # En
 REENTRY_TIME_THRESHOLD = float(os.getenv("REENTRY_TIME_THRESHOLD", "30.0"))  # Time in seconds before same car can be recorded again
 IOU_THRESHOLD = float(os.getenv("IOU_THRESHOLD", "0.2"))  # IoU threshold for identifying same vehicle (0.0 to 1.0)
 
+# ROI Trigger Zone — normalised 0-1 coordinates of the active detection area.
+# Plates outside this zone are ignored for OCR submission and save decisions.
+# Set ROI_ENABLED=true to activate; adjust x1/y1/x2/y2 via the Camera Dashboard.
+ROI_ENABLED = os.getenv("ROI_ENABLED", "false").lower() == "true"
+ROI_X1 = float(os.getenv("ROI_X1", "0.1"))
+ROI_Y1 = float(os.getenv("ROI_Y1", "0.2"))
+ROI_X2 = float(os.getenv("ROI_X2", "0.9"))
+ROI_Y2 = float(os.getenv("ROI_Y2", "0.8"))
+
 # Threading intervals (in seconds) - Can be overridden via environment variables
 SENDER_INTERVAL = float(os.getenv("SENDER_INTERVAL", "60.0"))    # How often the sender thread checks for new detections (1 minute)
 HEALTH_SENDER_INTERVAL = float(os.getenv("HEALTH_SENDER_INTERVAL", "300.0"))  # How often health status is sent to server (5 minutes)
