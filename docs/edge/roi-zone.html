@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ROI Zone — Edge Camera Reference & User Manual</title>
+<style>
+  :root {
+    --blue:   #2563eb;
+    --green:  #16a34a;
+    --amber:  #d97706;
+    --red:    #dc2626;
+    --gray:   #6b7280;
+    --bg:     #f9fafb;
+    --card:   #ffffff;
+    --border: #e5e7eb;
+    --text:   #111827;
+    --muted:  #6b7280;
+    --code-bg:#f3f4f6;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+         background: var(--bg); color: var(--text); line-height: 1.6; }
+
+  /* ── Layout ── */
+  .page { max-width: 960px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
+  nav.toc { background: var(--card); border: 1px solid var(--border);
+            border-radius: 8px; padding: 1.25rem 1.5rem; margin-bottom: 2rem; }
+  nav.toc h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em;
+               color: var(--muted); margin-bottom: .75rem; }
+  nav.toc ol { padding-left: 1.25rem; }
+  nav.toc li { margin: .25rem 0; }
+  nav.toc a { color: var(--blue); text-decoration: none; font-size: .9rem; }
+  nav.toc a:hover { text-decoration: underline; }
+
+  /* ── Headers ── */
+  h1 { font-size: 2rem; margin-bottom: .25rem; }
+  .subtitle { color: var(--muted); margin-bottom: 2rem; font-size: 1rem; }
+  h2 { font-size: 1.4rem; margin: 2.5rem 0 1rem; padding-bottom: .4rem;
+       border-bottom: 2px solid var(--border); }
+  h3 { font-size: 1.1rem; margin: 1.5rem 0 .6rem; color: var(--blue); }
+  h4 { font-size: .95rem; margin: 1rem 0 .4rem; }
+  p  { margin-bottom: .8rem; }
+
+  /* ── Cards ── */
+  .card { background: var(--card); border: 1px solid var(--border);
+          border-radius: 8px; padding: 1.25rem 1.5rem; margin-bottom: 1.25rem; }
+  .card-title { font-weight: 700; margin-bottom: .5rem; }
+
+  /* ── Badges ── */
+  .badge { display: inline-block; padding: .15rem .5rem; border-radius: 4px;
+           font-size: .75rem; font-weight: 600; }
+  .badge-blue   { background: #dbeafe; color: var(--blue); }
+  .badge-green  { background: #dcfce7; color: var(--green); }
+  .badge-amber  { background: #fef3c7; color: var(--amber); }
+  .badge-red    { background: #fee2e2; color: var(--red); }
+  .badge-gray   { background: #f3f4f6; color: var(--gray); }
+
+  /* ── Alert boxes ── */
+  .alert { padding: .85rem 1.1rem; border-radius: 6px; margin-bottom: 1rem;
+           border-left: 4px solid; font-size: .9rem; }
+  .alert-info  { background: #eff6ff; border-color: var(--blue); }
+  .alert-warn  { background: #fffbeb; border-color: var(--amber); }
+  .alert-tip   { background: #f0fdf4; border-color: var(--green); }
+  .alert strong { display: block; margin-bottom: .25rem; }
+
+  /* ── Code ── */
+  pre  { background: #1e293b; color: #e2e8f0; padding: 1.1rem 1.25rem;
+         border-radius: 8px; overflow-x: auto; margin: .75rem 0 1rem;
+         font-size: .85rem; line-height: 1.55; }
+  code { font-family: "SF Mono", "Fira Code", monospace; }
+  :not(pre) > code { background: var(--code-bg); padding: .1em .35em;
+                     border-radius: 3px; font-size: .87em; color: #be123c; }
+
+  /* ── Tables ── */
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: .9rem; }
+  th { background: #f1f5f9; text-align: left; padding: .6rem .85rem;
+       border: 1px solid var(--border); font-weight: 600; }
+  td { padding: .55rem .85rem; border: 1px solid var(--border); vertical-align: top; }
+  tr:nth-child(even) td { background: #fafafa; }
+  td code { font-size: .82rem; }
+
+  /* ── Steps ── */
+  .steps { counter-reset: step; list-style: none; padding: 0; }
+  .steps li { counter-increment: step; display: flex; gap: 1rem;
+              align-items: flex-start; margin-bottom: 1rem; }
+  .steps li::before { content: counter(step); min-width: 1.75rem; height: 1.75rem;
+    background: var(--blue); color: #fff; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: .8rem; font-weight: 700; flex-shrink: 0; margin-top: .1rem; }
+
+  /* ── Diagram ── */
+  .diagram { background: #1e293b; color: #94a3b8; font-family: monospace;
+             font-size: .82rem; line-height: 1.7; padding: 1.25rem 1.5rem;
+             border-radius: 8px; overflow-x: auto; margin: 1rem 0; }
+  .diagram .hi  { color: #7dd3fc; }  /* highlight */
+  .diagram .ok  { color: #86efac; }  /* green */
+  .diagram .skip{ color: #fca5a5; }  /* red */
+
+  /* ── ROI preview ── */
+  .roi-visual { position: relative; width: 100%; max-width: 480px;
+                aspect-ratio: 16/9; background: #0f172a; border-radius: 8px;
+                margin: 1rem auto; overflow: hidden; }
+  .roi-visual .cam-label { position: absolute; top: .5rem; left: .75rem;
+    color: #94a3b8; font-size: .75rem; font-family: monospace; }
+  .roi-visual svg { width: 100%; height: 100%; }
+
+  /* ── Columns ── */
+  .cols { display: grid; gap: 1rem; }
+  .cols-2 { grid-template-columns: 1fr 1fr; }
+  @media (max-width: 600px) { .cols-2 { grid-template-columns: 1fr; } }
+
+  /* ── Footer ── */
+  footer { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--border);
+           color: var(--muted); font-size: .82rem; text-align: center; }
+</style>
+</head>
+<body>
+<div class="page">
+
+<!-- ── Title ── -->
+<h1>ROI Zone</h1>
+<p class="subtitle">
+  Edge Camera Reference &amp; User Manual &nbsp;·&nbsp;
+  <span class="badge badge-blue">v1.0</span>&nbsp;
+  <span class="badge badge-gray">2026-06-09</span>&nbsp;
+  PWD Vision Works
+</p>
+
+<!-- ── TOC ── -->
+<nav class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#overview">Overview</a></li>
+    <li><a href="#how-it-works">How It Works</a></li>
+    <li><a href="#ui-guide">UI Guide — Dashboard Canvas Editor</a></li>
+    <li><a href="#api">REST API Reference</a></li>
+    <li><a href="#config">Configuration &amp; Persistence</a></li>
+    <li><a href="#testing">Testing ROI in the Pipeline</a></li>
+    <li><a href="#log-tokens">Log Tokens &amp; Observability</a></li>
+    <li><a href="#troubleshooting">Troubleshooting</a></li>
+    <li><a href="#architecture">Architecture Notes</a></li>
+  </ol>
+</nav>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<h2 id="overview">1 · Overview</h2>
+
+<p>
+  The <strong>Region of Interest (ROI) zone</strong> is a rectangular area,
+  defined in normalised image coordinates (0.0 – 1.0), that gates which
+  detected license plates are submitted for OCR and saved to the database.
+</p>
+<p>
+  When ROI is <strong>enabled</strong>, only plates whose bounding-box
+  <em>centre</em> falls inside the rectangle pass through to OCR.
+  Plates outside the zone are silently skipped — vehicles are still
+  tracked, but no OCR job is queued and no database record is created.
+</p>
+<p>
+  When ROI is <strong>disabled</strong> (default), every detected plate
+  is treated as inside the zone and proceeds normally.
+</p>
+
+<div class="roi-visual">
+  <div class="cam-label">camera frame (normalised)</div>
+  <svg viewBox="0 0 160 90" xmlns="http://www.w3.org/2000/svg">
+    <!-- frame -->
+    <rect width="160" height="90" fill="#0f172a"/>
+    <!-- ROI zone -->
+    <rect x="24" y="18" width="112" height="54"
+          fill="rgba(37,99,235,.15)" stroke="#2563eb" stroke-width="1.5"
+          stroke-dasharray="4 2" rx="1"/>
+    <!-- corner handles -->
+    <rect x="21" y="15" width="6" height="6" fill="#2563eb" rx="1"/>
+    <rect x="133" y="15" width="6" height="6" fill="#2563eb" rx="1"/>
+    <rect x="21" y="69" width="6" height="6" fill="#2563eb" rx="1"/>
+    <rect x="133" y="69" width="6" height="6" fill="#2563eb" rx="1"/>
+    <!-- labels -->
+    <text x="26" y="27" fill="#60a5fa" font-size="6" font-family="monospace">(x1,y1)</text>
+    <text x="96" y="76" fill="#60a5fa" font-size="6" font-family="monospace">(x2,y2)</text>
+    <!-- plate IN zone -->
+    <rect x="60" y="42" width="40" height="14" fill="none"
+          stroke="#86efac" stroke-width="1.5" rx="1"/>
+    <text x="68" y="51" fill="#86efac" font-size="5.5" font-family="monospace">กข 1234</text>
+    <circle cx="80" cy="49" r="2" fill="#86efac"/>
+    <text x="64" y="62" fill="#86efac" font-size="4.5">✓ in ROI → OCR</text>
+    <!-- plate OUT of zone -->
+    <rect x="5" y="30" width="15" height="6" fill="none"
+          stroke="#fca5a5" stroke-width="1.2" rx="1"/>
+    <circle cx="12.5" cy="33" r="1.5" fill="#fca5a5"/>
+    <text x="2" y="42" fill="#fca5a5" font-size="4.5">✗ outside → skip</text>
+  </svg>
+</div>
+
+<div class="cols cols-2">
+  <div class="card">
+    <div class="card-title">✅ ROI Enabled</div>
+    Only plates whose centre is inside the blue rectangle are OCR'd and saved.
+    Use this to focus on a specific lane or gate.
+  </div>
+  <div class="card">
+    <div class="card-title">⬜ ROI Disabled (default)</div>
+    All detected plates proceed to OCR regardless of position.
+    Equivalent to a full-frame ROI (0,0) → (1,1).
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<h2 id="how-it-works">2 · How It Works</h2>
+
+<h3>Pipeline position</h3>
+<p>
+  ROI filtering happens <strong>inside the OCR gate</strong>
+  (<code>_should_submit_for_ocr()</code>), after vehicle tracking and
+  plate quality checks, but <em>before</em> the plate crop is placed on
+  the async OCR queue.
+</p>
+
+<div class="diagram">
+<span class="hi">[Camera Frame @30 fps]</span>
+      ↓
+[Hailo: Vehicle Detection]   confidence ≥ 0.8
+      ↓
+[Hailo: Plate Detection]
+      ↓
+[Vehicle Tracking / IoU]     assign track_id
+      ↓
+[Quality Gate]               blur / size / aspect checks
+      ↓
+<span class="hi">[ROI Gate]  ←─────────────────────────── HERE</span>
+  <span class="ok">plate centre inside zone?  YES → [OCR Queue] → Tesseract / Hailo OCR → DB</span>
+  <span class="skip">plate centre outside zone? NO  → SKIP (log [OCR_GATE] SKIP)</span>
+</div>
+
+<h3>Coordinate system</h3>
+<p>
+  All ROI coordinates are <strong>normalised to [0.0, 1.0]</strong> relative
+  to the frame dimensions, so the zone scales correctly regardless of
+  resolution.
+</p>
+<table>
+  <tr><th>Point</th><th>Meaning</th><th>Example</th></tr>
+  <tr><td><code>x1, y1</code></td><td>Top-left corner</td><td><code>0.15, 0.25</code></td></tr>
+  <tr><td><code>x2, y2</code></td><td>Bottom-right corner</td><td><code>0.85, 0.75</code></td></tr>
+  <tr><td>(0, 0)</td><td>Top-left of frame</td><td>—</td></tr>
+  <tr><td>(1, 1)</td><td>Bottom-right of frame</td><td>—</td></tr>
+</table>
+<p>Constraints enforced by the API: <code>0 ≤ x1 &lt; x2 ≤ 1</code> and <code>0 ≤ y1 &lt; y2 ≤ 1</code>.</p>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<h2 id="ui-guide">3 · UI Guide — Dashboard Canvas Editor</h2>
+
+<p>
+  Open the camera dashboard at
+  <code>http://&lt;camera&gt;/camera/dashboard</code>.
+  The ROI canvas overlays the live video feed on the right side.
+</p>
+
+<h3>Toolbar buttons</h3>
+<table>
+  <tr><th>Button</th><th>Action</th></tr>
+  <tr><td><strong>Edit ROI</strong></td><td>Enters draw mode (cursor becomes crosshair). Click and drag on the video to draw a new rectangle.</td></tr>
+  <tr><td><strong>Enable / Disable</strong></td><td>Toggles ROI filtering on/off without changing the drawn rectangle.</td></tr>
+  <tr><td><strong>Save ROI</strong></td><td>Sends the current rectangle to <code>POST /detection/roi</code>. If the <em>Persist</em> checkbox is ticked, the zone is also written to <code>.env.production</code> and survives a service restart.</td></tr>
+  <tr><td><strong>Clear / Reset</strong></td><td>Restores the rectangle to the default full-frame zone (0.1, 0.2) → (0.9, 0.8) and disables ROI.</td></tr>
+</table>
+
+<h3>Drawing &amp; editing the rectangle</h3>
+<ol class="steps">
+  <li><strong>Click "Edit ROI"</strong> — badge turns blue and shows <em>Editing</em>.</li>
+  <li><strong>Drag on the video</strong> — draw the desired zone.
+      Release the mouse button to finish.</li>
+  <li><strong>Fine-tune</strong> — drag any of the four blue corner handles to resize,
+      or drag the rectangle body to move it.</li>
+  <li><strong>Click "Save ROI"</strong> — the badge shows <em>Enabled</em> (green)
+      and the normalised coordinates appear in the side panel.</li>
+</ol>
+
+<h3>Status badge</h3>
+<table>
+  <tr><th>Colour</th><th>Label</th><th>Meaning</th></tr>
+  <tr><td><span class="badge badge-gray">Disabled</span></td><td>Disabled</td><td>ROI filtering off — all plates pass to OCR.</td></tr>
+  <tr><td><span class="badge badge-green">Enabled</span></td><td>Enabled</td><td>ROI active — only plates inside the zone are OCR'd.</td></tr>
+  <tr><td><span class="badge badge-blue">Editing</span></td><td>Editing</td><td>Draw/resize mode is active.</td></tr>
+</table>
+
+<h3>Side panel — live coordinates</h3>
+<p>
+  While editing, the ROI card in the side panel refreshes the four coordinate
+  values in real time. <em>Before saving</em>, these reflect the canvas state
+  only and have not been sent to the backend.
+</p>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<h2 id="api">4 · REST API Reference</h2>
+
+<h3><code>GET /detection/roi</code></h3>
+<p>Returns the current ROI zone configuration.</p>
+
+<pre><code>curl http://&lt;camera&gt;/detection/roi</code></pre>
+
+<p><strong>Response 200:</strong></p>
+<pre><code>{
+  "success": true,
+  "roi": {
+    "enabled": false,
+    "x1": 0.1,  "y1": 0.2,
+    "x2": 0.9,  "y2": 0.8
+  },
+  "timestamp": "2026-06-09T20:12:42.473198"
+}</code></pre>
+
+<hr style="margin:1.5rem 0; border-color:var(--border)">
+
+<h3><code>POST /detection/roi</code></h3>
+<p>
+  Updates the ROI zone at runtime.
+  Takes effect immediately — no restart required.
+</p>
+
+<p><strong>Request body (JSON):</strong></p>
+<table>
+  <tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
+  <tr><td><code>enabled</code></td><td>boolean</td><td>yes</td><td><code>true</code> to activate filtering.</td></tr>
+  <tr><td><code>x1</code></td><td>float</td><td>yes</td><td>Left edge (0.0 – 1.0).</td></tr>
+  <tr><td><code>y1</code></td><td>float</td><td>yes</td><td>Top edge (0.0 – 1.0).</td></tr>
+  <tr><td><code>x2</code></td><td>float</td><td>yes</td><td>Right edge (0.0 – 1.0), must be &gt; x1.</td></tr>
+  <tr><td><code>y2</code></td><td>float</td><td>yes</td><td>Bottom edge (0.0 – 1.0), must be &gt; y1.</td></tr>
+  <tr><td><code>persist</code></td><td>boolean</td><td>no (default <code>false</code>)</td>
+      <td>If <code>true</code>, writes values to <code>.env.production</code>
+          so the zone survives a service restart.</td></tr>
+</table>
+
+<p><strong>Example — enable a centre lane ROI:</strong></p>
+<pre><code>curl -X POST http://&lt;camera&gt;/detection/roi \
+  -H "Content-Type: application/json" \
+  -d '{
+    "enabled": true,
+    "x1": 0.15, "y1": 0.25,
+    "x2": 0.85, "y2": 0.75,
+    "persist": true
+  }'</code></pre>
+
+<p><strong>Response 200 (success):</strong></p>
+<pre><code>{
+  "success": true,
+  "applied": true,
+  "persisted": true,
+  "roi": { "enabled": true, "x1": 0.15, "y1": 0.25, "x2": 0.85, "y2": 0.75 },
+  "timestamp": "2026-06-09T20:13:39.670518"
+}</code></pre>
+
+<p><strong>Response 400 (invalid coords):</strong></p>
+<pre><code>{
+  "success": false,
+  "error": "Coordinates must satisfy 0 ≤ x1 < x2 ≤ 1 and 0 ≤ y1 < y2 ≤ 1"
+}</code></pre>
+
+<h3>Disable ROI (reset to defaults)</h3>
+<pre><code>curl -X POST http://&lt;camera&gt;/detection/roi \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": false, "x1": 0.1, "y1": 0.2, "x2": 0.9, "y2": 0.8, "persist": true}'</code></pre>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<h2 id="config">5 · Configuration &amp; Persistence</h2>
+
+<h3>Environment variables (<code>edge/installation/.env.production</code>)</h3>
+<table>
+  <tr><th>Variable</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>ROI_ENABLED</code></td><td><code>false</code></td><td>Enable ROI at startup.</td></tr>
+  <tr><td><code>ROI_X1</code></td><td><code>0.1</code></td><td>Left edge.</td></tr>
+  <tr><td><code>ROI_Y1</code></td><td><code>0.2</code></td><td>Top edge.</td></tr>
+  <tr><td><code>ROI_X2</code></td><td><code>0.9</code></td><td>Right edge.</td></tr>
+  <tr><td><code>ROI_Y2</code></td><td><code>0.8</code></td><td>Bottom edge.</td></tr>
+</table>
+
+<div class="alert alert-info">
+  <strong>ℹ️ Runtime vs Persisted</strong>
+  Calling <code>POST /detection/roi</code> without <code>"persist": true</code> updates the zone
+  in memory only. The change takes effect immediately but is lost on the next
+  <code>systemctl restart</code>. Use <code>"persist": true</code> or the
+  <em>Persist</em> checkbox in the UI to write the zone to
+  <code>.env.production</code>.
+</div>
+
+<h3>Manual edit</h3>
+<pre><code># SSH into the camera
+ssh camuser@aicamera1
+
+# Edit .env.production
+nano /home/camuser/aicamera/edge/installation/.env.production
+
+# Add or update:
+ROI_ENABLED=true
+ROI_X1=0.15
+ROI_Y1=0.25
+ROI_X2=0.85
+ROI_Y2=0.75
+
+# Restart to apply
+sudo systemctl restart aicamera_lpr.service</code></pre>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<h2 id="testing">6 · Testing ROI in the Pipeline</h2>
+
+<h3>Method A — Narrow zone test (recommended, requires live traffic)</h3>
+<ol class="steps">
+  <li>
+    <div>
+      <strong>Open a log monitor</strong> on the camera:
+      <pre><code>ssh camuser@aicamera1
+sudo journalctl -u aicamera_lpr -f | grep --line-buffered -E "OCR_GATE|ROI"</code></pre>
+    </div>
+  </li>
+  <li>
+    <div>
+      <strong>Set a narrow ROI</strong> (centre 20 % of frame — most vehicles will be outside):
+      <pre><code>curl -X POST http://aicamera1.tail605477.ts.net/detection/roi \
+  -H "Content-Type: application/json" \
+  -d '{"enabled":true,"x1":0.40,"y1":0.40,"x2":0.60,"y2":0.60}'</code></pre>
+      Expected log when a vehicle passes: <code>[OCR_GATE] SKIP track=X: plate center (320,400) outside ROI zone</code>
+    </div>
+  </li>
+  <li>
+    <div>
+      <strong>Expand ROI to full frame</strong> — same vehicle should now be OCR'd:
+      <pre><code>curl -X POST http://aicamera1.tail605477.ts.net/detection/roi \
+  -H "Content-Type: application/json" \
+  -d '{"enabled":true,"x1":0.0,"y1":0.0,"x2":1.0,"y2":1.0}'</code></pre>
+      Expected log: <code>[OCR_GATE] PASS track=X: frames=N score=0.XXX — submitting for OCR</code>
+    </div>
+  </li>
+  <li>
+    <div>
+      <strong>Verify DB record created</strong>:
+      <pre><code>sqlite3 /home/camuser/aicamera/edge/db/lpr_data.db \
+  "SELECT license_plate, confidence, created_at FROM detection_results ORDER BY created_at DESC LIMIT 5;"</code></pre>
+    </div>
+  </li>
+  <li>
+    <div>
+      <strong>Reset to defaults</strong>:
+      <pre><code>curl -X POST http://aicamera1.tail605477.ts.net/detection/roi \
+  -H "Content-Type: application/json" \
+  -d '{"enabled":false,"x1":0.1,"y1":0.2,"x2":0.9,"y2":0.8,"persist":true}'</code></pre>
+    </div>
+  </li>
+</ol>
+
+<h3>Method B — API smoke test (no traffic required)</h3>
+<pre><code># 1. GET current zone
+curl http://aicamera1.tail605477.ts.net/detection/roi
+
+# 2. POST a valid zone (should return applied:true)
+curl -X POST http://aicamera1.tail605477.ts.net/detection/roi \
+  -H "Content-Type: application/json" \
+  -d '{"enabled":true,"x1":0.2,"y1":0.3,"x2":0.8,"y2":0.7}'
+
+# 3. POST invalid zone (x1 > x2) — should return 400
+curl -X POST http://aicamera1.tail605477.ts.net/detection/roi \
+  -H "Content-Type: application/json" \
+  -d '{"enabled":true,"x1":0.9,"y1":0.1,"x2":0.1,"y2":0.9}'
+
+# 4. Verify [ROI] Zone updated in journal
+ssh camuser@aicamera1 "sudo journalctl -u aicamera_lpr --since '1 minute ago' | grep ROI"</code></pre>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<h2 id="log-tokens">7 · Log Tokens &amp; Observability</h2>
+
+<table>
+  <tr><th>Token</th><th>Level</th><th>When emitted</th></tr>
+  <tr>
+    <td><code>[ROI] Zone updated: enabled=… (x1,y1)→(x2,y2)</code></td>
+    <td><span class="badge badge-blue">INFO</span></td>
+    <td><code>set_roi_zone()</code> called successfully via API or startup.</td>
+  </tr>
+  <tr>
+    <td><code>[ROI] Invalid zone … — rejected</code></td>
+    <td><span class="badge badge-amber">WARN</span></td>
+    <td>Bad coordinates passed to <code>set_roi_zone()</code>; previous zone unchanged.</td>
+  </tr>
+  <tr>
+    <td><code>[OCR_GATE] SKIP track=X: plate center (px,py) outside ROI zone</code></td>
+    <td><span class="badge badge-blue">INFO</span></td>
+    <td>Plate detected but its centre is outside the enabled ROI → no OCR.</td>
+  </tr>
+  <tr>
+    <td><code>[OCR_GATE] PASS track=X: frames=N score=X.XXX — submitting for OCR</code></td>
+    <td><span class="badge badge-blue">INFO</span></td>
+    <td>Plate passed all gates (quality + ROI) and was submitted to the OCR queue.</td>
+  </tr>
+  <tr>
+    <td><code>[OCR_GATE] SKIP track=X: … image too blurry …</code></td>
+    <td><span class="badge badge-blue">INFO</span></td>
+    <td>Quality gate rejection (not ROI) — plate too blurry or low score.</td>
+  </tr>
+</table>
+
+<p>Monitor all ROI + OCR gate events:</p>
+<pre><code>sudo journalctl -u aicamera_lpr -f | grep --line-buffered -E "OCR_GATE|ROI"</code></pre>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<h2 id="troubleshooting">8 · Troubleshooting</h2>
+
+<div class="card">
+  <div class="card-title">❓ ROI is enabled but detections still appear outside the zone</div>
+  <p>Check that the plate centre (not the bounding-box corner) is inside the zone.
+  The gate uses the midpoint of the plate bbox:
+  <code>cx = (x1+x2)/2</code>, <code>cy = (y1+y2)/2</code> in pixel space,
+  then normalised to [0,1].</p>
+  <p>Use the log token <code>[OCR_GATE] SKIP … plate center (px,py)</code>
+  to see the actual centre coordinates and compare against your zone.</p>
+</div>
+
+<div class="card">
+  <div class="card-title">❓ ROI resets to defaults after service restart</div>
+  <p>The zone was updated at runtime without <code>"persist": true</code>.
+  Either re-send the POST with <code>"persist": true</code>, or tick the
+  <em>Persist</em> checkbox in the dashboard UI before clicking Save ROI.</p>
+</div>
+
+<div class="card">
+  <div class="card-title">❓ <code>GET /detection/roi</code> returns default values, not what I set</div>
+  <p>The service may have restarted since the last non-persisted update.
+  Check <code>.env.production</code>:</p>
+  <pre><code>grep ROI /home/camuser/aicamera/edge/installation/.env.production</code></pre>
+  <p>If the ROI keys are missing or have old values, send the POST again with <code>"persist": true</code>.</p>
+</div>
+
+<div class="card">
+  <div class="card-title">❓ POST returns <code>400 Invalid ROI parameters</code></div>
+  <p>Ensure <code>x1 &lt; x2</code> and <code>y1 &lt; y2</code>,
+  and all values are in <code>[0.0, 1.0]</code>.
+  The most common mistake is swapping x1/x2 when drawing right-to-left.</p>
+</div>
+
+<div class="card">
+  <div class="card-title">❓ Canvas rectangle does not match the actual video area</div>
+  <p>The canvas is sized to match the video element using a
+  <code>ResizeObserver</code>. Try resizing the browser window slightly to
+  trigger a recalculation, or reload the dashboard page.</p>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<h2 id="architecture">9 · Architecture Notes</h2>
+
+<h3>Source files</h3>
+<table>
+  <tr><th>File</th><th>Role</th></tr>
+  <tr>
+    <td><code>edge/src/components/detection_processor.py</code></td>
+    <td>
+      <code>_roi_zone</code> dict, <code>get_roi_zone()</code>,
+      <code>set_roi_zone()</code>, <code>_plate_in_roi()</code>,
+      ROI check inside <code>_should_submit_for_ocr()</code>.
+    </td>
+  </tr>
+  <tr>
+    <td><code>edge/src/web/blueprints/detection.py</code></td>
+    <td><code>GET/POST /detection/roi</code> Flask routes; optional persist to <code>.env.production</code>.</td>
+  </tr>
+  <tr>
+    <td><code>edge/src/web/templates/camera/dashboard.html</code></td>
+    <td>Canvas overlay, drag-to-draw rectangle, corner handles, Save/Clear buttons, side-panel coordinates.</td>
+  </tr>
+  <tr>
+    <td><code>edge/src/core/config.py</code></td>
+    <td><code>ROI_ENABLED</code>, <code>ROI_X1/Y1/X2/Y2</code> — loaded from <code>.env.production</code>.</td>
+  </tr>
+</table>
+
+<h3>Thread safety</h3>
+<p>
+  <code>_roi_zone</code> is replaced atomically with a new dict on every
+  <code>set_roi_zone()</code> call. The detection loop reads the dict
+  reference under Python's GIL — no explicit lock is needed for this
+  single-writer, single-reader pattern.
+</p>
+
+<h3>Coordinate conversion inside <code>_plate_in_roi()</code></h3>
+<pre><code>cx = (plate_bbox[0] + plate_bbox[2]) / 2 / frame_width   # normalised x centre
+cy = (plate_bbox[1] + plate_bbox[3]) / 2 / frame_height  # normalised y centre
+return roi['x1'] <= cx <= roi['x2'] and roi['y1'] <= cy <= roi['y2']</code></pre>
+
+<footer>
+  PWD Vision Works — aicamera edge module &nbsp;·&nbsp;
+  Generated 2026-06-09 &nbsp;·&nbsp;
+  Source: <code>edge/src/components/detection_processor.py</code>,
+  <code>edge/src/web/blueprints/detection.py</code>
+</footer>
+
+</div>
+</body>
+</html>
