@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ROI Zone — คู่มืออ้างอิงและคู่มือผู้ใช้กล้อง Edge</title>
+<style>
+  :root {
+    --blue:   #2563eb;
+    --green:  #16a34a;
+    --amber:  #d97706;
+    --red:    #dc2626;
+    --gray:   #6b7280;
+    --bg:     #f9fafb;
+    --card:   #ffffff;
+    --border: #e5e7eb;
+    --text:   #111827;
+    --muted:  #6b7280;
+    --code-bg:#f3f4f6;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "Sarabun", "Noto Sans Thai", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+         background: var(--bg); color: var(--text); line-height: 1.75; }
+
+  /* ── Layout ── */
+  .page { max-width: 960px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
+  nav.toc { background: var(--card); border: 1px solid var(--border);
+            border-radius: 8px; padding: 1.25rem 1.5rem; margin-bottom: 2rem; }
+  nav.toc h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em;
+               color: var(--muted); margin-bottom: .75rem; }
+  nav.toc ol { padding-left: 1.25rem; }
+  nav.toc li { margin: .25rem 0; }
+  nav.toc a { color: var(--blue); text-decoration: none; font-size: .9rem; }
+  nav.toc a:hover { text-decoration: underline; }
+
+  /* ── Headers ── */
+  h1 { font-size: 2rem; margin-bottom: .25rem; }
+  .subtitle { color: var(--muted); margin-bottom: 2rem; font-size: 1rem; }
+  h2 { font-size: 1.4rem; margin: 2.5rem 0 1rem; padding-bottom: .4rem;
+       border-bottom: 2px solid var(--border); }
+  h3 { font-size: 1.1rem; margin: 1.5rem 0 .6rem; color: var(--blue); }
+  h4 { font-size: .95rem; margin: 1rem 0 .4rem; }
+  p  { margin-bottom: .8rem; }
+
+  /* ── Cards ── */
+  .card { background: var(--card); border: 1px solid var(--border);
+          border-radius: 8px; padding: 1.25rem 1.5rem; margin-bottom: 1.25rem; }
+  .card-title { font-weight: 700; margin-bottom: .5rem; }
+
+  /* ── Badges ── */
+  .badge { display: inline-block; padding: .15rem .5rem; border-radius: 4px;
+           font-size: .75rem; font-weight: 600; }
+  .badge-blue   { background: #dbeafe; color: var(--blue); }
+  .badge-green  { background: #dcfce7; color: var(--green); }
+  .badge-amber  { background: #fef3c7; color: var(--amber); }
+  .badge-red    { background: #fee2e2; color: var(--red); }
+  .badge-gray   { background: #f3f4f6; color: var(--gray); }
+
+  /* ── Alert boxes ── */
+  .alert { padding: .85rem 1.1rem; border-radius: 6px; margin-bottom: 1rem;
+           border-left: 4px solid; font-size: .9rem; }
+  .alert-info  { background: #eff6ff; border-color: var(--blue); }
+  .alert-warn  { background: #fffbeb; border-color: var(--amber); }
+  .alert-tip   { background: #f0fdf4; border-color: var(--green); }
+  .alert strong { display: block; margin-bottom: .25rem; }
+
+  /* ── Code ── */
+  pre  { background: #1e293b; color: #e2e8f0; padding: 1.1rem 1.25rem;
+         border-radius: 8px; overflow-x: auto; margin: .75rem 0 1rem;
+         font-size: .83rem; line-height: 1.55; }
+  code { font-family: "SF Mono", "Fira Code", monospace; }
+  :not(pre) > code { background: var(--code-bg); padding: .1em .35em;
+                     border-radius: 3px; font-size: .87em; color: #be123c; }
+
+  /* ── Tables ── */
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: .9rem; }
+  th { background: #f1f5f9; text-align: left; padding: .6rem .85rem;
+       border: 1px solid var(--border); font-weight: 600; }
+  td { padding: .55rem .85rem; border: 1px solid var(--border); vertical-align: top; }
+  tr:nth-child(even) td { background: #fafafa; }
+  td code { font-size: .82rem; }
+
+  /* ── Steps ── */
+  .steps { counter-reset: step; list-style: none; padding: 0; }
+  .steps li { counter-increment: step; display: flex; gap: 1rem;
+              align-items: flex-start; margin-bottom: 1rem; }
+  .steps li::before { content: counter(step); min-width: 1.75rem; height: 1.75rem;
+    background: var(--blue); color: #fff; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: .8rem; font-weight: 700; flex-shrink: 0; margin-top: .1rem; }
+
+  /* ── Diagram ── */
+  .diagram { background: #1e293b; color: #94a3b8; font-family: monospace;
+             font-size: .82rem; line-height: 1.7; padding: 1.25rem 1.5rem;
+             border-radius: 8px; overflow-x: auto; margin: 1rem 0; }
+  .diagram .hi  { color: #7dd3fc; }
+  .diagram .ok  { color: #86efac; }
+  .diagram .skip{ color: #fca5a5; }
+
+  /* ── ROI visual ── */
+  .roi-visual { position: relative; width: 100%; max-width: 480px;
+                aspect-ratio: 16/9; background: #0f172a; border-radius: 8px;
+                margin: 1rem auto; overflow: hidden; }
+  .roi-visual .cam-label { position: absolute; top: .5rem; left: .75rem;
+    color: #94a3b8; font-size: .75rem; font-family: monospace; }
+  .roi-visual svg { width: 100%; height: 100%; }
+
+  /* ── Columns ── */
+  .cols { display: grid; gap: 1rem; }
+  .cols-2 { grid-template-columns: 1fr 1fr; }
+  @media (max-width: 600px) { .cols-2 { grid-template-columns: 1fr; } }
+
+  /* ── Footer ── */
+  footer { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--border);
+           color: var(--muted); font-size: .82rem; text-align: center; }
+
+  /* ── Lang switch ── */
+  .lang-switch { position: fixed; top: 1rem; right: 1.5rem; z-index: 100; }
+  .lang-switch a { background: var(--card); border: 1px solid var(--border);
+    padding: .3rem .7rem; border-radius: 6px; font-size: .8rem;
+    color: var(--blue); text-decoration: none; }
+  .lang-switch a:hover { background: #eff6ff; }
+</style>
+</head>
+<body>
+
+<div class="lang-switch"><a href="roi-zone.html">🇬🇧 English</a></div>
+
+<div class="page">
+
+<!-- ── Title ── -->
+<h1>ROI Zone — พื้นที่ตรวจจับ</h1>
+<p class="subtitle">
+  คู่มืออ้างอิงและคู่มือผู้ใช้ กล้อง Edge &nbsp;·&nbsp;
+  <span class="badge badge-blue">v1.0</span>&nbsp;
+  <span class="badge badge-gray">2026-06-09</span>&nbsp;
+  PWD Vision Works
+</p>
+
+<!-- ── TOC ── -->
+<nav class="toc">
+  <h2>สารบัญ</h2>
+  <ol>
+    <li><a href="#overview">ROI Zone คืออะไร</a></li>
+    <li><a href="#how-it-works">หลักการทำงานใน Pipeline</a></li>
+    <li><a href="#ui-guide">คู่มือใช้งาน — Canvas Editor บน Dashboard</a></li>
+    <li><a href="#api">REST API Reference</a></li>
+    <li><a href="#config">การตั้งค่าและการบันทึกถาวร</a></li>
+    <li><a href="#testing">การทดสอบ ROI ใน Pipeline จริง</a></li>
+    <li><a href="#log-tokens">Log Tokens &amp; การติดตามผล</a></li>
+    <li><a href="#troubleshooting">การแก้ปัญหาที่พบบ่อย</a></li>
+    <li><a href="#architecture">หมายเหตุด้านสถาปัตยกรรม</a></li>
+  </ol>
+</nav>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<h2 id="overview">1 · ROI Zone คืออะไร</h2>
+
+<p>
+  <strong>ROI Zone (Region of Interest)</strong> คือกรอบสี่เหลี่ยมที่กำหนดบนภาพกล้อง
+  โดยใช้พิกัด normalised (0.0 – 1.0) เพื่อกำหนดว่าป้ายทะเบียนที่ตรวจพบในบริเวณใด
+  ควรถูกส่งเข้าสู่กระบวนการ OCR และบันทึกลงฐานข้อมูล
+</p>
+<p>
+  เมื่อ ROI ถูก <strong>เปิดใช้งาน</strong> ระบบจะส่งเฉพาะป้ายทะเบียนที่มี
+  <em>จุดศูนย์กลาง</em> ของกรอบอยู่ภายในพื้นที่ที่กำหนดไปยัง OCR เท่านั้น
+  ป้ายที่อยู่นอกพื้นที่จะถูกข้ามโดยไม่มีการ OCR และไม่บันทึกลงฐานข้อมูล
+  (ยังคง track รถอยู่ แต่ไม่สร้าง record)
+</p>
+<p>
+  เมื่อ ROI ถูก <strong>ปิดใช้งาน</strong> (ค่าเริ่มต้น) ป้ายทะเบียนทุกใบที่ตรวจพบ
+  จะผ่านเข้า OCR ทั้งหมด เทียบเท่ากับการกำหนด ROI เต็มภาพ (0,0) → (1,1)
+</p>
+
+<div class="roi-visual">
+  <div class="cam-label">ภาพจากกล้อง (พิกัด normalised)</div>
+  <svg viewBox="0 0 160 90" xmlns="http://www.w3.org/2000/svg">
+    <rect width="160" height="90" fill="#0f172a"/>
+    <rect x="24" y="18" width="112" height="54"
+          fill="rgba(37,99,235,.15)" stroke="#2563eb" stroke-width="1.5"
+          stroke-dasharray="4 2" rx="1"/>
+    <rect x="21" y="15" width="6" height="6" fill="#2563eb" rx="1"/>
+    <rect x="133" y="15" width="6" height="6" fill="#2563eb" rx="1"/>
+    <rect x="21" y="69" width="6" height="6" fill="#2563eb" rx="1"/>
+    <rect x="133" y="69" width="6" height="6" fill="#2563eb" rx="1"/>
+    <text x="26" y="27" fill="#60a5fa" font-size="6" font-family="monospace">(x1,y1)</text>
+    <text x="96" y="76" fill="#60a5fa" font-size="6" font-family="monospace">(x2,y2)</text>
+    <!-- plate ใน zone -->
+    <rect x="60" y="42" width="40" height="14" fill="none"
+          stroke="#86efac" stroke-width="1.5" rx="1"/>
+    <text x="68" y="51" fill="#86efac" font-size="5.5" font-family="monospace">กข 1234</text>
+    <circle cx="80" cy="49" r="2" fill="#86efac"/>
+    <text x="61" y="62" fill="#86efac" font-size="4.5">✓ อยู่ใน ROI → OCR</text>
+    <!-- plate นอก zone -->
+    <rect x="5" y="30" width="15" height="6" fill="none"
+          stroke="#fca5a5" stroke-width="1.2" rx="1"/>
+    <circle cx="12.5" cy="33" r="1.5" fill="#fca5a5"/>
+    <text x="1" y="42" fill="#fca5a5" font-size="4.5">✗ นอก ROI → ข้าม</text>
+  </svg>
+</div>
+
+<div class="cols cols-2">
+  <div class="card">
+    <div class="card-title">✅ ROI เปิดใช้งาน</div>
+    เฉพาะป้ายทะเบียนที่จุดศูนย์กลางอยู่ในกรอบสีน้ำเงินเท่านั้นที่ถูก OCR และบันทึกลงฐานข้อมูล
+    เหมาะสำหรับกล้องที่มองข้ามถนนหลายเลน และต้องการจับเฉพาะเลนที่กำหนด
+  </div>
+  <div class="card">
+    <div class="card-title">⬜ ROI ปิดใช้งาน (ค่าเริ่มต้น)</div>
+    ป้ายทะเบียนทุกใบที่ตรวจพบจะผ่านเข้า OCR โดยไม่มีเงื่อนไขตำแหน่ง
+    เหมาะสำหรับกล้องที่ต้องการเก็บทุกคัน
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<h2 id="how-it-works">2 · หลักการทำงานใน Pipeline</h2>
+
+<h3>ตำแหน่งของ ROI Gate ใน Detection Pipeline</h3>
+<p>
+  การกรอง ROI เกิดขึ้น<strong>ภายใน OCR Gate</strong>
+  (<code>_should_submit_for_ocr()</code>) หลังจากการ tracking ยานพาหนะและ
+  การตรวจสอบคุณภาพภาพ แต่<em>ก่อน</em>ที่ crop ป้ายทะเบียนจะถูกส่งเข้า OCR queue
+</p>
+
+<div class="diagram">
+<span class="hi">[ภาพจากกล้อง @30 fps]</span>
+      ↓
+[Hailo: ตรวจจับยานพาหนะ]   confidence ≥ 0.8
+      ↓
+[Hailo: ตรวจจับป้ายทะเบียน]
+      ↓
+[Vehicle Tracking / IoU]    กำหนด track_id
+      ↓
+[Quality Gate]              ตรวจสอบความเบลอ / ขนาด / อัตราส่วน
+      ↓
+<span class="hi">[ROI Gate]  ←─────────────────────────── จุดนี้</span>
+  <span class="ok">จุดศูนย์กลางป้ายอยู่ในโซน?  ใช่ → [OCR Queue] → Tesseract/Hailo OCR → DB</span>
+  <span class="skip">จุดศูนย์กลางป้ายอยู่นอกโซน? ไม่ใช่ → ข้าม (log [OCR_GATE] SKIP)</span>
+</div>
+
+<h3>ระบบพิกัด</h3>
+<p>
+  พิกัด ROI ทั้งหมดเป็น<strong>ค่า normalised ในช่วง [0.0, 1.0]</strong>
+  สัมพัทธ์กับขนาดของ frame ดังนั้นพื้นที่จึงปรับขนาดอัตโนมัติตามความละเอียด
+</p>
+<table>
+  <tr><th>จุด</th><th>ความหมาย</th><th>ตัวอย่าง</th></tr>
+  <tr><td><code>x1, y1</code></td><td>มุมบนซ้ายของ ROI</td><td><code>0.15, 0.25</code></td></tr>
+  <tr><td><code>x2, y2</code></td><td>มุมล่างขวาของ ROI</td><td><code>0.85, 0.75</code></td></tr>
+  <tr><td>(0, 0)</td><td>มุมบนซ้ายของภาพ</td><td>—</td></tr>
+  <tr><td>(1, 1)</td><td>มุมล่างขวาของภาพ</td><td>—</td></tr>
+</table>
+<p>เงื่อนไขที่ต้องปฏิบัติตาม: <code>0 ≤ x1 &lt; x2 ≤ 1</code> และ <code>0 ≤ y1 &lt; y2 ≤ 1</code></p>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<h2 id="ui-guide">3 · คู่มือใช้งาน — Canvas Editor บน Dashboard</h2>
+
+<p>
+  เปิด Dashboard ของกล้องที่
+  <code>http://&lt;camera&gt;/camera/dashboard</code><br>
+  Canvas ROI จะทับอยู่บนภาพ video feed ทางด้านขวาของหน้าจอ
+</p>
+
+<h3>ปุ่มควบคุม</h3>
+<table>
+  <tr><th>ปุ่ม</th><th>การทำงาน</th></tr>
+  <tr>
+    <td><strong>Edit ROI</strong></td>
+    <td>เข้าสู่โหมดวาด (cursor เปลี่ยนเป็น crosshair) คลิกแล้วลากบน video เพื่อวาดกรอบสี่เหลี่ยมใหม่</td>
+  </tr>
+  <tr>
+    <td><strong>Enable / Disable</strong></td>
+    <td>เปิด/ปิดการกรอง ROI โดยไม่เปลี่ยนกรอบที่วาดไว้</td>
+  </tr>
+  <tr>
+    <td><strong>Save ROI</strong></td>
+    <td>ส่งกรอบปัจจุบันไปยัง <code>POST /detection/roi</code>
+        ถ้าติ๊ก checkbox <em>Persist</em> ไว้ ค่าจะถูกบันทึกลง <code>.env.production</code>
+        และยังคงอยู่หลัง restart service</td>
+  </tr>
+  <tr>
+    <td><strong>Clear / Reset</strong></td>
+    <td>คืนกรอบให้เป็นค่าเริ่มต้น (0.1, 0.2) → (0.9, 0.8) และปิด ROI</td>
+  </tr>
+</table>
+
+<h3>การวาดและแก้ไขกรอบ</h3>
+<ol class="steps">
+  <li>
+    <div>
+      <strong>คลิก "Edit ROI"</strong> — badge บนวิดีโอจะเปลี่ยนเป็นสีน้ำเงิน
+      แสดงข้อความ <em>Editing</em>
+    </div>
+  </li>
+  <li>
+    <div>
+      <strong>ลากบน video</strong> — วาดพื้นที่ที่ต้องการ ปล่อยเมาส์เมื่อเสร็จ
+    </div>
+  </li>
+  <li>
+    <div>
+      <strong>ปรับละเอียด</strong> — ลาก handle มุมสีน้ำเงิน 4 จุดเพื่อปรับขนาด
+      หรือลากตรงกลางกรอบเพื่อย้ายตำแหน่ง
+    </div>
+  </li>
+  <li>
+    <div>
+      <strong>คลิก "Save ROI"</strong> — badge เปลี่ยนเป็นสีเขียว แสดงว่า <em>Enabled</em>
+      และพิกัดที่ normalised แล้วจะปรากฏในแผงด้านข้าง
+    </div>
+  </li>
+</ol>
+
+<h3>สีของ Badge สถานะ</h3>
+<table>
+  <tr><th>สี</th><th>ข้อความ</th><th>ความหมาย</th></tr>
+  <tr>
+    <td><span class="badge badge-gray">Disabled</span></td>
+    <td>ปิดใช้งาน</td>
+    <td>ROI ปิดอยู่ — ป้ายทะเบียนทุกใบผ่านเข้า OCR</td>
+  </tr>
+  <tr>
+    <td><span class="badge badge-green">Enabled</span></td>
+    <td>เปิดใช้งาน</td>
+    <td>ROI กำลังกรองอยู่ — เฉพาะป้ายในโซนเท่านั้นที่ถูก OCR</td>
+  </tr>
+  <tr>
+    <td><span class="badge badge-blue">Editing</span></td>
+    <td>กำลังแก้ไข</td>
+    <td>โหมดวาด/ปรับขนาดกำลังทำงาน</td>
+  </tr>
+</table>
+
+<h3>แผงแสดงพิกัด (Side Panel)</h3>
+<p>
+  ขณะแก้ไข การ์ด ROI ในแผงด้านข้างจะแสดงค่าพิกัด x1, y1, x2, y2 แบบ real-time
+  <strong>ก่อนกด Save</strong> ค่าเหล่านี้สะท้อนเฉพาะสถานะบน canvas เท่านั้น
+  ยังไม่ได้ส่งไปยัง backend
+</p>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<h2 id="api">4 · REST API Reference</h2>
+
+<h3><code>GET /detection/roi</code></h3>
+<p>คืนค่าการตั้งค่า ROI zone ปัจจุบัน</p>
+
+<pre><code>curl http://&lt;camera&gt;/detection/roi</code></pre>
+
+<p><strong>Response 200:</strong></p>
+<pre><code>{
+  "success": true,
+  "roi": {
+    "enabled": false,
+    "x1": 0.1,  "y1": 0.2,
+    "x2": 0.9,  "y2": 0.8
+  },
+  "timestamp": "2026-06-09T20:12:42.473198"
+}</code></pre>
+
+<hr style="margin:1.5rem 0; border-color:var(--border)">
+
+<h3><code>POST /detection/roi</code></h3>
+<p>
+  อัพเดท ROI zone แบบ runtime — มีผลทันทีโดยไม่ต้อง restart service
+</p>
+
+<p><strong>Request body (JSON):</strong></p>
+<table>
+  <tr><th>Field</th><th>ชนิด</th><th>จำเป็น</th><th>คำอธิบาย</th></tr>
+  <tr><td><code>enabled</code></td><td>boolean</td><td>ใช่</td><td><code>true</code> เพื่อเปิดการกรอง</td></tr>
+  <tr><td><code>x1</code></td><td>float</td><td>ใช่</td><td>ขอบซ้าย (0.0 – 1.0)</td></tr>
+  <tr><td><code>y1</code></td><td>float</td><td>ใช่</td><td>ขอบบน (0.0 – 1.0)</td></tr>
+  <tr><td><code>x2</code></td><td>float</td><td>ใช่</td><td>ขอบขวา (0.0 – 1.0) ต้องมากกว่า x1</td></tr>
+  <tr><td><code>y2</code></td><td>float</td><td>ใช่</td><td>ขอบล่าง (0.0 – 1.0) ต้องมากกว่า y1</td></tr>
+  <tr><td><code>persist</code></td><td>boolean</td><td>ไม่ (default: <code>false</code>)</td>
+      <td>ถ้า <code>true</code> จะบันทึกค่าลง <code>.env.production</code>
+          เพื่อให้คงอยู่หลัง restart</td></tr>
+</table>
+
+<p><strong>ตัวอย่าง — เปิด ROI เฉพาะช่องทางกลาง:</strong></p>
+<pre><code>curl -X POST http://&lt;camera&gt;/detection/roi \
+  -H "Content-Type: application/json" \
+  -d '{
+    "enabled": true,
+    "x1": 0.15, "y1": 0.25,
+    "x2": 0.85, "y2": 0.75,
+    "persist": true
+  }'</code></pre>
+
+<p><strong>Response 200 (สำเร็จ):</strong></p>
+<pre><code>{
+  "success": true,
+  "applied": true,
+  "persisted": true,
+  "roi": { "enabled": true, "x1": 0.15, "y1": 0.25, "x2": 0.85, "y2": 0.75 },
+  "timestamp": "2026-06-09T20:13:39.670518"
+}</code></pre>
+
+<p><strong>Response 400 (พิกัดไม่ถูกต้อง):</strong></p>
+<pre><code>{
+  "success": false,
+  "error": "Coordinates must satisfy 0 ≤ x1 < x2 ≤ 1 and 0 ≤ y1 < y2 ≤ 1"
+}</code></pre>
+
+<h3>ปิด ROI และรีเซ็ตค่าเริ่มต้น</h3>
+<pre><code>curl -X POST http://&lt;camera&gt;/detection/roi \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": false, "x1": 0.1, "y1": 0.2, "x2": 0.9, "y2": 0.8, "persist": true}'</code></pre>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<h2 id="config">5 · การตั้งค่าและการบันทึกถาวร</h2>
+
+<h3>Environment Variables (<code>edge/installation/.env.production</code>)</h3>
+<table>
+  <tr><th>ตัวแปร</th><th>ค่าเริ่มต้น</th><th>คำอธิบาย</th></tr>
+  <tr><td><code>ROI_ENABLED</code></td><td><code>false</code></td><td>เปิด ROI ตั้งแต่เริ่ม service</td></tr>
+  <tr><td><code>ROI_X1</code></td><td><code>0.1</code></td><td>ขอบซ้าย</td></tr>
+  <tr><td><code>ROI_Y1</code></td><td><code>0.2</code></td><td>ขอบบน</td></tr>
+  <tr><td><code>ROI_X2</code></td><td><code>0.9</code></td><td>ขอบขวา</td></tr>
+  <tr><td><code>ROI_Y2</code></td><td><code>0.8</code></td><td>ขอบล่าง</td></tr>
+</table>
+
+<div class="alert alert-info">
+  <strong>ℹ️ Runtime vs บันทึกถาวร</strong>
+  การเรียก <code>POST /detection/roi</code> โดยไม่ใส่ <code>"persist": true</code>
+  จะอัพเดทเฉพาะใน memory เท่านั้น มีผลทันที แต่จะหายไปเมื่อ restart service
+  ใช้ <code>"persist": true</code> หรือติ๊ก checkbox <em>Persist</em> ใน UI
+  เพื่อบันทึกลง <code>.env.production</code>
+</div>
+
+<h3>แก้ไขไฟล์โดยตรง</h3>
+<pre><code># SSH เข้ากล้อง
+ssh camuser@aicamera1
+
+# แก้ไข .env.production
+nano /home/camuser/aicamera/edge/installation/.env.production
+
+# เพิ่มหรือแก้ไขบรรทัดเหล่านี้:
+ROI_ENABLED=true
+ROI_X1=0.15
+ROI_Y1=0.25
+ROI_X2=0.85
+ROI_Y2=0.75
+
+# Restart เพื่อให้มีผล
+sudo systemctl restart aicamera_lpr.service</code></pre>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<h2 id="testing">6 · การทดสอบ ROI ใน Pipeline จริง</h2>
+
+<h3>วิธี A — ทดสอบด้วยโซนแคบ (แนะนำ ต้องการรถจริง)</h3>
+<ol class="steps">
+  <li>
+    <div>
+      <strong>เปิด log monitor</strong> บนกล้อง:
+      <pre><code>ssh camuser@aicamera1
+sudo journalctl -u aicamera_lpr -f | grep --line-buffered -E "OCR_GATE|ROI"</code></pre>
+    </div>
+  </li>
+  <li>
+    <div>
+      <strong>ตั้ง ROI แคบมาก</strong> (บริเวณกลางภาพ 20% เท่านั้น — รถส่วนใหญ่จะอยู่นอกโซน):
+      <pre><code>curl -X POST http://aicamera1.tail605477.ts.net/detection/roi \
+  -H "Content-Type: application/json" \
+  -d '{"enabled":true,"x1":0.40,"y1":0.40,"x2":0.60,"y2":0.60}'</code></pre>
+      <strong>Log ที่คาดหวัง</strong> เมื่อรถผ่าน:
+      <code>[OCR_GATE] SKIP track=X: plate center (320,400) outside ROI zone</code>
+    </div>
+  </li>
+  <li>
+    <div>
+      <strong>ขยาย ROI เต็มภาพ</strong> — รถคันเดิมควรถูก OCR:
+      <pre><code>curl -X POST http://aicamera1.tail605477.ts.net/detection/roi \
+  -H "Content-Type: application/json" \
+  -d '{"enabled":true,"x1":0.0,"y1":0.0,"x2":1.0,"y2":1.0}'</code></pre>
+      <strong>Log ที่คาดหวัง:</strong>
+      <code>[OCR_GATE] PASS track=X: frames=N score=0.XXX — submitting for OCR</code>
+    </div>
+  </li>
+  <li>
+    <div>
+      <strong>ตรวจสอบ DB ว่ามี record ถูกบันทึก:</strong>
+      <pre><code>sqlite3 /home/camuser/aicamera/edge/db/lpr_data.db \
+  "SELECT license_plate, confidence, created_at FROM detection_results ORDER BY created_at DESC LIMIT 5;"</code></pre>
+    </div>
+  </li>
+  <li>
+    <div>
+      <strong>รีเซ็ตค่ากลับ:</strong>
+      <pre><code>curl -X POST http://aicamera1.tail605477.ts.net/detection/roi \
+  -H "Content-Type: application/json" \
+  -d '{"enabled":false,"x1":0.1,"y1":0.2,"x2":0.9,"y2":0.8,"persist":true}'</code></pre>
+    </div>
+  </li>
+</ol>
+
+<h3>วิธี B — Smoke Test ด้วย API (ไม่ต้องมีรถ)</h3>
+<pre><code># 1. GET ดูค่า ROI ปัจจุบัน
+curl http://aicamera1.tail605477.ts.net/detection/roi
+
+# 2. POST พิกัดที่ถูกต้อง (ต้องได้ applied:true)
+curl -X POST http://aicamera1.tail605477.ts.net/detection/roi \
+  -H "Content-Type: application/json" \
+  -d '{"enabled":true,"x1":0.2,"y1":0.3,"x2":0.8,"y2":0.7}'
+
+# 3. POST พิกัดที่ผิด (x1 > x2) — ต้องได้ error 400
+curl -X POST http://aicamera1.tail605477.ts.net/detection/roi \
+  -H "Content-Type: application/json" \
+  -d '{"enabled":true,"x1":0.9,"y1":0.1,"x2":0.1,"y2":0.9}'
+
+# 4. ตรวจสอบว่า [ROI] Zone updated ปรากฏใน log
+ssh camuser@aicamera1 "sudo journalctl -u aicamera_lpr --since '1 minute ago' | grep ROI"</code></pre>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<h2 id="log-tokens">7 · Log Tokens และการติดตามผล</h2>
+
+<table>
+  <tr><th>Token</th><th>ระดับ</th><th>เมื่อไรที่เกิด</th></tr>
+  <tr>
+    <td><code>[ROI] Zone updated: enabled=… (x1,y1)→(x2,y2)</code></td>
+    <td><span class="badge badge-blue">INFO</span></td>
+    <td><code>set_roi_zone()</code> ถูกเรียกสำเร็จ (ผ่าน API หรือ startup)</td>
+  </tr>
+  <tr>
+    <td><code>[ROI] Invalid zone … — rejected</code></td>
+    <td><span class="badge badge-amber">WARN</span></td>
+    <td>พิกัดที่ส่งมาไม่ถูกต้อง — โซนเดิมยังคงอยู่</td>
+  </tr>
+  <tr>
+    <td><code>[OCR_GATE] SKIP track=X: plate center (px,py) outside ROI zone</code></td>
+    <td><span class="badge badge-blue">INFO</span></td>
+    <td>ตรวจพบป้ายทะเบียนแต่จุดศูนย์กลางอยู่นอก ROI → ไม่ส่ง OCR</td>
+  </tr>
+  <tr>
+    <td><code>[OCR_GATE] PASS track=X: frames=N score=X.XXX — submitting for OCR</code></td>
+    <td><span class="badge badge-blue">INFO</span></td>
+    <td>ป้ายผ่านทุก gate (quality + ROI) และถูกส่งเข้า OCR queue แล้ว</td>
+  </tr>
+  <tr>
+    <td><code>[OCR_GATE] SKIP track=X: … image too blurry …</code></td>
+    <td><span class="badge badge-blue">INFO</span></td>
+    <td>ถูก reject โดย Quality gate (ไม่ใช่ ROI) — ภาพเบลอหรือ score ต่ำเกินไป</td>
+  </tr>
+</table>
+
+<p>ดู log ที่เกี่ยวกับ ROI และ OCR gate แบบ real-time:</p>
+<pre><code>sudo journalctl -u aicamera_lpr -f | grep --line-buffered -E "OCR_GATE|ROI"</code></pre>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<h2 id="troubleshooting">8 · การแก้ปัญหาที่พบบ่อย</h2>
+
+<div class="card">
+  <div class="card-title">❓ เปิด ROI แล้วแต่ยังมี detection จากนอกโซน</div>
+  <p>
+    ตรวจสอบว่าระบบใช้ <em>จุดศูนย์กลาง</em> ของกรอบป้ายทะเบียน (ไม่ใช่มุม) ในการตัดสิน:
+    <code>cx = (x1+x2)/2</code>, <code>cy = (y1+y2)/2</code>
+    แล้ว normalise ด้วยความกว้าง/สูงของ frame
+  </p>
+  <p>
+    ดู log token <code>[OCR_GATE] SKIP … plate center (px,py)</code>
+    เพื่อดูพิกัดจริงของจุดศูนย์กลาง แล้วเปรียบเทียบกับโซนที่กำหนด
+  </p>
+</div>
+
+<div class="card">
+  <div class="card-title">❓ ROI รีเซ็ตกลับหลัง restart service</div>
+  <p>
+    โซนถูกอัพเดทใน memory เท่านั้น โดยไม่ได้ใช้ <code>"persist": true</code>
+    ส่ง POST อีกครั้งพร้อม <code>"persist": true</code>
+    หรือติ๊ก checkbox <em>Persist</em> ใน UI ก่อนกด Save ROI
+  </p>
+</div>
+
+<div class="card">
+  <div class="card-title">❓ GET /detection/roi คืนค่าเริ่มต้น ทั้งที่เคย set ไปแล้ว</div>
+  <p>Service อาจ restart หลังจากการ set ครั้งล่าสุดที่ไม่ได้ persist ตรวจสอบไฟล์:</p>
+  <pre><code>grep ROI /home/camuser/aicamera/edge/installation/.env.production</code></pre>
+  <p>ถ้า ROI keys หายไปหรือเป็นค่าเก่า ส่ง POST ใหม่พร้อม <code>"persist": true</code></p>
+</div>
+
+<div class="card">
+  <div class="card-title">❓ POST ตอบกลับ 400 Invalid ROI parameters</div>
+  <p>
+    ตรวจสอบว่า <code>x1 &lt; x2</code> และ <code>y1 &lt; y2</code>
+    และทุกค่าอยู่ใน <code>[0.0, 1.0]</code>
+    ข้อผิดพลาดที่พบบ่อยที่สุดคือการสลับ x1/x2 เมื่อวาดจากขวาไปซ้าย
+  </p>
+</div>
+
+<div class="card">
+  <div class="card-title">❓ กรอบบน Canvas ไม่ตรงกับพื้นที่ video จริง</div>
+  <p>
+    Canvas ใช้ <code>ResizeObserver</code> เพื่อปรับขนาดตาม video element
+    ลองปรับขนาด browser window เล็กน้อยเพื่อ trigger การคำนวณใหม่
+    หรือโหลดหน้า Dashboard ใหม่
+  </p>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<h2 id="architecture">9 · หมายเหตุด้านสถาปัตยกรรม</h2>
+
+<h3>ไฟล์ที่เกี่ยวข้อง</h3>
+<table>
+  <tr><th>ไฟล์</th><th>หน้าที่</th></tr>
+  <tr>
+    <td><code>edge/src/components/detection_processor.py</code></td>
+    <td>
+      <code>_roi_zone</code> dict, <code>get_roi_zone()</code>,
+      <code>set_roi_zone()</code>, <code>_plate_in_roi()</code>,
+      การตรวจสอบ ROI ใน <code>_should_submit_for_ocr()</code>
+    </td>
+  </tr>
+  <tr>
+    <td><code>edge/src/web/blueprints/detection.py</code></td>
+    <td>Route <code>GET/POST /detection/roi</code> และการ persist ลง <code>.env.production</code></td>
+  </tr>
+  <tr>
+    <td><code>edge/src/web/templates/camera/dashboard.html</code></td>
+    <td>Canvas overlay, drag-to-draw, corner handles, ปุ่ม Save/Clear, แผงแสดงพิกัด</td>
+  </tr>
+  <tr>
+    <td><code>edge/src/core/config.py</code></td>
+    <td><code>ROI_ENABLED</code>, <code>ROI_X1/Y1/X2/Y2</code> — โหลดจาก <code>.env.production</code></td>
+  </tr>
+</table>
+
+<h3>Thread Safety</h3>
+<p>
+  <code>_roi_zone</code> ถูกแทนที่แบบ atomic ด้วย dict ใหม่ทุกครั้งที่
+  <code>set_roi_zone()</code> ถูกเรียก
+  Detection loop อ่าน dict reference ภายใต้ Python GIL
+  จึงไม่จำเป็นต้องใช้ explicit lock สำหรับ pattern นี้ (single-writer, single-reader)
+</p>
+
+<h3>การแปลงพิกัดใน <code>_plate_in_roi()</code></h3>
+<pre><code>cx = (plate_bbox[0] + plate_bbox[2]) / 2 / frame_width   # x normalised
+cy = (plate_bbox[1] + plate_bbox[3]) / 2 / frame_height  # y normalised
+return roi['x1'] <= cx <= roi['x2'] and roi['y1'] <= cy <= roi['y2']</code></pre>
+
+<footer>
+  PWD Vision Works — aicamera edge module &nbsp;·&nbsp;
+  จัดทำเมื่อ 2026-06-09 &nbsp;·&nbsp;
+  แหล่งข้อมูล: <code>edge/src/components/detection_processor.py</code>,
+  <code>edge/src/web/blueprints/detection.py</code>
+  &nbsp;·&nbsp;
+  <a href="roi-zone.html" style="color:var(--blue)">English version</a>
+</footer>
+
+</div>
+</body>
+</html>
