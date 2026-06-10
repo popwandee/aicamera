@@ -1304,4 +1304,290 @@ sqlite3 ~/aicamera/edge/data/detections.db \
 
 ---
 
+## H. สถานการณ์ที่เหมาะสม และเป้าหมายที่ดีที่สุด
+
+> ส่วนนี้อธิบาย **"ภาพอุดมคติ"** ของระบบ LPR นี้ — ทั้งในแง่ hardware/physical setup,
+> pipeline behavior, และตัวชี้วัดที่ต้องการ เพื่อใช้เป็น benchmark เปรียบเทียบกับสิ่งที่
+> เกิดขึ้นจริง
+
+---
+
+### H.1 สถานการณ์ที่เหมาะสมที่สุด (Ideal Scenario)
+
+#### H.1.1 Physical Setup — กล้องและจุดติดตั้ง
+
+```
+          ┌─────────────────────────────────────────┐
+          │           ทิศทางรถเข้า                  │
+          │                                          │
+          │    ┌──────────────────────────────┐      │
+          │    │   DETECTION ZONE (3–7m)       │      │
+          │    │  ┌──────────┐                │      │
+          │    │  │  ป้ายอยู่ │                │      │
+          │    │  │ ในเฟรม   │                │      │
+          │    │  │ ≥3 วินาที│                │      │
+          │    │  └──────────┘                │      │
+          │    └──────────────────────────────┘      │
+          │                                          │
+          │    📷 กล้อง                              │
+          │    สูง 0.8–1.2m (ระดับป้ายทะเบียน)       │
+          │    มุมก้ม 5–15°                           │
+          │    ตรงหน้ารถ ไม่เอียงข้าง                │
+          └─────────────────────────────────────────┘
+```
+
+| พารามิเตอร์ | ค่าที่เหมาะสม | ปัจจุบัน (สมมติ) | ปัญหา |
+|------------|:------------:|:---------------:|-------|
+| ความสูงกล้อง | 0.8–1.2m | สูงกว่า 1.5m | ป้ายซ่อนใต้ฝากระโปรง |
+| มุมมองลง (tilt) | 5–15° | > 20° | ป้ายดูสั้นลง ar < 1.5 |
+| ระยะ trigger zone | 3–7m | ไม่แน่นอน | detect ได้แค่ 1–2 เฟรม |
+| แนวกล้อง (pan) | ตรงหน้ารถ ±10° | ไม่ทราบ | ป้ายเอียงข้าง |
+| แสงสว่าง | สม่ำเสมอ ไม่มีแสงจ้าด้านหลัง | ไม่แน่นอน | Laplacian ต่ำ |
+
+#### H.1.2 Vehicle Behavior — พฤติกรรมรถที่เหมาะสม
+
+| พฤติกรรม | ค่าที่เหมาะสม | ผลใน Pipeline |
+|---------|:------------:|--------------|
+| ความเร็ว | 5–20 km/h | ป้ายอยู่ใน detection zone ≥ 3 วินาที → plate_candidates ≥ 3 |
+| ชะลอก่อนป้าย | หยุดหรือ < 5 km/h | plate_crop_buffer เต็ม (5 crops) → เลือก sharpest |
+| จอดตรวจ | 10–120 วินาที | Re-submit OCR กับ crop ที่ดีขึ้น |
+| แนวรถ | ตรง ± 15° | plate aspect ratio ≥ 2.5 |
+
+---
+
+### H.2 เป้าหมายที่ดีที่สุด (Best-Case Targets)
+
+#### H.2.1 ตัวชี้วัดระดับ Pipeline
+
+| Stage | เป้าหมาย | เกณฑ์วัด |
+|-------|---------|---------|
+| **Vehicle detection** | ตรวจพบ 100% ของรถที่ผ่าน | `[VEHICLE] conf ≥ 0.85` ทุกคัน |
+| **Plate detection** | เห็นป้ายใน ≥ 5 เฟรมต่อ pass | `plates=5+` ใน track ก่อน OCR submit |
+| **Plate crop quality** | Laplacian ≥ 200 อย่างน้อย 1 crop | `[PLATE_CROP] lap≥200` |
+| **Plate crop shape** | aspect ratio 2.5–4.5 | `[PLATE_CROP] ar=2.5–4.5` |
+| **OCR submission** | submit crop ที่คมที่สุดจาก buffer | `[OCR_SUBMIT] blur=highest_in_buffer` |
+| **OCR result** | valid Thai plate ≥ 70% ของที่ detect ได้ | `valid=True conf≥0.65` |
+| **Deduplication** | ≤ 1 record ต่อ 1 การผ่าน | ไม่มี DEDUP_REENTRY ในระหว่าง pass เดิม |
+| **End-to-end latency** | OCR patch DB ภายใน 5 วินาทีหลัง pass | `e2e=<5000ms` ใน OCR_DONE |
+
+#### H.2.2 ตัวชี้วัดระดับ Session
+
+| Metric | เป้าหมาย | ยอมรับได้ | ปัจจุบัน (ประมาณ) |
+|--------|:-------:|:--------:|:----------------:|
+| Detection rate | 100% | ≥ 90% | ~100% (vehicle) |
+| Plate detection per pass | ≥ 5 เฟรม | ≥ 2 เฟรม | 1–3 เฟรม |
+| Crop ผ่าน aspect filter | ≥ 80% | ≥ 50% | ยังไม่ทราบ (fix ใหม่) |
+| OCR accuracy (valid plate) | ≥ 80% | ≥ 50% | 0% → garbage |
+| Duplicate records | 0% | 0% | แก้แล้ว (pending verify) |
+| OCR latency (e2e) | < 3s | < 5s | 4.1s (ID 1830) |
+
+---
+
+### H.3 "Perfect Run" — Log Pattern ที่ต้องการ
+
+นี่คือสิ่งที่ต้องการเห็นใน log เมื่อระบบทำงานสมบูรณ์แบบ:
+
+```log
+# รถเข้าเฟรม — ตรวจพบทันที
+15:30:00.100  [TRACK_NEW]   track=5 conf=0.898 size=400×280px — new vehicle
+
+# ป้ายถูก detect หลายเฟรมต่อเนื่อง
+15:30:00.200  [PLATE_CROP]  track=5 crop=280×90px  ar=3.11 lap=320 buf_depth=1
+15:30:00.400  [PLATE_CROP]  track=5 crop=310×95px  ar=3.26 lap=450 buf_depth=2
+15:30:00.600  [PLATE_CROP]  track=5 crop=340×102px ar=3.33 lap=510 buf_depth=3
+15:30:00.800  [PLATE_CROP]  track=5 crop=360×108px ar=3.33 lap=480 buf_depth=4
+
+# DEDUP_NEW — ไม่เคยเห็นรถคันนี้ใน 30s ที่ผ่านมา
+15:30:00.900  [DEDUP_NEW]   track=5 first seen — allow
+
+# บันทึก DB ด้วย best frame (plate visible, score สูงสุด)
+15:30:00.900  [BEST_FRAME_UPDATE] track=5 score 0.000→0.680 plate_visible=YES
+15:30:00.910  [OCR_GATE]    PASS track=5: frames=4 score=0.680 best_lap=510
+
+# OCR submit ด้วย crop ที่ sharp ที่สุดจาก buffer
+15:30:00.920  [OCR_SUBMIT]  track=5 crop=340×102px blur=510 score=0.680
+
+# DB record สร้างแล้ว — ยังไม่มี OCR text
+15:30:00.930  [DB_SAVE]     fid=xxx id=1900 plate='—' v=1 p=1 img=✓ db=12ms
+
+# หลังจากนั้น DEDUP_BLOCK ทุก frame (ป้องกันซ้ำ)
+15:30:01.000  [DEDUP_BLOCK] track=5 elapsed=0.1s < 30.0s — skip
+
+# Tesseract ทำงานใน background ~1.5s
+# _flush_pending_ocr() เจอ result → patch DB
+15:30:02.450  [OCR_DONE]    ✅ track=5 text='กข 1234 กรุงเทพ' valid=True conf=0.820
+15:30:02.460  [OCR_FLUSH]   1 result(s) flushed pending_remaining=0
+
+# ผลลัพธ์สุดท้ายใน DB
+# ID 1900 | plate_confidence=0.85 | ocr_results=[{text:'กข 1234 กรุงเทพ', conf:0.82}]
+# parallel_ocr_success=1
+```
+
+**เงื่อนไขที่ต้องเป็นจริงพร้อมกัน:**
+1. `plate=` ใน FRAME_SCORE ≠ 0 ใน ≥ 3 consecutive frames
+2. `[PLATE_CROP]` ปรากฏ ≥ 3 ครั้ง ไม่มี `PLATE_CROP_SKIP`
+3. `[OCR_GATE] PASS` พร้อม `best_lap ≥ 200`
+4. `[OCR_DONE] valid=True conf ≥ 0.65`
+5. ไม่มี `[DEDUP_REENTRY]` ขณะรถยังอยู่ใน pass เดิม
+
+---
+
+### H.4 สถานการณ์การใช้งานจริง และเป้าหมายต่อสถานการณ์
+
+#### Scenario 1 — ทางเข้าออกประตู (Gate) ความเร็วต่ำ
+
+```
+รถชะลอ → หยุดที่ป้าย → เปิดประตู → ผ่านไป
+ความเร็ว: 3–10 km/h
+เวลาในเฟรม: 5–20 วินาที
+```
+
+| เป้าหมาย | ค่า |
+|---------|-----|
+| Detect plate | ≥ 5 เฟรม |
+| Best crop lap | ≥ 300 |
+| OCR accuracy | ≥ 90% |
+| Records per pass | 1 เท่านั้น |
+| Latency (save → OCR patch) | < 3s |
+
+**ความท้าทาย:** รถจอดนาน → long stop dedup ต้องทำงาน (fix pending)
+
+#### Scenario 2 — ถนนภายใน ความเร็วปานกลาง
+
+```
+รถขับผ่านโดยไม่หยุด
+ความเร็ว: 15–30 km/h
+เวลาในเฟรม: 1–3 วินาที
+```
+
+| เป้าหมาย | ค่า |
+|---------|-----|
+| Detect plate | ≥ 2 เฟรม |
+| Best crop lap | ≥ 150 |
+| OCR accuracy | ≥ 70% |
+| Records per pass | 1 เท่านั้น |
+| Latency | < 5s |
+
+**ความท้าทาย:** เวลาในเฟรมน้อย → buffer มี crop ไม่กี่ชิ้น
+
+#### Scenario 3 — พื้นที่ที่มีรถหลายคันพร้อมกัน
+
+```
+รถหลายคันในเฟรมเดียวกัน
+```
+
+| เป้าหมาย | ค่า |
+|---------|-----|
+| ไม่ mix track ข้าม vehicle | IoU tracking ถูกต้อง |
+| แต่ละรถได้ record แยกกัน | 1 record / 1 vehicle |
+| ไม่มี cross-track OCR | track_id ใน OcrTask ตรงกับ record |
+
+**ความท้าทาย:** `apply_deduplication_rules()` ต้องกรองซ้อนทับ track ได้ถูกต้อง
+
+#### Scenario 4 — กลางคืน / แสงน้อย (aicamera2 NoIR)
+
+```
+aicamera2: IMX708 NoIR ไม่มี IR cut filter
+```
+
+| เป้าหมาย | ค่า |
+|---------|-----|
+| Camera FPS | 30fps stable |
+| Plate Laplacian | ≥ 100 (ลดลงเพราะแสงน้อย) |
+| OCR accuracy | ≥ 50% (ยอมรับต่ำลง) |
+
+**ความท้าทาย:** Laplacian ต่ำลงตามปริมาณแสง — `_ocr_min_crop_lap` อาจต้องปรับตามช่วงเวลา
+
+---
+
+### H.5 เกณฑ์วัดความสำเร็จ (Definition of Done)
+
+ระบบถือว่า **"พร้อม Production"** เมื่อผ่านเกณฑ์ทั้งหมดนี้ใน field test ที่ controlled:
+
+```
+✅ ไม่มี Duplicate records  (DEDUP ทำงาน 100%)
+✅ OCR accuracy ≥ 70%       (valid Thai plate / total plates detected)
+✅ Zero OCR stranded         (OCR_FLUSH ทุก result ถูก patch ลง DB)
+✅ No PLATE_CROP_SKIP > 50%  (กล้อง/มุม setup ถูกต้อง)
+✅ Laplacian ≥ 150 avg       (ภาพป้ายคมพอ)
+✅ e2e latency < 5s          (ตั้งแต่ frame ถึง OCR patch)
+✅ ≥ 3 plate crops ต่อ pass  (ป้ายถูก detect หลายเฟรม)
+✅ No crash ใน 30 นาที       (system stability)
+```
+
+**Stretch goals (อนาคต):**
+```
+🎯 OCR accuracy ≥ 90%
+🎯 plate detected ใน ≥ 80% ของเฟรมขณะรถอยู่ใน zone
+🎯 e2e latency < 2s
+🎯 รองรับรถ 2 คันพร้อมกันโดยไม่ผิดพลาด
+```
+
+---
+
+### H.6 Gap Analysis — ปัจจุบัน vs เป้าหมาย
+
+| ด้าน | เป้าหมาย | ปัจจุบัน | Gap | แนวทางแก้ |
+|------|---------|---------|:---:|-----------|
+| Plate crops per pass | ≥ 5 | 1–2 | ❌ ใหญ่ | ปรับมุม/ความสูงกล้อง + ลด `PLATE_CONFIDENCE_THRESHOLD` |
+| Crop aspect ratio | ar ≥ 2.5 | ar ≈ 1.0 | ❌ ใหญ่ | ปรับ angle กล้อง (hardware) |
+| Crop Laplacian | ≥ 200 | 65–150 | ⚠️ กลาง | ปรับ focus / แสงสว่าง + aspect fix |
+| OCR valid rate | ≥ 70% | ~0% (garbage) | ❌ ใหญ่ | ขึ้นอยู่กับ 2 ข้อบน |
+| Duplicate records | 0% | ~0% (fix ใหม่) | ✅ แก้แล้ว | verify รอบถัดไป |
+| OCR stranded | 0% | 0% (fix ใหม่) | ✅ แก้แล้ว | verify รอบถัดไป |
+| Long-stop dedup | 100% | ยังไม่แก้ | ⚠️ pending | commit DEDUP_BLOCK_CONTINUOUS |
+| System stability | no crash | ✅ stable | ✅ OK | — |
+
+**สรุป Gap ที่สำคัญที่สุด:**
+
+```
+Root gap เดียวที่ทำให้ทุกอย่างล้มเหลว:
+  กล้องมองเห็นป้ายทะเบียนในมุมที่ LP model ไม่ถนัด
+  → plate=0.000 นาน → detect ได้ 1 เฟรม → crop ผิดรูป → OCR garbage
+
+การแก้ hardware (ความสูง/มุมกล้อง) คือ prerequisite
+ก่อนที่การ tune software จะมีผล
+```
+
+---
+
+### H.7 Decision Tree — เมื่อ OCR ยังไม่ทำงาน
+
+```
+OCR result = empty / garbage
+          │
+          ├─ PLATE_CROP_SKIP เยอะ (> 50% ของ detections)
+          │         │
+          │         ├─ ar < 1.5 ทั้งหมด → ปัญหา Hardware
+          │         │   → ปรับมุมกล้อง ลดความสูง ให้มองตรงป้าย
+          │         │
+          │         └─ W < 80px ทั้งหมด → รถไกลเกิน
+          │             → ปรับ focal length หรือ trigger zone
+          │
+          ├─ PLATE_CROP ผ่านแต่ OCR_GATE SKIP (lap < 80)
+          │         │
+          │         ├─ lap = 50–79 → ลด _ocr_min_crop_lap เป็น 50
+          │         │
+          │         └─ lap < 50 ทุก crop → blur จาก focus หรือแสง
+          │             → ตรวจ camera focus, เพิ่มแสง
+          │
+          ├─ OCR_GATE PASS แต่ valid=False
+          │         │
+          │         ├─ text = garbage ("ก oe . ay")
+          │         │   → crop ยังไม่ดีพอ แม้ผ่าน lap gate
+          │         │   → เพิ่ม _ocr_min_crop_lap เป็น 120
+          │         │
+          │         └─ text = Thai chars แต่ format ผิด
+          │             → tune validate_thai_plate() regex
+          │             → ทดสอบ PSM 6/7 แทน PSM 11
+          │
+          └─ OCR_DONE valid=True แต่ไม่ patch ลง DB
+                    │
+                    └─ ดู OCR_FLUSH token
+                        → ถ้าไม่มี: _flush_pending_ocr bug
+                        → ถ้ามี: _update_db_ocr SQL error
+```
+
+---
+
 *อัพเดต: 2026-06-10 ระหว่าง session | PWD Vision Works*
