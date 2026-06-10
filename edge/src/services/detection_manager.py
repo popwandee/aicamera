@@ -191,6 +191,42 @@ class DetectionManager:
     # Core pipeline
     # ──────────────────────────────────────────────────────────────────
 
+    # ──────────────────────────────────────────────────────────────────
+    # Async OCR flush — must run every frame regardless of detection gate
+    # ──────────────────────────────────────────────────────────────────
+
+    def _flush_pending_ocr(self, detect_fid: int):
+        """
+        Drain completed async OCR results and patch their DB records.
+
+        Called unconditionally at the TOP of every process_frame() invocation —
+        before any early-return gate.  This guarantees Tesseract results are
+        written to the DB even when:
+          • the vehicle has already left the frame, OR
+          • all subsequent frames are suppressed by DEDUP_BLOCK.
+
+        Without this, poll_ocr_results() would only run when a NEW vehicle is
+        detected, stranding every OCR result from a single-vehicle drive-by.
+        """
+        async_worker = getattr(self.detection_processor, 'ocr_queue_worker', None)
+        if not async_worker or not self._pending_ocr_updates:
+            return
+        polled = self.detection_processor.poll_ocr_results()
+        if not polled:
+            return
+        for res in polled:
+            rid = self._pending_ocr_updates.pop(res.get('track_id'), None)
+            if rid and self.database_manager:
+                self._update_db_ocr(rid, [res])
+        self.detection_stats['successful_ocr'] += len(polled)
+        self.logger.info(
+            f"[OCR_FLUSH] fid={detect_fid} {len(polled)} result(s) flushed "
+            f"pending_remaining={len(self._pending_ocr_updates)}")
+
+    # ──────────────────────────────────────────────────────────────────
+    # Core pipeline
+    # ──────────────────────────────────────────────────────────────────
+
     def process_frame(self, frame) -> Optional[Dict[str, Any]]:
         """
         Run one LPR frame through the full pipeline.
@@ -202,6 +238,11 @@ class DetectionManager:
         self.detection_stats['total_frames_processed'] += 1
 
         try:
+            # Flush completed async OCR before any early-return gate.
+            # Must run every frame so results aren't stranded when the vehicle
+            # leaves frame and no new detections trigger _handle_ocr.
+            self._flush_pending_ocr(detect_fid)
+
             # 1. Validate & enhance
             enhanced = self.detection_processor.validate_and_enhance_frame(frame)
             if enhanced is None:
@@ -368,24 +409,15 @@ class DetectionManager:
 
     def _handle_ocr(self, detect_fid, plate_boxes, enhanced_frame, tracks) -> List[Dict]:
         """
-        Poll completed async OCR results; submit new plate crops to the queue.
-        Falls back to synchronous OCR when no async worker is present.
+        Submit plate crops to the async OCR queue; fall back to sync OCR.
+
+        NOTE: polling of completed async results is handled exclusively by
+        _flush_pending_ocr(), which runs unconditionally at the top of every
+        process_frame() before any early-return gate.  Do NOT add a poll here —
+        it would double-count results and miss flushes on deduped frames.
         """
         async_worker = getattr(self.detection_processor, 'ocr_queue_worker', None)
         ocr_results: List[Dict] = []
-
-        # Poll results from earlier frames
-        if async_worker:
-            polled = self.detection_processor.poll_ocr_results()
-            if polled:
-                ocr_results.extend(polled)
-                for res in polled:
-                    rid = self._pending_ocr_updates.pop(res.get('track_id'), None)
-                    if rid and self.database_manager:
-                        self._update_db_ocr(rid, [res])
-                self.logger.info(
-                    f"[OCR_POLLED] fid={detect_fid} {len(polled)} result(s) "
-                    f"pending_remaining={len(self._pending_ocr_updates)}")
 
         # Submit this frame's plates
         if plate_boxes:
@@ -507,24 +539,22 @@ class DetectionManager:
                 self._cleanup_old_tracks(now)
                 self.last_track_cleanup = now
 
-            # Layer 1
+            # Layer 1 — track_id + time window (no IoU check)
+            # Same track_id within reentry_time_threshold is always blocked,
+            # regardless of current bbox position.  The IoU check was removed
+            # because a vehicle traversing the frame changes position enough
+            # that IoU(current, saved) drops below the threshold, creating a
+            # false "vehicle moved, allow" path that produces duplicate records.
             track_id = track.track_id
             info = self.recent_tracks.get(track_id)
             if info:
                 elapsed = now - info['last_saved']
                 if elapsed < self.reentry_time_threshold:
-                    iou = (self.detection_processor._calculate_iou(
-                               track.bbox, info['bbox'])
-                           if hasattr(self.detection_processor, '_calculate_iou') else 1.0)
-                    if iou > self.iou_threshold:
-                        self.logger.info(
-                            f"[DEDUP_BLOCK] track={track_id} "
-                            f"iou={iou:.3f} elapsed={elapsed:.1f}s "
-                            f"prev='{info.get('plate_text','?')}' — skip")
-                        return False
                     self.logger.info(
-                        f"[DEDUP_PASS_IOU] track={track_id} "
-                        f"iou={iou:.3f} < {self.iou_threshold} — vehicle moved, allow")
+                        f"[DEDUP_BLOCK] track={track_id} "
+                        f"elapsed={elapsed:.1f}s < {self.reentry_time_threshold}s "
+                        f"prev='{info.get('plate_text','?')}' — skip")
+                    return False
                 else:
                     self.logger.info(
                         f"[DEDUP_REENTRY] track={track_id} "
