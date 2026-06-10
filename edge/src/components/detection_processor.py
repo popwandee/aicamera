@@ -1914,6 +1914,30 @@ class DetectionProcessor:
                         f"frame_count={track.frame_count} "
                         f"plate_visible=YES plates_so_far={len(track.plate_candidates)}"
                     )
+
+                # Populate plate_crop_buffer for async OCR.
+                # This is the ONLY place crops are added — submit_for_ocr picks the
+                # sharpest one.  Without this, plate_crop_buffer stays empty and
+                # submit_for_ocr always returns False silently.
+                try:
+                    x1 = max(0, int(plate_bbox[0]))
+                    y1 = max(0, int(plate_bbox[1]))
+                    x2 = min(frame.shape[1], int(plate_bbox[2]))
+                    y2 = min(frame.shape[0], int(plate_bbox[3]))
+                    if x2 > x1 and y2 > y1:
+                        crop = frame[y1:y2, x1:x2].copy()
+                        if crop.size > 0:
+                            gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY) \
+                                   if crop.ndim == 3 else crop
+                            lap = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+                            track.plate_crop_buffer.append((lap, crop))
+                            self.logger.info(
+                                f"[PLATE_CROP] track={track.track_id} "
+                                f"crop={x2-x1}×{y2-y1}px lap={lap:.0f} "
+                                f"buf_depth={len(track.plate_crop_buffer)}")
+                except Exception as _crop_err:
+                    self.logger.debug(f"[PLATE_CROP] crop error: {_crop_err}")
+
             else:
                 # No plate in this frame — update score for tracking only (no frame copy)
                 # This prevents rear/side views from becoming the OCR source
