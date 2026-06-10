@@ -195,8 +195,12 @@ class DetectionProcessor:
         self.tracking_enabled = TRACKING_ENABLED
         self.next_track_id = 1
         self.active_tracks: Dict[int, VehicleTrack] = {}
-        self.track_timeout = 8.0  # seconds (extended from 5s for roadside vehicles at speed)
         self.reentry_time_threshold = REENTRY_TIME_THRESHOLD  # seconds for deduplication (from config)
+        # track_timeout must be >= reentry_time_threshold so the same physical vehicle
+        # keeps the same track_id within the dedup window.  If track_timeout < reentry_time_threshold,
+        # a vehicle that briefly drops below confidence threshold expires, gets a new track_id,
+        # and bypasses the manager's recent_tracks dedup check → duplicate DB records.
+        self.track_timeout = REENTRY_TIME_THRESHOLD  # 30 s (matches dedup window)
         self.iou_threshold = IOU_THRESHOLD  # IoU threshold for tracking (from config)
         
         # Best Frame Selection

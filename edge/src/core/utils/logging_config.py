@@ -86,21 +86,6 @@ def setup_logging(
     console_handler.setLevel(logging.WARNING)
     root_logger.addHandler(console_handler)
     
-    # Custom filter: allow INFO in file only for start/stop events; always allow WARNING/ERROR
-    class StartStopInfoFilter(logging.Filter):
-        KEYWORDS = (
-            'Initialized', 'Initializing', 'Started', 'Starting',
-            'Stopped', 'Stopping', 'Shutting down', 'Shutdown',
-            'Start', 'Stop'
-        )
-        def filter(self, record: logging.LogRecord) -> bool:
-            if record.levelno >= logging.WARNING:
-                return True
-            if record.levelno == logging.INFO:
-                msg = str(record.getMessage())
-                return any(kw in msg for kw in self.KEYWORDS)
-            return False  # drop DEBUG and other INFO
-
     # Custom filter: suppress known noisy third-party messages
     class MessageSuppressFilter(logging.Filter):
         SUPPRESS_SUBSTRINGS = (
@@ -123,9 +108,7 @@ def setup_logging(
             atTime=datetime.strptime('00:01', '%H:%M').time()  # Rotate at 00:01
         )
         file_handler.setFormatter(detailed_formatter)
-        # File logs: WARNING/ERROR by default; allow limited INFO via filter
         file_handler.setLevel(logging.INFO)
-        file_handler.addFilter(StartStopInfoFilter())
         file_handler.addFilter(MessageSuppressFilter())
         root_logger.addHandler(file_handler)
 
