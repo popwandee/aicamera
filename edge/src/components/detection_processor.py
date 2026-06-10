@@ -219,7 +219,7 @@ class DetectionProcessor:
         self._async_ocr_enabled: bool = True   # set False to fall back to sync
 
         # Gatekeeper thresholds for async submit
-        self._ocr_min_plate_frames: int = 3    # wait for N frames before OCR
+        self._ocr_min_plate_frames: int = 1    # min plate frames before OCR (1 = submit on first clear plate, quality filtered by best_frame_score)
         self._ocr_min_frame_score: float = 0.3 # minimum best_frame_score
 
         # ROI trigger zone — loaded from config / .env (normalised 0-1)
