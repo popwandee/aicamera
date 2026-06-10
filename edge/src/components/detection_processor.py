@@ -1948,34 +1948,66 @@ class DetectionProcessor:
                     )
 
                 # Populate plate_crop_buffer for async OCR.
-                # Only accept crops that look like a real plate:
-                #   • aspect W/H >= 1.5  (Thai plates are wide, not square)
-                #   • width  >= 80 px    (minimum for Tesseract to read)
-                #   • height >= 20 px
+                #
+                # Gate order (fail-fast):
+                #   1. ar >= 1.5 on the RAW (unpadded) bbox — rejects square
+                #      false positives (bumpers, bodywork) before any work.
+                #   2. Apply 25% safe padding to give Tesseract context pixels.
+                #   3. padded W >= 120px AND H >= 45px — minimum for reliable
+                #      LSTM OCR on Thai plates at MAIN=2304×1296 resolution.
+                #
+                # Laplacian is measured AFTER applying CLAHE so the sharpness
+                # score reflects the same contrast-normalised image that
+                # preprocess_plate_crop() will send to Tesseract.
+                #
                 # submit_for_ocr picks the highest-Laplacian crop from the buffer.
                 try:
-                    x1 = max(0, int(plate_bbox[0]))
-                    y1 = max(0, int(plate_bbox[1]))
-                    x2 = min(frame.shape[1], int(plate_bbox[2]))
-                    y2 = min(frame.shape[0], int(plate_bbox[3]))
-                    cw, ch = x2 - x1, y2 - y1
-                    aspect = cw / ch if ch > 0 else 0.0
-                    if cw >= 80 and ch >= 20 and aspect >= 1.5:
-                        crop = frame[y1:y2, x1:x2].copy()
-                        if crop.size > 0:
-                            gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY) \
-                                   if crop.ndim == 3 else crop
-                            lap = float(cv2.Laplacian(gray, cv2.CV_64F).var())
-                            track.plate_crop_buffer.append((lap, crop))
-                            self.logger.info(
-                                f"[PLATE_CROP] track={track.track_id} "
-                                f"crop={cw}×{ch}px ar={aspect:.2f} lap={lap:.0f} "
-                                f"buf_depth={len(track.plate_crop_buffer)}")
-                    else:
+                    x1_raw = int(plate_bbox[0]); y1_raw = int(plate_bbox[1])
+                    x2_raw = int(plate_bbox[2]); y2_raw = int(plate_bbox[3])
+                    cw_raw = x2_raw - x1_raw
+                    ch_raw = y2_raw - y1_raw
+                    aspect = cw_raw / ch_raw if ch_raw > 0 else 0.0
+
+                    if aspect < 1.5:
+                        # Square / tall crop → false positive (bumper, bodywork)
                         self.logger.info(
                             f"[PLATE_CROP_SKIP] track={track.track_id} "
-                            f"crop={cw}×{ch}px ar={aspect:.2f} — rejected "
-                            f"(need W>=80 H>=20 ar>=1.5)")
+                            f"raw={cw_raw}×{ch_raw}px ar={aspect:.2f} "
+                            f"— rejected (ar<1.5, likely false positive)")
+                    else:
+                        # Apply safe padding: +25% on each side
+                        pad_x = max(10, int(cw_raw * 0.25))
+                        pad_y = max(5,  int(ch_raw * 0.25))
+                        x1 = max(0, x1_raw - pad_x)
+                        y1 = max(0, y1_raw - pad_y)
+                        x2 = min(frame.shape[1], x2_raw + pad_x)
+                        y2 = min(frame.shape[0], y2_raw + pad_y)
+                        cw, ch = x2 - x1, y2 - y1
+
+                        if cw >= 120 and ch >= 45:
+                            crop = frame[y1:y2, x1:x2].copy()
+                            if crop.size > 0:
+                                gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY) \
+                                       if crop.ndim == 3 else crop
+                                # Measure sharpness on CLAHE-enhanced image
+                                # (same normalisation path as preprocess_plate_crop)
+                                _clahe = cv2.createCLAHE(
+                                    clipLimit=3.0, tileGridSize=(4, 4))
+                                gray_enh = _clahe.apply(gray)
+                                lap = float(cv2.Laplacian(gray_enh, cv2.CV_64F).var())
+                                track.plate_crop_buffer.append((lap, crop))
+                                self.logger.info(
+                                    f"[PLATE_CROP] track={track.track_id} "
+                                    f"raw={cw_raw}×{ch_raw}px "
+                                    f"padded={cw}×{ch}px "
+                                    f"ar={aspect:.2f} lap={lap:.0f} "
+                                    f"buf_depth={len(track.plate_crop_buffer)}")
+                        else:
+                            self.logger.info(
+                                f"[PLATE_CROP_SKIP] track={track.track_id} "
+                                f"raw={cw_raw}×{ch_raw}px padded={cw}×{ch}px "
+                                f"ar={aspect:.2f} "
+                                f"— rejected (need padded W>=120 H>=45)")
                 except Exception as _crop_err:
                     self.logger.debug(f"[PLATE_CROP] crop error: {_crop_err}")
 

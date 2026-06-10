@@ -43,7 +43,7 @@ class OcrTask:
     det_confidence: float
     frame_timestamp: float          # time.time() when frame was captured
     camera_id: str
-    submitted_at: float = field(default_factory=time.time)
+    submitted_at: float = field(default_factory=time.perf_counter)  # perf_counter so queue_wait_ms is correct
 
 
 @dataclass

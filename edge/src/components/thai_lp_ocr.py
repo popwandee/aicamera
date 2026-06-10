@@ -259,6 +259,10 @@ class ThaiLPROCR:
         if not self._ready or self._pytesseract is None:
             return {'success': False, 'text': '', 'confidence': 0.0,
                     'error': 'ThaiLPROCR not loaded'}
+        # Hard timeout per Tesseract call.  PSM 11 on a square/large crop
+        # (false positive) can take 4+ seconds and stall the OCR queue.
+        _TESS_TIMEOUT = 2  # seconds per individual image_to_* call
+
         try:
             bw = _prepare_for_tess(crop)
 
@@ -267,12 +271,21 @@ class ThaiLPROCR:
             cfg11 = '--oem 3 --psm 11'
             cfg6  = '--oem 3 --psm 6'
 
-            text11 = self._pytesseract.image_to_string(
-                bw, lang=_TESS_LANG, config=cfg11
-            ).strip()
-            text6 = self._pytesseract.image_to_string(
-                bw, lang=_TESS_LANG, config=cfg6
-            ).strip()
+            try:
+                text11 = self._pytesseract.image_to_string(
+                    bw, lang=_TESS_LANG, config=cfg11, timeout=_TESS_TIMEOUT
+                ).strip()
+            except RuntimeError:
+                self._log.warning('ThaiLPROCR: PSM 11 timed out')
+                text11 = ''
+
+            try:
+                text6 = self._pytesseract.image_to_string(
+                    bw, lang=_TESS_LANG, config=cfg6, timeout=_TESS_TIMEOUT
+                ).strip()
+            except RuntimeError:
+                self._log.warning('ThaiLPROCR: PSM 6 timed out')
+                text6 = ''
 
             # Prefer the result that has more Thai consonants (key signal for plates)
             def thai_count(t): return sum(1 for c in t if 'ก' <= c <= 'ฮ')
@@ -286,12 +299,17 @@ class ThaiLPROCR:
             raw_text = ' '.join(raw_text.split())
 
             # Estimate confidence via image_to_data
-            data = self._pytesseract.image_to_data(
-                bw, lang=_TESS_LANG, config=cfg11,
-                output_type=self._pytesseract.Output.DICT
-            )
-            confs = [c for c in data['conf'] if isinstance(c, (int, float)) and c >= 0]
-            avg_conf = float(np.mean(confs)) / 100.0 if confs else 0.5
+            try:
+                data = self._pytesseract.image_to_data(
+                    bw, lang=_TESS_LANG, config=cfg11,
+                    output_type=self._pytesseract.Output.DICT,
+                    timeout=_TESS_TIMEOUT,
+                )
+                confs = [c for c in data['conf'] if isinstance(c, (int, float)) and c >= 0]
+                avg_conf = float(np.mean(confs)) / 100.0 if confs else 0.5
+            except RuntimeError:
+                self._log.warning('ThaiLPROCR: image_to_data timed out, using 0.5 conf')
+                avg_conf = 0.5
 
             validation = validate_thai_plate(raw_text)
 
