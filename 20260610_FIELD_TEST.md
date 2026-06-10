@@ -2,7 +2,7 @@
 **Date:** 2026-06-10  
 **Location:** Gate / Driveway — PWD Vision Works  
 **Tester:** PWD Vision Works  
-**Status:** 🟠 In Progress — multiple bugs found and fixed during session
+**Status:** 🟡 Day Session Complete — Morning Retest Pending (20260611)
 
 ---
 
@@ -35,13 +35,6 @@ tesseract --version 2>&1 | head -1
 sudo systemctl is-active aicamera_lpr.service
 ```
 
-| Item | aicamera1 | aicamera2 | Expected |
-|------|-----------|-----------|----------|
-| Git commit | | | `e030736` or later |
-| Python | | | 3.11.x |
-| Tesseract | | | 5.x |
-| Service status | | | active (running) |
-
 Last login: Tue Jun  9 18:53:22 2026
 camuser@aicamera1:~ $ git -C ~/aicamera log --oneline -1
 e030736 (HEAD -> main, origin/main, origin/HEAD) fix(ocr): lower _ocr_min_plate_frames 3 → 1 to fix no-OCR on fast vehicles
@@ -70,13 +63,6 @@ grep -E "DETECTION_INTERVAL|ROI_ENABLED|CAMERA_FPS|OCR_MIN|DEDUP|AICAMERA_ID" \
      ~/aicamera/edge/installation/.env.production
 ```
 
-| Config | aicamera1 | aicamera2 | Expected |
-|--------|-----------|-----------|----------|
-| `DETECTION_INTERVAL` | | | `0.1` |
-| `CAMERA_FPS` | | | `30` |
-| `ROI_ENABLED` | | | `false` (or absent) |
-| `AICAMERA_ID` | | | `1` / `2` |
-
 camuser@aicamera1:~ $ grep -E "DETECTION_INTERVAL|ROI_ENABLED|CAMERA_FPS|OCR_MIN|DEDUP|AICAMERA_ID" \
      ~/aicamera/edge/installation/.env.production
 #AICAMERA_ID       — unique integer (1 for aicamera1, 2 for aicamera2)
@@ -102,13 +88,6 @@ ROI_ENABLED=false
 journalctl -u aicamera_lpr.service | grep -E "loaded|OCR_WORKER|ERROR" | tail -20
 ```
 
-| Model/Component | aicamera1 | aicamera2 |
-|----------------|-----------|-----------|
-| Vehicle model loaded | ☐ | ☐ |
-| LP detection model loaded | ☐ | ☐ |
-| ThaiLPROCR / Tesseract init | ☐ | ☐ |
-| `[OCR_WORKER] Started` | ☐ | ☐ |
- no results
 ### 1.4 ROI Status (critical — verify disabled)
 
 ```bash
@@ -117,11 +96,6 @@ curl -s http://aicamera2.tail605477.ts.net/detection/roi | python3 -m json.tool
 ```
 
 Expected response: `"enabled": false`
-
-| Camera | ROI enabled | x1/y1/x2/y2 | Notes |
-|--------|:-----------:|-------------|-------|
-| aicamera1 | ☐ false | | |
-| aicamera2 | ☐ false | | |
 
 camuser@aicamera1:~ $ curl -s http://aicamera1.tail605477.ts.net/detection/roi | python3 -m json.tool
 {
@@ -156,13 +130,6 @@ curl -s http://aicamera2.tail605477.ts.net/detection/status | python3 -m json.to
 ```
 
 Record before any vehicle passes:
-
-| Counter | aicamera1 | aicamera2 |
-|---------|-----------|-----------|
-| `total_processed` | | |
-| `successful_ocr` | | |
-| `frames_processed` | | |
-| `ocr_queue_drops` | | |
 
 camuser@aicamera1:~ $ curl -s http://aicamera1.tail605477.ts.net/detection/status | python3 -m json.tool
 {
@@ -296,16 +263,6 @@ Perform each run one at a time. Allow 30 s between runs so dedup window resets.
 
 | Run | Time | Speed | Actual Plate | cam1 `[OCR_GATE]` | cam1 OCR Text | cam1 Correct? | cam2 `[OCR_GATE]` | cam2 OCR Text | cam2 Correct? | Notes |
 |-----|------|-------|-------------|:-----------------:|--------------|:-------------:|:-----------------:|--------------|:-------------:|-------|
-| R01 | | ~10 km/h | | PASS/SKIP | | ☐ | PASS/SKIP | | ☐ | |
-| R02 | | ~10 km/h | | | | ☐ | | | ☐ | |
-| R03 | | ~30 km/h | | | | ☐ | | | ☐ | |
-| R04 | | ~30 km/h | | | | ☐ | | | ☐ | |
-| R05 | | ~30 km/h | | | | ☐ | | | ☐ | |
-| R06 | | ~60 km/h | | | | ☐ | | | ☐ | |
-| R07 | | ~60 km/h | | | | ☐ | | | ☐ | |
-| R08 | | ~60 km/h | | | | ☐ | | | ☐ | |
-| R09 | | Same plate ×2 fast | | | | ☐ | | | ☐ | dedup verify |
-| R10 | | Same plate ×2 slow | | | | ☐ | | | ☐ | dedup verify |
 
 ---
 
@@ -328,8 +285,7 @@ grep "\[VEHICLE\]" aicamera.log | awk '{for(i=1;i<=NF;i++) if($i~/conf=/) print 
 | Run | cam1 conf | cam1 bbox | cam2 conf | cam2 bbox | Notes |
 |-----|-----------|-----------|-----------|-----------|-------|
 | R01 | | | | | |
-| R02 | | | | | |
-| R03 | | | | | |
+
 
 **Threshold:** `VEHICLE_CONFIDENCE_THRESHOLD` (default 0.3). Any `[PLATE_NONE]` where vehicle conf ≥ 0.5 is a plate detection miss.
 
@@ -343,8 +299,7 @@ grep -E "\[(PLATE|PLATE_SKIP|PLATE_NONE)\]" aicamera.log | tail -30
 
 | Run | cam1 plate_conf | cam1 size WxH | cam1 aspect | cam2 plate_conf | cam2 size | Token |
 |-----|:--------------:|:-------------:|:-----------:|:--------------:|:---------:|-------|
-| R01 | | | | | | `[PLATE]` |
-| R02 | | | | | | |
+
 
 **Check:**
 - [ ] `[PLATE_SKIP]` count = 0 (no plates filtered below threshold)
@@ -366,9 +321,7 @@ Expected after `e030736` fix: `PASS` for all runs where plate detected.
 
 | Run | cam1 result | cam1 reason | cam2 result | cam2 reason |
 |-----|:-----------:|-------------|:-----------:|-------------|
-| R01 | PASS/SKIP | | PASS/SKIP | |
-| R03 | | | | |
-| R06 | | | | |
+
 
 ```bash
 # Summary of SKIP reasons across all runs
@@ -416,9 +369,7 @@ Each result line should contain: `text=`, `valid=True/False`, `conf=`, `preproce
 
 | Run | cam1 text | cam1 valid | cam1 conf | cam2 text | cam2 valid | cam2 conf |
 |-----|-----------|:---------:|:---------:|-----------|:---------:|:---------:|
-| R01 | | | | | | |
-| R02 | | | | | | |
-| R03 | | | | | | |
+
 
 **Validate Thai plate format:** `X XX nnnn` or `XX nnnn` + province name.
 
@@ -1102,10 +1053,28 @@ Timeline ตัวอย่าง (ID 1828, track=1):
 | 6 | `5bf66aa` | `detection_processor.py` | ไม่มี aspect ratio filter บน plate crop | ปฏิเสธ W/H < 1.5 หรือ W < 80px |
 | 7 | `5bf66aa` | `detection_processor.py` | ไม่มี minimum Laplacian gate | `OCR_GATE SKIP` ถ้า best_lap < 80 |
 | 8 | `5bf66aa` | `detection_processor.py` | OCR submit ไม่มีโอกาส re-try ด้วย crop ที่ดีกว่า | Re-submit ถ้า new_lap ≥ 3× submitted_lap |
+| 9 | `a10fa49` | `detection_processor.py` | Crop ถูก clip ที่ขอบเฟรม → ป้ายขาด | Safe padding: เพิ่ม padding รอบ bbox ก่อน crop, clamp ไม่ให้เกินขอบ |
+| 10 | `a10fa49` | `detection_processor.py` | Laplacian คำนวณก่อน CLAHE → ค่า blur สูงเกินจริง | คำนวณ Laplacian หลัง CLAHE (ค่าสะท้อนความคมจริง) |
+| 11 | `a10fa49` | `ocr_queue_worker.py` | queue_wait ไม่มี timeout → OCR task ค้างเมื่อ queue เต็ม | เพิ่ม `queue_wait` timeout และ log warning |
+| 12 | `a10fa49` | `thai_lp_ocr.py` | Tesseract hang นาน > 5s บางครั้ง | เพิ่ม timeout subprocess — kill ถ้าเกินกำหนด |
+
+### D.1 ปัญหา cam2 sync ระหว่าง session
+
+cam2 restart ล้มเหลวเงียบๆ หลัง deploy `41f298e` และ `5bf66aa` — service ไม่ได้รัน code ใหม่  
+ตรวจพบจากการดู log: cam2 ไม่มี detection token หลัง 14:45  
+แก้ไข: SSH เข้าไป git pull + systemctl restart โดยตรง  
+
+**Final sync (ท้าย session):** ทั้ง 3 เครื่องอยู่ที่ commit `a10fa49`
+
+| เครื่อง | Commit | Service |
+|---------|:------:|:-------:|
+| Mac (local) | `a10fa49` | — |
+| aicamera1 | `a10fa49` | active ✅ |
+| aicamera2 | `a10fa49` | active ✅ |
 
 ---
 
-## E. สถานะ Pipeline ล่าสุด (commit `5bf66aa`)
+## E. สถานะ Pipeline ล่าสุด (commit `a10fa49`)
 
 ### E.1 Pipeline Flow ปัจจุบัน
 
@@ -1179,10 +1148,12 @@ _persist_record() → SQLite insert
 | `PLATE_CONFIDENCE` | 0.5 | `.env.production` | อาจต้องลดเพื่อ detect ป้ายที่มุมต่างๆ |
 | `_ocr_min_plate_frames` | 1 | code | submit ได้ทันที่มี plate 1 frame |
 | `_ocr_min_frame_score` | 0.3 | code | quality gate |
-| `_ocr_min_crop_lap` | 80 | code | Laplacian min (0=disable) |
+| `_ocr_min_crop_lap` | 80 | code | Laplacian หลัง CLAHE (a10fa49) |
 | `_ocr_resubmit_ratio` | 3.0 | code | re-submit threshold |
 | `plate_crop_buffer` maxlen | 5 | code | เก็บ 5 best crops |
 | OCR queue maxsize | 10 | code | |
+| `safe_padding` | 8px | code | padding รอบ bbox ก่อน crop (a10fa49) |
+| Tesseract timeout | 5s | code | kill หาก Tesseract hang (a10fa49) |
 
 ---
 
@@ -1235,8 +1206,7 @@ _persist_record() → SQLite insert
 - หลังจาก save/OCR submit → plate=0.000 อีกครั้ง
 
 สมมติฐาน:
-- กล้องติดสูง มองลงมา → ป้ายซ่อนอยู่ใต้ฝากระโปรงช่วงรถเข้าหา
-- LP model ถูก train กับภาพป้ายในแนวระดับ ไม่ใช่จากมุมสูง
+
 - ROI อาจช่วยได้ — ถ้ากำหนด zone ที่รถอยู่ในตำแหน่งที่ป้ายมองเห็นชัด
 
 ### G.2 Log Tokens สำคัญที่ควร monitor
@@ -1264,7 +1234,7 @@ tail -f ~/aicamera/edge/logs/aicamera.log | grep -E \
 
 ```
 P1 (ต้องแก้เพื่อให้ OCR ทำงานได้)
-├─ ปรับตำแหน่ง/มุมกล้อง → ให้เห็นป้ายในแนวระดับ
+
 ├─ ทดสอบ PLATE_CONFIDENCE_THRESHOLD=0.3 (จาก 0.5)
 └─ ดู `[PLATE_CROP_SKIP]` ว่าเกิดจาก aspect ratio หรือ size
 
@@ -1336,13 +1306,14 @@ sqlite3 ~/aicamera/edge/data/detections.db \
           └─────────────────────────────────────────┘
 ```
 
-| พารามิเตอร์ | ค่าที่เหมาะสม | ปัจจุบัน (สมมติ) | ปัญหา |
-|------------|:------------:|:---------------:|-------|
-| ความสูงกล้อง | 0.8–1.2m | สูงกว่า 1.5m | ป้ายซ่อนใต้ฝากระโปรง |
-| มุมมองลง (tilt) | 5–15° | > 20° | ป้ายดูสั้นลง ar < 1.5 |
-| ระยะ trigger zone | 3–7m | ไม่แน่นอน | detect ได้แค่ 1–2 เฟรม |
-| แนวกล้อง (pan) | ตรงหน้ารถ ±10° | ไม่ทราบ | ป้ายเอียงข้าง |
-| แสงสว่าง | สม่ำเสมอ ไม่มีแสงจ้าด้านหลัง | ไม่แน่นอน | Laplacian ต่ำ |
+| พารามิเตอร์ | ค่าที่เหมาะสม | ปัจจุบัน (ตรวจสอบแล้ว) | หมายเหตุ |
+|------------|:------------:|:---------------------:|---------|
+| ความสูงกล้อง | 0.8–1.2m | ≤ 80cm ✅ | ผ่านแล้ว — ไม่ใช่ปัญหา |
+| มุมมองลง (tilt) | 5–15° | ยังไม่ทราบแน่ชัด | ต้องตรวจ crop ar ใน test เช้า |
+| ระยะ trigger zone | 3–7m | ไม่แน่นอน | ดูจาก size ใน VEHICLE token |
+| แนวกล้อง (pan) | ตรงหน้ารถ ±10° | ยังไม่ทราบ | |
+| แสงสว่าง (昼) | สม่ำเสมอ ไม่มีแสงจ้าด้านหลัง | **ดีกลางวัน** ✅ | test เช้าควรผ่าน |
+| แสงสว่าง (夜) | IR floodlight หรือ street light | **ไม่มีแสงเสริม** ❌ | กลางคืน plate=0.000 ทั้งหมด |
 
 #### H.1.2 Vehicle Behavior — พฤติกรรมรถที่เหมาะสม
 
@@ -1400,7 +1371,7 @@ sqlite3 ~/aicamera/edge/data/detections.db \
 # DEDUP_NEW — ไม่เคยเห็นรถคันนี้ใน 30s ที่ผ่านมา
 15:30:00.900  [DEDUP_NEW]   track=5 first seen — allow
 
-# บันทึก DB ด้วย best frame (plate visible, score สูงสุด)
+# บันทึก DB ด้วย best frame (plate visible, score สูงสุด) มองเห็นป้ายทะเบียนครบทุกส่วน
 15:30:00.900  [BEST_FRAME_UPDATE] track=5 score 0.000→0.680 plate_visible=YES
 15:30:00.910  [OCR_GATE]    PASS track=5: frames=4 score=0.680 best_lap=510
 
@@ -1413,7 +1384,7 @@ sqlite3 ~/aicamera/edge/data/detections.db \
 # หลังจากนั้น DEDUP_BLOCK ทุก frame (ป้องกันซ้ำ)
 15:30:01.000  [DEDUP_BLOCK] track=5 elapsed=0.1s < 30.0s — skip
 
-# Tesseract ทำงานใน background ~1.5s
+# Tesseract ทำงานใน background ~1.5s (ควรมี pre-processing ก่อนไหม)
 # _flush_pending_ocr() เจอ result → patch DB
 15:30:02.450  [OCR_DONE]    ✅ track=5 text='กข 1234 กรุงเทพ' valid=True conf=0.820
 15:30:02.460  [OCR_FLUSH]   1 result(s) flushed pending_remaining=0
@@ -1434,10 +1405,10 @@ sqlite3 ~/aicamera/edge/data/detections.db \
 
 ### H.4 สถานการณ์การใช้งานจริง และเป้าหมายต่อสถานการณ์
 
-#### Scenario 1 — ทางเข้าออกประตู (Gate) ความเร็วต่ำ
+#### Scenario 1 — ด่านบนถนนเรียบแนวชายแดน ความเร็วต่ำ
 
 ```
-รถชะลอ → หยุดที่ป้าย → เปิดประตู → ผ่านไป
+รถชะลอ → หยุดที่ป้าย → เจ้าหน้าที่ตรวจสอบ → ผ่านไป
 ความเร็ว: 3–10 km/h
 เวลาในเฟรม: 5–20 วินาที
 ```
@@ -1452,7 +1423,7 @@ sqlite3 ~/aicamera/edge/data/detections.db \
 
 **ความท้าทาย:** รถจอดนาน → long stop dedup ต้องทำงาน (fix pending)
 
-#### Scenario 2 — ถนนภายใน ความเร็วปานกลาง
+#### Scenario 2 — ด่านเรียบแนวชายแดน ความเร็วปานกลาง
 
 ```
 รถขับผ่านโดยไม่หยุด
@@ -1529,24 +1500,33 @@ aicamera2: IMX708 NoIR ไม่มี IR cut filter
 
 | ด้าน | เป้าหมาย | ปัจจุบัน | Gap | แนวทางแก้ |
 |------|---------|---------|:---:|-----------|
-| Plate crops per pass | ≥ 5 | 1–2 | ❌ ใหญ่ | ปรับมุม/ความสูงกล้อง + ลด `PLATE_CONFIDENCE_THRESHOLD` |
-| Crop aspect ratio | ar ≥ 2.5 | ar ≈ 1.0 | ❌ ใหญ่ | ปรับ angle กล้อง (hardware) |
-| Crop Laplacian | ≥ 200 | 65–150 | ⚠️ กลาง | ปรับ focus / แสงสว่าง + aspect fix |
-| OCR valid rate | ≥ 70% | ~0% (garbage) | ❌ ใหญ่ | ขึ้นอยู่กับ 2 ข้อบน |
-| Duplicate records | 0% | ~0% (fix ใหม่) | ✅ แก้แล้ว | verify รอบถัดไป |
-| OCR stranded | 0% | 0% (fix ใหม่) | ✅ แก้แล้ว | verify รอบถัดไป |
-| Long-stop dedup | 100% | ยังไม่แก้ | ⚠️ pending | commit DEDUP_BLOCK_CONTINUOUS |
+| Plate crops per pass (昼) | ≥ 5 | ยังไม่ทดสอบกลางวัน | ❓ รอเช้า | ทดสอบ 20260611 เช้า |
+| Plate crops per pass (夜) | ≥ 1 | 0 ทั้งหมด | ❌ แสง | IR floodlight หรือไม่ใช้กลางคืน |
+| Crop aspect ratio (昼) | ar ≥ 2.5 | ยังไม่ทราบ | ❓ รอเช้า | ดู `[PLATE_CROP] ar=` |
+| Crop aspect ratio (昼 edge) | ar ≥ 1.5 | ar ≈ 1.0 (from analysis) | ❌ มีบ้าง | ลด `PLATE_CONFIDENCE_THRESHOLD=0.3` |
+| Crop Laplacian (昼) | ≥ 150 | ยังไม่ทราบ | ❓ รอเช้า | ดู `[PLATE_CROP] lap=` |
+| OCR valid rate (昼) | ≥ 70% | 0% (แสงไม่พอ session นี้) | ❓ รอเช้า | ขึ้นอยู่กับ crop quality |
+| Duplicate records | 0% | ✅ แก้แล้ว | ✅ | verify รอบเช้า |
+| OCR stranded | 0% | ✅ แก้แล้ว | ✅ | verify รอบเช้า |
+| Long-stop dedup | 100% | ⚠️ ยังไม่แก้ | ⚠️ pending | commit DEDUP_BLOCK_CONTINUOUS |
+| Night detection | — | ❌ plate=0.000 ทุก frame | ❌ ต้องการแสง | IR floodlight prerequisite |
 | System stability | no crash | ✅ stable | ✅ OK | — |
 
 **สรุป Gap ที่สำคัญที่สุด:**
 
 ```
-Root gap เดียวที่ทำให้ทุกอย่างล้มเหลว:
-  กล้องมองเห็นป้ายทะเบียนในมุมที่ LP model ไม่ถนัด
-  → plate=0.000 นาน → detect ได้ 1 เฟรม → crop ผิดรูป → OCR garbage
+Root gap 1 (กลางคืน — ยืนยันแล้ว):
+  ไม่มีแสงสว่างในพื้นที่ → LP model รับ feature จากป้ายไม่ได้
+  → plate=0.000 ตลอด 3 รอบที่ทดสอบ 20:57–20:59
+  → ไม่มี DB record แม้แต่รายการเดียว
+  FIX: ต้องติด IR floodlight หรือ LED ส่องป้าย ก่อนจะใช้กลางคืนได้
 
-การแก้ hardware (ความสูง/มุมกล้อง) คือ prerequisite
-ก่อนที่การ tune software จะมีผล
+Root gap 2 (昼 — ยังไม่ verify):
+  53% ของ records ที่บันทึกช่วงกลางวัน มี plate crop ผิด aspect (right-edge entry)
+  → ป้ายเข้าเฟรมจากขวา → LP model เห็นป้ายบางส่วน → bbox portrait
+  → aspect filter ปฏิเสธ → OCR_GATE SKIP
+  FIX software: ลด PLATE_CONFIDENCE_THRESHOLD=0.3, ดูว่า detect ได้เพิ่มขึ้นไหม
+  FIX hardware: ปรับมุมกล้อง pan ให้รถเข้าเฟรมกลาง ไม่ใช่จากข้าง
 ```
 
 ---
@@ -1590,4 +1570,146 @@ OCR result = empty / garbage
 
 ---
 
-*อัพเดต: 2026-06-10 ระหว่าง session | PWD Vision Works*
+---
+
+## I. Evening Test — 20:47–21:00 (ผลการทดสอบกลางคืน)
+
+### I.1 สภาพการณ์
+
+| ข้อมูล | ค่า |
+|--------|-----|
+| เวลา | 20:47–21:00 น. |
+| สภาพแสง | **มืด — ไม่มีแสงสว่างในพื้นที่** |
+| cam1 commit | `a10fa49` ✅ |
+| cam2 commit | `a10fa49` ✅ (restart 20:56:35) |
+
+### I.2 ผล: ไม่มี DB Record
+
+DB record ล่าสุดของวันนี้ก่อน evening test:
+
+| กล้อง | Record ล่าสุด | ID |
+|-------|:------------:|:---:|
+| cam1 | 16:10:51 | 1831 |
+| cam2 | 17:50:07 | 1856 |
+
+ไม่มี record ใหม่เพิ่มเลยตลอดช่วง 20:47–21:00 แม้รถผ่าน 3 รอบ
+
+### I.3 Log Analysis — 3 รอบที่ทดสอบ
+
+| เวลา | track | เฟรมที่ detect | plate score | PLATE_CROP | OCR | SAVE |
+|------|:-----:|:--------------:|:-----------:|:----------:|:---:|:----:|
+| 20:57:25–20:57:34 | 1 | 7 | 0.000 ตลอด | ไม่มี | ไม่มี | SAVE_DEFER |
+| 20:58:30–20:58:31 | 2 | 7 | 0.000 ตลอด | ไม่มี | ไม่มี | SAVE_DEFER |
+| 20:59:10–20:59:13 | 3 | 14 | 0.000 ตลอด | ไม่มี | ไม่มี | SAVE_DEFER |
+
+ทุก frame ลงท้ายด้วย:
+```
+[SAVE_DEFER] fid=xxx no plate visible — keeping tracks eligible for next frame
+```
+
+Vehicle detection ทำงานปกติ (conf 0.8–0.9) แต่ LP model ไม่ตรวจพบ plate เลย
+
+### I.4 สาเหตุ
+
+**แสงไม่เพียงพอ** — LP model (yolov8n_relu6_lp) ต้องการ contrast บน plate surface  
+ในที่มืดโดยสมบูรณ์: feature map ว่าง → confidence < threshold ทุก bbox → plate=0.000
+
+Vehicle model ตรวจพบรถได้เพราะ:
+- รถมีขนาดใหญ่กว่า → feature หลายจุดแม้แสงน้อย
+- อาจมีแสงจากไฟรถมาช่วยบางส่วน
+
+### I.5 ปัญหาเพิ่มเติม: cam2 WebSocket flap
+
+ช่วง 21:01–21:05 cam2 มี WebSocket disconnect/reconnect 3 ครั้ง และ MQTT disconnect ที่ 21:02:55  
+ระบบ reconnect สำเร็จเองที่ 21:04:53 (Socket.IO) และ 21:05:32 (MQTT)  
+ไม่กระทบ pipeline — เป็น network blip จาก lprserver
+
+### I.6 สรุป Evening Test
+
+```
+❌ Night detection: ไม่สามารถใช้งานได้โดยไม่มีแสงสว่างเสริม
+✅ Vehicle detection: ทำงานได้แม้แสงน้อย (ตรวจพบรถทุกรอบ)  
+✅ Pipeline logic: ทำงานถูกต้อง (ไม่มี duplicate, ไม่มี crash)
+✅ SAVE_DEFER: ถูกต้อง — ไม่ save garbage ในที่มืด
+⚠️ cam2 WebSocket: reconnect loop ช่วงหนึ่ง แต่ recover เอง
+```
+
+**ข้อสรุป:** ระบบต้องการแสงไฟส่องป้ายเพื่อใช้งานกลางคืน  
+ทางเลือก: IR LED floodlight (เหมาะกับ cam2 NoIR) หรือ LED white ส่องตรงป้าย
+
+---
+
+## J. Pre-Test Checklist — เช้า 20260611
+
+ก่อนทดสอบรอบเช้า ทำตามลำดับนี้:
+
+### J.1 ตรวจสอบสถานะ (5 นาที)
+
+```bash
+# 1. ยืนยัน commit และ service ทั้ง 2 กล้อง
+sshpass -p 'admin88366' ssh camuser@aicamera1 \
+  "git -C ~/aicamera log --oneline -1 && sudo systemctl is-active aicamera_lpr.service"
+sshpass -p 'admin88366' ssh camuser@aicamera2 \
+  "git -C ~/aicamera log --oneline -1 && sudo systemctl is-active aicamera_lpr.service"
+# Expected: a10fa49 + active
+
+# 2. ยืนยัน health
+curl -s http://aicamera1.tail605477.ts.net/detection/status | python3 -c \
+  "import sys,json; d=json.load(sys.stdin)['detection_status']; \
+   print('cam1 models:', d['detection_processor_status']['models_loaded'], \
+         'tesseract:', d['detection_processor_status']['tesseract_available'])"
+```
+
+### J.2 Monitor Setup (เปิดก่อนรถผ่าน)
+
+```bash
+# Terminal A — cam1 pipeline tokens
+sshpass -p 'admin88366' ssh camuser@aicamera1 \
+  "tail -f ~/aicamera/edge/logs/aicamera.log | grep -E '\[(PLATE_CROP|PLATE_CROP_SKIP|OCR_GATE|OCR_DONE|OCR_FLUSH|DEDUP)\]'"
+
+# Terminal B — cam2 pipeline tokens
+sshpass -p 'admin88366' ssh camuser@aicamera2 \
+  "tail -f ~/aicamera/edge/logs/aicamera.log | grep -E '\[(PLATE_CROP|PLATE_CROP_SKIP|OCR_GATE|OCR_DONE|OCR_FLUSH|DEDUP)\]'"
+```
+
+### J.3 Success Criteria (ตรวจหลังรถผ่านแต่ละรอบ)
+
+| Token ที่ต้องเห็น | ค่าที่คาดหวัง | ถ้าไม่เห็น |
+|-----------------|:------------:|-----------|
+| `[PLATE_CROP]` | `ar≥1.8 lap≥100` | ตรวจมุมกล้อง / PLATE_CONFIDENCE_THRESHOLD |
+| `[OCR_GATE] PASS` | `best_lap≥100` | ดู PLATE_CROP_SKIP เหตุผลคืออะไร |
+| `[OCR_DONE]` | `valid=True conf≥0.60` | ดู text ที่ได้ — garbage หรือ partial? |
+| ไม่มี `PLATE_CROP_SKIP` | < 30% ของ crops | ถ้า > 50% → right-edge entry ยังมีอยู่ |
+
+### J.4 หากยัง `PLATE_CROP_SKIP` เยอะ
+
+```bash
+# ลด PLATE_CONFIDENCE_THRESHOLD ลองดู
+# แก้ใน edge/installation/.env.production ทั้ง 2 กล้อง:
+# PLATE_CONFIDENCE_THRESHOLD=0.3  (จาก 0.5)
+# แล้ว restart service
+
+sshpass -p 'admin88366' ssh camuser@aicamera1 \
+  "sed -i 's/PLATE_CONFIDENCE_THRESHOLD=0.5/PLATE_CONFIDENCE_THRESHOLD=0.3/' \
+   ~/aicamera/edge/installation/.env.production && \
+   sudo systemctl restart aicamera_lpr.service"
+```
+
+### J.5 หลังทดสอบ — ดึง DB + Log
+
+```bash
+mkdir -p logs/20260611
+sshpass -p 'admin88366' scp camuser@aicamera1:~/aicamera/edge/logs/aicamera.log \
+  logs/20260611/cam1_aicamera.log
+sshpass -p 'admin88366' scp camuser@aicamera2:~/aicamera/edge/logs/aicamera.log \
+  logs/20260611/cam2_aicamera.log
+sshpass -p 'admin88366' scp camuser@aicamera1:~/aicamera/edge/db/lpr_data.db \
+  logs/20260611/cam1_lpr_data.db
+sshpass -p 'admin88366' scp camuser@aicamera2:~/aicamera/edge/db/lpr_data.db \
+  logs/20260611/cam2_lpr_data.db
+```
+
+---
+
+*อัพเดต: 2026-06-10 22:xx | PWD Vision Works*
+*(Evening test completed — Morning retest scheduled 2026-06-11)*
