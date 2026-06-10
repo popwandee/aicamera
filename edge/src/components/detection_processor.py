@@ -82,6 +82,7 @@ class VehicleTrack:
     iou_history: deque = None
     # Async OCR queue fields
     ocr_submitted: bool = False          # True once track has been queued for OCR
+    ocr_submitted_lap: float = 0.0      # Laplacian of the crop that was submitted
     plate_crop_buffer: deque = None      # (laplacian_var, crop_bgr) — maxlen=5
 
     def __post_init__(self):
@@ -1557,12 +1558,35 @@ class DetectionProcessor:
         cy = (plate_bbox[1] + plate_bbox[3]) / 2 / h
         return roi['x1'] <= cx <= roi['x2'] and roi['y1'] <= cy <= roi['y2']
 
+    # Minimum Laplacian variance for the best crop in the buffer before
+    # submitting to Tesseract.  Below this value the crop is too blurry to
+    # produce useful text.  Set via _ocr_min_crop_lap (tunable).
+    _ocr_min_crop_lap: float = 80.0
+    # If a new crop arrives with Laplacian >= this multiple of the previously
+    # submitted crop's sharpness, reset ocr_submitted and re-submit with the
+    # better crop.  Set to 0 to disable re-submit.
+    _ocr_resubmit_ratio: float = 3.0
+
     def _should_submit_for_ocr(self, track: 'VehicleTrack', plate_bbox: List[float],
                                 frame_shape: tuple) -> bool:
         """Gatekeeper — decide whether this track should be queued for OCR."""
+        best_lap = max((s for s, _ in track.plate_crop_buffer), default=0.0) \
+                   if track.plate_crop_buffer else 0.0
+
         if track.ocr_submitted:
-            # Silent: already handled, logged at submit time
-            return False
+            # Allow re-submit if a significantly sharper crop has arrived.
+            # Ratio >= _ocr_resubmit_ratio means the new crop is substantially
+            # clearer than what Tesseract already processed.
+            if (self._ocr_resubmit_ratio > 0 and track.ocr_submitted_lap > 0
+                    and best_lap >= track.ocr_submitted_lap * self._ocr_resubmit_ratio):
+                track.ocr_submitted = False
+                self.logger.info(
+                    f"[OCR_GATE] RE-SUBMIT track={track.track_id}: "
+                    f"new_lap={best_lap:.0f} >= {self._ocr_resubmit_ratio}× "
+                    f"submitted_lap={track.ocr_submitted_lap:.0f} — retry with better crop")
+            else:
+                return False
+
         if len(track.plate_candidates) < self._ocr_min_plate_frames:
             self.logger.info(
                 f"[OCR_GATE] SKIP track={track.track_id}: "
@@ -1577,6 +1601,12 @@ class DetectionProcessor:
                 f"(image too blurry or low confidence)"
             )
             return False
+        if best_lap < self._ocr_min_crop_lap:
+            self.logger.info(
+                f"[OCR_GATE] SKIP track={track.track_id}: "
+                f"best_crop_lap={best_lap:.0f} < min={self._ocr_min_crop_lap} "
+                f"(plate crop too blurry for OCR)")
+            return False
         if not self._plate_in_roi(plate_bbox, frame_shape):
             cx = (plate_bbox[0] + plate_bbox[2]) / 2
             cy = (plate_bbox[1] + plate_bbox[3]) / 2
@@ -1587,7 +1617,8 @@ class DetectionProcessor:
             return False
         self.logger.info(
             f"[OCR_GATE] PASS track={track.track_id}: "
-            f"frames={len(track.plate_candidates)} score={track.best_frame_score:.3f} — submitting for OCR"
+            f"frames={len(track.plate_candidates)} score={track.best_frame_score:.3f} "
+            f"best_lap={best_lap:.0f} — submitting for OCR"
         )
         return True
 
@@ -1624,8 +1655,9 @@ class DetectionProcessor:
         accepted = self.ocr_queue_worker.submit(task)
         if accepted:
             track.ocr_submitted = True
-            best_lap = max((s for s, _ in track.plate_crop_buffer), default=0) \
-                       if track.plate_crop_buffer else 0
+            best_lap = max((s for s, _ in track.plate_crop_buffer), default=0.0) \
+                       if track.plate_crop_buffer else 0.0
+            track.ocr_submitted_lap = best_lap   # store for re-submit comparison
             ch, cw = (plate_crop.shape[0], plate_crop.shape[1]) \
                      if plate_crop is not None and plate_crop.ndim >= 2 else (0, 0)
             self.logger.info(
@@ -1916,15 +1948,19 @@ class DetectionProcessor:
                     )
 
                 # Populate plate_crop_buffer for async OCR.
-                # This is the ONLY place crops are added — submit_for_ocr picks the
-                # sharpest one.  Without this, plate_crop_buffer stays empty and
-                # submit_for_ocr always returns False silently.
+                # Only accept crops that look like a real plate:
+                #   • aspect W/H >= 1.5  (Thai plates are wide, not square)
+                #   • width  >= 80 px    (minimum for Tesseract to read)
+                #   • height >= 20 px
+                # submit_for_ocr picks the highest-Laplacian crop from the buffer.
                 try:
                     x1 = max(0, int(plate_bbox[0]))
                     y1 = max(0, int(plate_bbox[1]))
                     x2 = min(frame.shape[1], int(plate_bbox[2]))
                     y2 = min(frame.shape[0], int(plate_bbox[3]))
-                    if x2 > x1 and y2 > y1:
+                    cw, ch = x2 - x1, y2 - y1
+                    aspect = cw / ch if ch > 0 else 0.0
+                    if cw >= 80 and ch >= 20 and aspect >= 1.5:
                         crop = frame[y1:y2, x1:x2].copy()
                         if crop.size > 0:
                             gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY) \
@@ -1933,8 +1969,13 @@ class DetectionProcessor:
                             track.plate_crop_buffer.append((lap, crop))
                             self.logger.info(
                                 f"[PLATE_CROP] track={track.track_id} "
-                                f"crop={x2-x1}×{y2-y1}px lap={lap:.0f} "
+                                f"crop={cw}×{ch}px ar={aspect:.2f} lap={lap:.0f} "
                                 f"buf_depth={len(track.plate_crop_buffer)}")
+                    else:
+                        self.logger.info(
+                            f"[PLATE_CROP_SKIP] track={track.track_id} "
+                            f"crop={cw}×{ch}px ar={aspect:.2f} — rejected "
+                            f"(need W>=80 H>=20 ar>=1.5)")
                 except Exception as _crop_err:
                     self.logger.debug(f"[PLATE_CROP] crop error: {_crop_err}")
 

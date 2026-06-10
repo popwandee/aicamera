@@ -539,12 +539,22 @@ class DetectionManager:
                 self._cleanup_old_tracks(now)
                 self.last_track_cleanup = now
 
-            # Layer 1 — track_id + time window (no IoU check)
-            # Same track_id within reentry_time_threshold is always blocked,
-            # regardless of current bbox position.  The IoU check was removed
-            # because a vehicle traversing the frame changes position enough
-            # that IoU(current, saved) drops below the threshold, creating a
-            # false "vehicle moved, allow" path that produces duplicate records.
+            # Layer 1 — track_id + time window + continuous-presence check
+            #
+            # Two distinct situations after elapsed > reentry_time_threshold:
+            #
+            #   A. Long stop (inspection, traffic jam): same physical vehicle is
+            #      still continuously present.  track.first_seen <= info['last_saved']
+            #      because the track was already alive when we last saved it.
+            #      → DEDUP_BLOCK_CONTINUOUS — never record the same stop twice.
+            #
+            #   B. Genuine re-entry: vehicle left the frame, track expired, then
+            #      came back and got a NEW track_id.  The new track has
+            #      first_seen > info['last_saved'] (created AFTER the prior save).
+            #      → DEDUP_REENTRY — allow (different visit).
+            #
+            # This replaces the old plain time-only DEDUP_REENTRY which caused
+            # duplicate records for any vehicle stopped > 30 s.
             track_id = track.track_id
             info = self.recent_tracks.get(track_id)
             if info:
@@ -555,10 +565,19 @@ class DetectionManager:
                         f"elapsed={elapsed:.1f}s < {self.reentry_time_threshold}s "
                         f"prev='{info.get('plate_text','?')}' — skip")
                     return False
-                else:
+                # Beyond the time window — distinguish long stop from re-entry
+                track_first_seen = getattr(track, 'first_seen', 0.0)
+                if track_first_seen <= info['last_saved']:
+                    # Track was alive at (or before) last save → vehicle still present
                     self.logger.info(
-                        f"[DEDUP_REENTRY] track={track_id} "
-                        f"elapsed={elapsed:.1f}s > {self.reentry_time_threshold}s — allow")
+                        f"[DEDUP_BLOCK_CONTINUOUS] track={track_id} "
+                        f"elapsed={elapsed:.1f}s first_seen={track_first_seen:.1f} "
+                        f"<= last_saved={info['last_saved']:.1f} — long stop, skip")
+                    return False
+                self.logger.info(
+                    f"[DEDUP_REENTRY] track={track_id} "
+                    f"elapsed={elapsed:.1f}s first_seen={track_first_seen:.1f} "
+                    f"> last_saved={info['last_saved']:.1f} — genuine re-entry, allow")
             else:
                 self.logger.info(f"[DEDUP_NEW] track={track_id} first seen — allow")
 
