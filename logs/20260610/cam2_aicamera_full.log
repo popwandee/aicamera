@@ -1,0 +1,156 @@
+00:31:51 client.py:573 - packet queue is empty, aborting
+00:33:44 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+00:37:59 client.py:573 - packet queue is empty, aborting
+01:16:10 client.py:573 - packet queue is empty, aborting
+01:18:52 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+01:31:16 client.py:573 - packet queue is empty, aborting
+01:33:58 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+01:40:45 client.py:573 - packet queue is empty, aborting
+01:44:04 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+01:49:09 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+01:58:43 client.py:573 - packet queue is empty, aborting
+02:05:45 client.py:573 - packet queue is empty, aborting
+02:09:15 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+02:14:20 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+02:22:29 client.py:573 - packet queue is empty, aborting
+02:24:25 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+02:28:31 client.py:573 - packet queue is empty, aborting
+02:34:31 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+02:37:52 client.py:573 - packet queue is empty, aborting
+02:39:36 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+02:44:41 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+02:49:46 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+02:54:51 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+03:14:58 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+03:35:04 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+03:45:09 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+03:50:14 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+03:55:20 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+04:05:25 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+04:10:30 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+04:15:35 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+04:20:40 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+04:35:48 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+04:40:53 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+04:45:58 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+04:56:04 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+05:01:09 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+05:11:15 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+05:26:20 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+05:41:26 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+05:51:32 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+06:01:37 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+07:51:51 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+08:16:57 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+09:22:07 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+10:02:15 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+13:32:37 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+14:03:49 camera_handler.py:1760 - Stopping camera with resource cleanup...
+14:03:52 camera_handler.py:1809 - Capture thread did not stop gracefully
+14:05:07 logging_config.py:175 - Application Initialized
+14:05:07 logging_config.py:175 - Application Initialized
+14:05:07 logging_config.py:175 - Application Initialized
+14:05:08 app.py:107 - 🚀 Starting modular service initialization sequence...
+14:05:08 logging_config.py:403 - [DETECTION] Starting Detection Processor initialization...
+14:05:08 detection_processor.py:152 - 🔍 [DETECTION_PROC] Initializing model instances...
+14:05:08 detection_processor.py:168 - 🔍 [DETECTION_PROC] Initializing parallel OCR processor...
+14:05:08 detection_processor.py:193 - 🔧 [ENHANCED_DETECTION] Initializing enhanced detection pipeline...
+14:05:08 logging_config.py:405 - [HEALTH] Initialized
+14:05:08 camera_manager.py:173 - 🔧 [CAMERA_MANAGER] Initializing Camera Manager...
+14:05:08 camera_handler.py:798 - Initializing camera...
+14:05:08 camera_manager.py:227 - 🚀 Starting auto-start sequence...
+14:05:09 detection_processor.py:242 - 🔧 [DETECTION_PROC] Starting model loading process...
+14:05:10 detection_processor.py:343 - 🔧 [DETECTION_PROC] Initializing parallel OCR processor...
+14:05:10 ocr_queue_worker.py:134 - [OCR_WORKER] Started 1 worker thread(s)
+14:05:15 websocket_sender.py:97 - WebSocketSender Started
+14:07:53 client.py:573 - packet queue is empty, aborting
+14:10:28 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+14:23:29 websocket_sender.py:743 - health_status send failed: / is not a connected namespace.
+14:24:29 websocket_sender.py:743 - health_status send failed: / is not a connected namespace.
+14:25:30 websocket_sender.py:743 - health_status send failed: / is not a connected namespace.
+14:26:05 client.py:573 - packet queue is empty, aborting
+14:29:35 websocket_sender.py:353 - Socket.IO connection failed: HTTPConnectionPool(host='lprserver.tail605477.ts.net', port=80): Max retries exceeded with url: /ws/?transport=polling&EIO=4&t=1781076570.4204073 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPConnection object at 0x7fff003ac490>, 'Connection to lprserver.tail605477.ts.net timed out. (connect timeout=5)'))
+14:29:35 websocket_sender.py:813 - Cannot send detection data: server unreachable, will retry next interval
+14:30:35 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+14:30:41 websocket_sender.py:743 - health_status send failed: / is not a connected namespace.
+14:30:41 websocket_sender.py:813 - Cannot send detection data: server unreachable, will retry next interval
+14:42:51 camera_handler.py:1760 - Stopping camera with resource cleanup...
+14:42:54 camera_handler.py:1809 - Capture thread did not stop gracefully
+14:45:00 logging_config.py:175 - Application Initialized
+14:45:01 logging_config.py:175 - Application Initialized
+14:45:01 logging_config.py:175 - Application Initialized
+14:45:01 app.py:107 - 🚀 Starting modular service initialization sequence...
+14:45:01 logging_config.py:403 - [DETECTION] Starting Detection Processor initialization...
+14:45:01 detection_processor.py:152 - 🔍 [DETECTION_PROC] Initializing model instances...
+14:45:01 detection_processor.py:168 - 🔍 [DETECTION_PROC] Initializing parallel OCR processor...
+14:45:01 detection_processor.py:193 - 🔧 [ENHANCED_DETECTION] Initializing enhanced detection pipeline...
+14:45:01 logging_config.py:405 - [HEALTH] Initialized
+14:45:01 camera_manager.py:173 - 🔧 [CAMERA_MANAGER] Initializing Camera Manager...
+14:45:01 camera_handler.py:798 - Initializing camera...
+14:45:01 camera_manager.py:227 - 🚀 Starting auto-start sequence...
+14:45:02 detection_processor.py:242 - 🔧 [DETECTION_PROC] Starting model loading process...
+14:45:03 detection_processor.py:343 - 🔧 [DETECTION_PROC] Initializing parallel OCR processor...
+14:45:03 ocr_queue_worker.py:134 - [OCR_WORKER] Started 1 worker thread(s)
+14:45:08 websocket_sender.py:97 - WebSocketSender Started
+14:58:21 client.py:573 - packet queue is empty, aborting
+15:00:23 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+15:05:28 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+15:08:14 client.py:573 - packet queue is empty, aborting
+15:08:14 client.py:573 - packet queue is empty, aborting
+15:11:29 websocket_sender.py:353 - Socket.IO connection failed: HTTPConnectionPool(host='lprserver.tail605477.ts.net', port=80): Max retries exceeded with url: /ws/?transport=polling&EIO=4&t=1781079084.7508533 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPConnection object at 0x7fff0c4751d0>, 'Connection to lprserver.tail605477.ts.net timed out. (connect timeout=5)'))
+15:11:29 websocket_sender.py:813 - Cannot send detection data: server unreachable, will retry next interval
+15:12:34 websocket_sender.py:353 - Socket.IO connection failed: HTTPConnectionPool(host='lprserver.tail605477.ts.net', port=80): Max retries exceeded with url: /ws/?transport=polling&EIO=4&t=1781079149.7573307 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPConnection object at 0x7fff0c478850>, 'Connection to lprserver.tail605477.ts.net timed out. (connect timeout=5)'))
+15:12:34 websocket_sender.py:813 - Cannot send detection data: server unreachable, will retry next interval
+15:13:39 websocket_sender.py:353 - Socket.IO connection failed: HTTPConnectionPool(host='lprserver.tail605477.ts.net', port=80): Max retries exceeded with url: /ws/?transport=polling&EIO=4&t=1781079214.7628467 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPConnection object at 0x7fff0c3cb510>, 'Connection to lprserver.tail605477.ts.net timed out. (connect timeout=5)'))
+15:13:39 websocket_sender.py:813 - Cannot send detection data: server unreachable, will retry next interval
+15:14:42 websocket_sender.py:743 - health_status send failed: / is not a connected namespace.
+15:14:42 websocket_sender.py:813 - Cannot send detection data: server unreachable, will retry next interval
+15:21:53 client.py:573 - packet queue is empty, aborting
+15:25:34 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+15:26:15 client.py:573 - packet queue is empty, aborting
+15:27:34 client.py:573 - packet queue is empty, aborting
+15:27:51 websocket_sender.py:353 - Socket.IO connection failed: HTTPConnectionPool(host='lprserver.tail605477.ts.net', port=80): Max retries exceeded with url: /ws/?transport=polling&EIO=4&t=1781080066.1969345 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPConnection object at 0x7fff0c44e950>, 'Connection to lprserver.tail605477.ts.net timed out. (connect timeout=5)'))
+15:27:51 websocket_sender.py:813 - Cannot send detection data: server unreachable, will retry next interval
+15:28:56 websocket_sender.py:353 - Socket.IO connection failed: HTTPConnectionPool(host='lprserver.tail605477.ts.net', port=80): Max retries exceeded with url: /ws/?transport=polling&EIO=4&t=1781080131.2048817 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPConnection object at 0x7fffaec9d850>, 'Connection to lprserver.tail605477.ts.net timed out. (connect timeout=5)'))
+15:28:56 websocket_sender.py:813 - Cannot send detection data: server unreachable, will retry next interval
+15:30:01 websocket_sender.py:353 - Socket.IO connection failed: HTTPConnectionPool(host='lprserver.tail605477.ts.net', port=80): Max retries exceeded with url: /ws/?transport=polling&EIO=4&t=1781080196.214968 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPConnection object at 0x7fff0c47b450>, 'Connection to lprserver.tail605477.ts.net timed out. (connect timeout=5)'))
+15:30:01 websocket_sender.py:813 - Cannot send detection data: server unreachable, will retry next interval
+15:30:39 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+15:31:06 websocket_sender.py:353 - Socket.IO connection failed: HTTPConnectionPool(host='lprserver.tail605477.ts.net', port=80): Max retries exceeded with url: /ws/?transport=polling&EIO=4&t=1781080261.2208788 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPConnection object at 0x7fff0c457050>, 'Connection to lprserver.tail605477.ts.net timed out. (connect timeout=5)'))
+15:31:06 websocket_sender.py:813 - Cannot send detection data: server unreachable, will retry next interval
+15:32:38 client.py:573 - packet queue is empty, aborting
+15:33:11 websocket_sender.py:353 - Socket.IO connection failed: HTTPConnectionPool(host='lprserver.tail605477.ts.net', port=80): Max retries exceeded with url: /ws/?transport=polling&EIO=4&t=1781080386.249286 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPConnection object at 0x7fff0c477b50>, 'Connection to lprserver.tail605477.ts.net timed out. (connect timeout=5)'))
+15:33:11 websocket_sender.py:813 - Cannot send detection data: server unreachable, will retry next interval
+15:34:16 websocket_sender.py:353 - Socket.IO connection failed: HTTPConnectionPool(host='lprserver.tail605477.ts.net', port=80): Max retries exceeded with url: /ws/?transport=polling&EIO=4&t=1781080451.2570488 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPConnection object at 0x7fff0c426310>, 'Connection to lprserver.tail605477.ts.net timed out. (connect timeout=5)'))
+15:34:16 websocket_sender.py:813 - Cannot send detection data: server unreachable, will retry next interval
+15:35:21 websocket_sender.py:353 - Socket.IO connection failed: HTTPConnectionPool(host='lprserver.tail605477.ts.net', port=80): Max retries exceeded with url: /ws/?transport=polling&EIO=4&t=1781080516.2680554 (Caused by ConnectTimeoutError(<urllib3.connection.HTTPConnection object at 0x7fff0c4798d0>, 'Connection to lprserver.tail605477.ts.net timed out. (connect timeout=5)'))
+15:35:21 websocket_sender.py:813 - Cannot send detection data: server unreachable, will retry next interval
+15:35:44 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+15:36:22 websocket_sender.py:743 - health_status send failed: / is not a connected namespace.
+15:36:22 websocket_sender.py:813 - Cannot send detection data: server unreachable, will retry next interval
+15:39:45 client.py:573 - packet queue is empty, aborting
+15:39:52 client.py:573 - packet queue is empty, aborting
+15:39:54 client.py:573 - packet queue is empty, aborting
+15:46:41 client.py:573 - packet queue is empty, aborting
+15:46:48 client.py:573 - packet queue is empty, aborting
+15:46:55 client.py:573 - packet queue is empty, aborting
+15:52:11 client.py:573 - packet queue is empty, aborting
+15:56:43 client.py:573 - packet queue is empty, aborting
+15:56:47 client.py:573 - packet queue is empty, aborting
+15:56:58 client.py:573 - packet queue is empty, aborting
+16:09:04 client.py:573 - packet queue is empty, aborting
+16:09:11 client.py:573 - packet queue is empty, aborting
+16:09:13 client.py:573 - packet queue is empty, aborting
+16:10:52 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+16:15:57 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+16:39:39 client.py:573 - packet queue is empty, aborting
+16:39:39 client.py:573 - packet queue is empty, aborting
+16:39:39 client.py:573 - packet queue is empty, aborting
+16:41:03 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+16:44:39 client.py:573 - packet queue is empty, aborting
+16:46:08 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+17:07:45 client.py:573 - packet queue is empty, aborting
+17:07:46 client.py:573 - packet queue is empty, aborting
+17:07:49 client.py:573 - packet queue is empty, aborting
+17:11:15 mqtt_client.py:52 - Failed to connect to MQTT broker: timed out
+17:50:17 websocket_sender.py:743 - health_status send failed: / is not a connected namespace.

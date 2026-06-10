@@ -1,0 +1,152 @@
+================================================================================
+FIELD TEST ANALYSIS REPORT — 2026-06-10
+Generated from: cam1/cam2 aicamera.log + lpr_data.db
+================================================================================
+
+──────────────────────────────────────────────────────────────────────
+  cam1 (aicamera1 — IMX708 colour) — 15 detection records (2026-06-10)
+──────────────────────────────────────────────────────────────────────
+
+  PLATE CROP QUALITY:
+  Pass filter (W≥80 H≥20 ar≥1.5)          :   7/15 (47%)
+  Plate at right edge (x2≥2290)           :   6  ← first-pass partial detect
+  Plate at left edge (x1<50)              :   0  ← approaching from left
+  Portrait aspect (ar<1.0)                :   6  ← Hailo got wrong bbox
+  Tiny (W<80px)                           :   2  ← too far / wrong zone
+  No plate bbox                           :   0  ← no plate detected at time of save
+
+  OCR RESULTS:
+  Records with any OCR text               :   1/15
+  Records with valid Thai plate           :   0/15
+
+  PROCESSING TIME: avg=325ms  min=149ms  max=1355ms
+
+  DUPLICATE ANALYSIS (records < 30s apart):
+    None found ✓
+
+  DETAIL TABLE:
+     ID   Time  V.sc   P.W   P.H    AR    x1    x2 Flt                  OCR  Notes
+  -------------------------------------------------------------------------------------
+   1817  13:56  0.00   140    75  1.87  1445  1585   ✓                no_OCR  
+   1818  14:12  0.00   129   163  0.79  2174  2304   ✗                no_OCR  right-edge, portrait
+   1819  14:23  0.00   161   120  1.34  2142  2303   ✗                no_OCR  right-edge
+   1820  14:23  0.00   153    82  1.85  1271  1425   ✓                no_OCR  
+   1821  14:25  0.00   131   136  0.96  2172  2304   ✗                no_OCR  right-edge, portrait
+   1822  14:25  0.00   149    79  1.87  1285  1435   ✓                no_OCR  
+   1823  14:28  0.00   101   174  0.58  2201  2303   ✗                no_OCR  right-edge, portrait
+   1824  14:28  0.00   145    80  1.81  1360  1506   ✓                no_OCR  
+   1825  14:53  0.00    83   181  0.46  2220  2303   ✗                no_OCR  right-edge, portrait
+   1826  14:53  0.00   147    75  1.94  1244  1392   ✓                no_OCR  
+   1827  14:56  0.80    62    90  0.69   689   751   ✗                no_OCR  portrait, narrow
+   1828  15:11  0.90   529    78  6.78  1772  2302   ✓                no_OCR  right-edge
+   1829  15:26  0.00    80    39  2.03  2195  2276   ✓                no_OCR  
+   1830  15:26  0.00   129   125  1.03    82   212   ✗   '“ก oe . ay' c=0.47  
+   1831  16:10  0.00    23    27  0.88  1612  1636   ✗                no_OCR  portrait, narrow
+
+──────────────────────────────────────────────────────────────────────
+  cam2 (aicamera2 — IMX708 NoIR) — 17 detection records (2026-06-10)
+──────────────────────────────────────────────────────────────────────
+
+  PLATE CROP QUALITY:
+  Pass filter (W≥80 H≥20 ar≥1.5)          :   8/17 (47%)
+  Plate at right edge (x2≥2290)           :   5  ← first-pass partial detect
+  Plate at left edge (x1<50)              :   0  ← approaching from left
+  Portrait aspect (ar<1.0)                :   4  ← Hailo got wrong bbox
+  Tiny (W<80px)                           :   4  ← too far / wrong zone
+  No plate bbox                           :   0  ← no plate detected at time of save
+
+  OCR RESULTS:
+  Records with any OCR text               :   0/17
+  Records with valid Thai plate           :   0/17
+
+  PROCESSING TIME: avg=146ms  min=134ms  max=169ms
+
+  DUPLICATE ANALYSIS (records < 30s apart):
+    None found ✓
+
+  DETAIL TABLE:
+     ID   Time  V.sc   P.W   P.H    AR    x1    x2 Flt                  OCR  Notes
+  -------------------------------------------------------------------------------------
+   1840  13:56  0.00   138    75  1.84  1611  1749   ✓                no_OCR  
+   1841  14:12  0.00    91   131  0.69  2212  2304   ✗                no_OCR  right-edge, portrait
+   1842  14:23  0.00    63   103  0.61  2240  2303   ✗                no_OCR  right-edge, portrait, narrow
+   1843  14:23  0.00   148    78  1.88  1432  1581   ✓                no_OCR  
+   1844  14:25  0.00   135   111  1.22  2167  2303   ✗                no_OCR  right-edge
+   1845  14:25  0.00   143    79  1.81  1462  1605   ✓                no_OCR  
+   1846  14:28  0.00   153   124  1.23  2148  2301   ✗                no_OCR  right-edge
+   1847  14:28  0.00   137    76  1.79  1510  1648   ✓                no_OCR  
+   1848  14:53  0.00   104   144  0.73  2198  2303   ✗                no_OCR  right-edge, portrait
+   1849  14:53  0.00   153    81  1.89  1456  1610   ✓                no_OCR  
+   1850  14:56  0.00   120    65  1.85   987  1107   ✓                no_OCR  
+   1851  15:10  0.80    77   100  0.77   433   511   ✗                no_OCR  portrait, narrow
+   1852  15:11  0.00   249   146  1.70   953  1203   ✓                no_OCR  
+   1853  15:11  0.00    69    52  1.32  1777  1846   ✗                no_OCR  narrow
+   1854  15:26  0.00   155   145  1.07   428   584   ✗                no_OCR  
+   1855  15:27  0.00   145    78  1.87  1568  1714   ✓                no_OCR  
+   1856  17:50  0.00    23    17  1.32  1534  1558   ✗                no_OCR  narrow
+
+================================================================================
+KEY FINDINGS
+================================================================================
+
+1. PLATE DETECTION PATTERN: right-edge first, center second
+   Every duplicate pair shows the SAME physical pattern:
+   - 1st detection: plate bbox at right edge of frame (x2≥2290)
+     → partial plate visible, portrait/near-square aspect ratio
+   - 2nd detection: plate bbox in center (x1=1200-1600)
+     → full plate visible, correct aspect ratio (1.8-2.0)
+
+   This means the vehicle enters from the RIGHT side of both cameras.
+   LP model sees plate at right edge FIRST → wrong bbox shape.
+   14 seconds later, vehicle is centered → correct plate shape.
+
+2. CAMERA POSITION PROBLEM
+   - cam1: 7/15 (47%) records have usable plate bbox (W≥80, ar≥1.5)
+   - cam2: 8/17 (47%) records have usable plate bbox
+   - 53% of all records have plate bboxes that would be REJECTED
+     by the new aspect ratio filter → OCR_GATE SKIP expected
+
+3. OCR NEVER WORKED BEFORE 41f298e FIX (15:06 on cam1)
+   - All records IDs 1817-1828: ocr=[] (plate_crop_buffer was empty)
+   - ID 1829: First OCR attempt, text='' (crop W=80px too small/blurry)
+   - ID 1830: Second OCR attempt, text garbage (ar=1.03, new filter blocks)
+   → After new aspect filter: ID 1830 would get PLATE_CROP_SKIP → no OCR
+   → Better than garbage but still no valid reading
+
+4. cam2 DID NOT GET 41f298e/5bf66aa DURING TESTING
+   cam2 log shows NO detection tokens after 14:45 restart.
+   Service restarts for 41f298e (15:06) and 5bf66aa (15:23) appear on
+   cam1 log but NOT on cam2 — cam2 restart failed silently.
+   cam2 records 1850-1856 were created with commit 2f63a04 code.
+   → cam2 needs explicit git pull + restart before next test
+
+5. PROCESSING TIME ANOMALY
+   ID 1817 (first detect): 1337ms vs typical 137-168ms
+   ID 1829 (OCR with empty result): 1355ms vs typical 167ms
+   → First-time OCR queue warmup takes ~1.2s extra
+
+================================================================================
+RECOMMENDATIONS FOR NEXT TEST SESSION
+================================================================================
+
+HARDWARE (must fix first):
+  → Lower both cameras to plate-height level (0.8-1.2m)
+  → Aim camera at optimal range (3-7m from gate) so plate is
+    CENTERED in frame, not entering from edge
+  → Verify: watch video feed and see if plate enters from edge or center
+
+SOFTWARE (pending verification):
+  → Explicitly restart cam2: ssh + git pull + systemctl restart
+  → Verify cam2 has commit 5bf66aa running
+  → Test with PLATE_CONFIDENCE_THRESHOLD=0.3 (from 0.5) to detect more bboxes
+
+MONITORING during test:
+  tail -f ~/aicamera/edge/logs/aicamera.log | grep -E \
+    '\[(PLATE_CROP|PLATE_CROP_SKIP|OCR_GATE|OCR_DONE|OCR_FLUSH)\]'
+
+SUCCESS CRITERIA:
+  ✓ PLATE_CROP token with ar≥2.0 and lap≥150
+  ✓ OCR_GATE PASS with best_lap≥150
+  ✓ OCR_DONE valid=True conf≥0.65
+  ✓ No PLATE_CROP_SKIP (or < 20%)
+
