@@ -628,14 +628,16 @@ class DetectionManager:
             return True
 
     def _get_best_plate_metrics(self, track) -> tuple:
-        """Return (conf, area) of track's best plate candidate."""
+        """Return (conf, area, ar) of track's best plate candidate."""
         if not track.plate_candidates:
-            return 0.0, 0.0
+            return 0.0, 0.0, 0.0
         best = max(track.plate_candidates, key=lambda p: p.get('score', 0.0))
         conf = best.get('score', 0.0)
         x1, y1, x2, y2 = best.get('bbox', [0, 0, 0, 0])
-        area = max(0.0, (x2 - x1) * (y2 - y1))
-        return conf, area
+        w, h = max(0, x2 - x1), max(0, y2 - y1)
+        area = float(w * h)
+        ar   = (w / h) if h > 0 else 0.0
+        return conf, area, ar
 
     def _mark_track_saved(self, track):
         """Record save; register plate text for Layer-2 dedup."""
@@ -646,13 +648,14 @@ class DetectionManager:
             if track.ocr_results:
                 plate_text = track.ocr_results[-1].get('text', '')
 
-            saved_conf, saved_area = self._get_best_plate_metrics(track)
+            saved_conf, saved_area, saved_ar = self._get_best_plate_metrics(track)
             self.recent_tracks[track_id] = {
                 'last_saved':       now,
                 'bbox':             list(track.bbox) if isinstance(track.bbox, list) else track.bbox,
                 'plate_text':       plate_text,
                 'saved_plate_conf': saved_conf,
                 'saved_plate_area': saved_area,
+                'saved_plate_ar':   saved_ar,
                 'saved_has_ocr':    False,
                 'record_id':        None,   # filled in by process_frame() after DB insert
             }
@@ -695,7 +698,9 @@ class DetectionManager:
         best_pb = max(plate_boxes, key=lambda p: p.get('score', 0.0))
         new_conf = best_pb.get('score', 0.0)
         x1, y1, x2, y2 = best_pb.get('bbox', [0, 0, 0, 0])
-        new_area = max(0.0, (x2 - x1) * (y2 - y1))
+        w, h = max(0, x2 - x1), max(0, y2 - y1)
+        new_area = float(w * h)
+        new_ar   = (w / h) if h > 0 else 0.0
 
         result = []
         for track in candidates:
@@ -704,12 +709,16 @@ class DetectionManager:
                 continue
             saved_area = info.get('saved_plate_area', 0.0)
             saved_conf = info.get('saved_plate_conf', 0.0)
+            saved_ar   = info.get('saved_plate_ar',   0.0)
 
-            area_ok = new_area > saved_area * 2.0
-            conf_ok = new_conf > saved_conf * 1.2
+            # Path A: substantially larger plate (original criteria)
+            area_ok = new_area > saved_area * 2.0 and new_conf > saved_conf * 1.2
+            # Path B: aspect ratio improved into valid range (bad crop → good crop)
+            ar_ok   = new_ar >= 1.5 and saved_ar < 1.5 and new_conf >= saved_conf * 0.9
 
-            if area_ok and conf_ok:
+            if area_ok or ar_ok:
                 record_id = info.get('record_id')
+                reason = 'area×2' if area_ok else f'ar {saved_ar:.2f}→{new_ar:.2f}'
                 # Restore pending patch entry if OCR result was already consumed
                 if record_id and track.track_id not in self._pending_ocr_updates:
                     self._pending_ocr_updates[track.track_id] = record_id
@@ -719,18 +728,18 @@ class DetectionManager:
                 # Update saved metrics to prevent repeated upgrades next frame
                 info['saved_plate_area'] = new_area
                 info['saved_plate_conf'] = new_conf
+                info['saved_plate_ar']   = new_ar
                 self.logger.info(
                     f"[DEDUP_UPGRADE] fid={detect_fid} track={track.track_id} "
-                    f"area {saved_area:.0f}→{new_area:.0f} "
+                    f"reason={reason} area={new_area:.0f} "
                     f"conf {saved_conf:.3f}→{new_conf:.3f} "
                     f"record_id={record_id} — re-submit OCR")
                 result.append(track)
             else:
                 self.logger.debug(
                     f"[DEDUP_UPGRADE_SKIP] track={track.track_id} "
-                    f"area={new_area:.0f}/{saved_area:.0f} "
-                    f"conf={new_conf:.3f}/{saved_conf:.3f} "
-                    f"area_ok={area_ok} conf_ok={conf_ok}")
+                    f"area={new_area:.0f}/{saved_area:.0f} ar={new_ar:.2f}/{saved_ar:.2f} "
+                    f"conf={new_conf:.3f}/{saved_conf:.3f}")
         return result
 
     # ──────────────────────────────────────────────────────────────────
