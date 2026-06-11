@@ -93,7 +93,7 @@ class VehicleTrack:
         if self.iou_history is None:
             self.iou_history = deque(maxlen=10)
         if self.plate_crop_buffer is None:
-            self.plate_crop_buffer = deque(maxlen=5)
+            self.plate_crop_buffer = deque(maxlen=10)
 
 
 
@@ -1634,10 +1634,17 @@ class DetectionProcessor:
         if not self._should_submit_for_ocr(track, plate_bbox, frame_shape):
             return False
 
-        # Pick sharpest crop from buffer; fall back to best_frame_data full frame
+        # Pick best crop from buffer using height-weighted sharpness score.
+        # For side-mounted cameras (vehicle passing laterally), a taller crop
+        # requires less upscaling → sharper Tesseract input even at lower Laplacian.
+        # min(lap, 500) caps the sharpness benefit; beyond 500 the image is
+        # "good enough" and height becomes the primary differentiator.
         plate_crop = None
         if track.plate_crop_buffer:
-            plate_crop = max(track.plate_crop_buffer, key=lambda x: x[0])[1]
+            plate_crop = max(
+                track.plate_crop_buffer,
+                key=lambda x: min(x[0], 500) * x[1].shape[0]
+            )[1]
         if plate_crop is None or plate_crop.size == 0:
             self.logger.debug(
                 f"[ASYNC_OCR] track_id={track.track_id} no crop in buffer — skipping"

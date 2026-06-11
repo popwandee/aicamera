@@ -223,7 +223,16 @@ class DetectionManager:
             if rid and self.database_manager:
                 self._update_db_ocr(rid, [res])
             if tid and tid in self.recent_tracks:
-                self.recent_tracks[tid]['saved_has_ocr'] = True
+                ocr_text = res.get('text', '')
+                if ocr_text:
+                    self.recent_tracks[tid]['saved_has_ocr'] = True
+                else:
+                    # Empty OCR result: keep saved_has_ocr=False so that
+                    # DEDUP_UPGRADE Path C can fire again when the plate
+                    # reaches a more perpendicular angle (side-pass scenario).
+                    self.logger.debug(
+                        f"[OCR_FLUSH] track={tid} OCR empty — "
+                        f"saved_has_ocr stays False (upgrade retry allowed)")
         self.detection_stats['successful_ocr'] += len(polled)
         self.logger.info(
             f"[OCR_FLUSH] fid={detect_fid} {len(polled)} result(s) flushed "
@@ -686,8 +695,14 @@ class DetectionManager:
     def _filter_upgrade_tracks(self, candidates: list, plate_boxes: list, detect_fid: int) -> list:
         """
         From the DEDUP_BLOCK'd candidates, return those whose current-frame plate
-        is substantially better than what was saved:
-          new_area > saved_area × 2.0  AND  new_conf > saved_conf × 1.2
+        is substantially better than what was saved.  Three upgrade paths:
+
+          Path A — area×2:  plate area more than doubled (vehicle moved closer)
+          Path B — AR cross: AR improved from < 1.5 to ≥ 1.5 (side-pass first good crop)
+          Path C — AR peak:  AR improved from 1.4–1.9 to ≥ 2.0; only fires when the
+                             previous OCR returned empty (saved_has_ocr=False).
+                             Captures the more-perpendicular phase of a side-pass after
+                             the first upgrade OCR failed at a shallow angle.
 
         Qualifying tracks have their ocr_submitted flag reset and their
         _pending_ocr_updates entry restored so _flush_pending_ocr() will
@@ -711,14 +726,22 @@ class DetectionManager:
             saved_conf = info.get('saved_plate_conf', 0.0)
             saved_ar   = info.get('saved_plate_ar',   0.0)
 
-            # Path A: substantially larger plate (original criteria)
-            area_ok = new_area > saved_area * 2.0 and new_conf > saved_conf * 1.2
-            # Path B: aspect ratio improved into valid range (bad crop → good crop)
-            ar_ok   = new_ar >= 1.5 and saved_ar < 1.5 and new_conf >= saved_conf * 0.9
+            has_ocr = info.get('saved_has_ocr', True)
 
-            if area_ok or ar_ok:
+            # Path A: substantially larger plate (vehicle moved closer)
+            area_ok = new_area > saved_area * 2.0 and new_conf > saved_conf * 1.2
+            # Path B: AR crossed 1.5 threshold (partial → full plate, first good crop)
+            ar_ok   = new_ar >= 1.5 and saved_ar < 1.5 and new_conf >= saved_conf * 0.9
+            # Path C: AR improved to ≥ 2.0 (plate more perpendicular = side-pass peak),
+            # but only when previous OCR returned empty — avoids re-patching good results.
+            ar_ok2  = (new_ar >= 2.0 and 1.4 <= saved_ar < 2.0
+                       and not has_ocr and new_conf >= saved_conf * 0.85)
+
+            if area_ok or ar_ok or ar_ok2:
                 record_id = info.get('record_id')
-                reason = 'area×2' if area_ok else f'ar {saved_ar:.2f}→{new_ar:.2f}'
+                reason = ('area×2' if area_ok
+                          else f'ar {saved_ar:.2f}→{new_ar:.2f}' if ar_ok
+                          else f'ar2 {saved_ar:.2f}→{new_ar:.2f}')
                 # Restore pending patch entry if OCR result was already consumed
                 if record_id and track.track_id not in self._pending_ocr_updates:
                     self._pending_ocr_updates[track.track_id] = record_id
