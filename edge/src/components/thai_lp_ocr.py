@@ -117,18 +117,37 @@ def _prepare_for_tess(crop: np.ndarray) -> np.ndarray:
         blurred = cv2.GaussianBlur(crop, (0, 0), sigmaX=1.0)
         crop = cv2.addWeighted(crop, 1.4, blurred, -0.4, 0)
 
-    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    # Grayscale conversion: detect NoIR camera by IR bleed into R channel.
+    # IMX708 NoIR (no IR-cut filter): mean(R) >> mean(B) because the red channel
+    # absorbs near-IR while blue absorbs less.  Standard BGR2GRAY gives R a 30%
+    # weight, inflating brightness and degrading Otsu binarisation on white plates.
+    # Green channel has the least IR contamination — use it for NoIR crops.
+    b_mean = float(crop[:, :, 0].mean())
+    r_mean = float(crop[:, :, 2].mean())
+    if r_mean > b_mean * 1.35:
+        gray = crop[:, :, 1].copy()   # NoIR: G channel only
+        _noir = True
+    else:
+        gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+        _noir = False
 
     # Otsu binarisation works well when crop has bimodal histogram (text vs background).
-    thresh_val, bw = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    _, bw = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
     # Detect degenerate Otsu output (near-uniform image — threshold fell into background).
-    # Fall back to adaptive Gaussian threshold which handles uneven illumination.
+    # Fall back to adaptive Gaussian threshold.
+    # blockSize must be large (≥10% of width) to avoid block-artifact noise that
+    # Tesseract misreads as characters — especially critical for blurry NoIR crops.
     fill_ratio = np.mean(bw) / 255.0
     if fill_ratio < 0.1 or fill_ratio > 0.9:
+        _w = crop.shape[1]
+        block = max(51, (_w // 10) | 1)   # ~10% of width, must be odd, min 51
         bw = cv2.adaptiveThreshold(
             gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-            cv2.THRESH_BINARY, blockSize=31, C=8)
+            cv2.THRESH_BINARY, blockSize=block, C=5)
+        logger.debug(
+            f'[TESS_PREP] Otsu degenerate fill={fill_ratio:.2f} '
+            f'→ adaptive block={block} noir={_noir}')
 
     # Ensure text is dark on white background (invert if needed)
     if np.mean(bw) < 128:
