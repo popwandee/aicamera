@@ -71,11 +71,11 @@ def preprocess_plate_crop(crop: np.ndarray) -> np.ndarray:
     if crop is None or crop.size == 0:
         return crop
 
-    # 1. Resize to minimum height 64px, keep aspect ratio
+    # 1. Resize to minimum height 80px — gives CLAHE more pixels to work with
     h, w = crop.shape[:2]
-    if h < 64:
-        scale = 64 / h
-        crop = cv2.resize(crop, (int(w * scale), 64), interpolation=cv2.INTER_CUBIC)
+    if h < 80:
+        scale = 80 / h
+        crop = cv2.resize(crop, (int(w * scale), 80), interpolation=cv2.INTER_LANCZOS4)
 
     # 2. Deskew via Hough lines (only for small angles to avoid over-rotation)
     gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
@@ -103,25 +103,39 @@ def preprocess_plate_crop(crop: np.ndarray) -> np.ndarray:
 
 def _prepare_for_tess(crop: np.ndarray) -> np.ndarray:
     """
-    Scale to 300px tall, binarise, add white border.
+    Scale to 400px tall, binarise, add white border.
     Tesseract LSTM needs high-resolution input; border prevents edge clipping.
+    400px gives ~200px character height for typical Thai LP crop (better than 300px/150px).
     """
     h, w = crop.shape[:2]
-    target_h = 300
+    target_h = 400
     if h < target_h:
         scale = target_h / h
-        crop = cv2.resize(crop, (int(w * scale), target_h), interpolation=cv2.INTER_CUBIC)
+        crop = cv2.resize(
+            crop, (int(w * scale), target_h), interpolation=cv2.INTER_LANCZOS4)
+        # Unsharp mask — restore edge crispness lost during large upscale
+        blurred = cv2.GaussianBlur(crop, (0, 0), sigmaX=1.0)
+        crop = cv2.addWeighted(crop, 1.4, blurred, -0.4, 0)
 
     gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
-    # Otsu binarisation works well for plate images (high contrast text)
-    _, bw = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+    # Otsu binarisation works well when crop has bimodal histogram (text vs background).
+    thresh_val, bw = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+    # Detect degenerate Otsu output (near-uniform image — threshold fell into background).
+    # Fall back to adaptive Gaussian threshold which handles uneven illumination.
+    fill_ratio = np.mean(bw) / 255.0
+    if fill_ratio < 0.1 or fill_ratio > 0.9:
+        bw = cv2.adaptiveThreshold(
+            gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY, blockSize=31, C=8)
 
     # Ensure text is dark on white background (invert if needed)
     if np.mean(bw) < 128:
         bw = cv2.bitwise_not(bw)
 
     # Add white padding so Tesseract does not clip characters at edges
-    pad = 20
+    pad = 30
     bw = cv2.copyMakeBorder(bw, pad, pad, pad, pad,
                              cv2.BORDER_CONSTANT, value=255)
     return bw
