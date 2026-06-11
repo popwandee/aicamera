@@ -82,6 +82,9 @@ class DetectionManager:
         # Async OCR: track_id → pending DB record id
         self._pending_ocr_updates: Dict[int, int] = {}
 
+        # Tracks that were DEDUP_BLOCK'd but may qualify for plate upgrade this frame
+        self._potential_upgrade_tracks: list = []
+
         self.logger.info(f"DetectionManager initialised (tracking={self.tracking_enabled})")
 
     # ── init / start / stop ───────────────────────────────────────────
@@ -215,9 +218,12 @@ class DetectionManager:
         if not polled:
             return
         for res in polled:
-            rid = self._pending_ocr_updates.pop(res.get('track_id'), None)
+            tid = res.get('track_id')
+            rid = self._pending_ocr_updates.pop(tid, None)
             if rid and self.database_manager:
                 self._update_db_ocr(rid, [res])
+            if tid and tid in self.recent_tracks:
+                self.recent_tracks[tid]['saved_has_ocr'] = True
         self.detection_stats['successful_ocr'] += len(polled)
         self.logger.info(
             f"[OCR_FLUSH] fid={detect_fid} {len(polled)} result(s) flushed "
@@ -261,8 +267,11 @@ class DetectionManager:
 
             # 3. Tracking pass 1 — vehicle level (no plate info yet)
             tracks_to_save = self._tracking_pass1(vehicle_boxes, frame, detect_fid)
-            if tracks_to_save is not None and not tracks_to_save:
-                return None   # all vehicles are duplicates
+            # Capture upgrade candidates populated by _should_save_detection()
+            upgrade_tracks = list(self._potential_upgrade_tracks)
+            self._potential_upgrade_tracks.clear()
+            if tracks_to_save is not None and not tracks_to_save and not upgrade_tracks:
+                return None   # all vehicles are duplicates, none upgradeable
 
             # 4. Plate detection
             plate_boxes = self.detection_processor.detect_license_plates(
@@ -282,11 +291,22 @@ class DetectionManager:
             if tracks_to_save and plate_boxes:
                 self._tracking_pass2(tracks_to_save, vehicle_boxes, plate_boxes, frame)
 
+            # 5b. Upgrade check — re-submit OCR on existing records if better plate seen
+            if upgrade_tracks and plate_boxes:
+                self._tracking_pass2(upgrade_tracks, vehicle_boxes, plate_boxes, frame)
+                qualified = self._filter_upgrade_tracks(upgrade_tracks, plate_boxes, detect_fid)
+                if qualified:
+                    self._submit_ocr_for_tracks(qualified, detect_fid)
+
             # Gate: skip save if no plate visible this frame
             if not plate_boxes:
                 self.logger.info(
                     f"[SAVE_DEFER] fid={detect_fid} "
                     "no plate visible — keeping tracks eligible for next frame")
+                return None
+
+            # Gate: if only upgrade tracks were processed (no new record needed)
+            if tracks_to_save is not None and not tracks_to_save:
                 return None
 
             # 6. OCR (async poll + submit, or sync fallback)
@@ -308,6 +328,9 @@ class DetectionManager:
             if self.tracking_enabled and tracks_to_save:
                 for track in tracks_to_save:
                     self._mark_track_saved(track)
+                    # Store record_id so a later upgrade can patch the same record
+                    if record_id and track.track_id in self.recent_tracks:
+                        self.recent_tracks[track.track_id]['record_id'] = record_id
 
             async_worker = getattr(self.detection_processor, 'ocr_queue_worker', None)
             if async_worker and plate_boxes and not ocr_results and record_id and tracks_to_save:
@@ -564,6 +587,8 @@ class DetectionManager:
                         f"[DEDUP_BLOCK] track={track_id} "
                         f"elapsed={elapsed:.1f}s < {self.reentry_time_threshold}s "
                         f"prev='{info.get('plate_text','?')}' — skip")
+                    if not info.get('saved_has_ocr', True):
+                        self._potential_upgrade_tracks.append(track)
                     return False
                 # Beyond the time window — distinguish long stop from re-entry
                 track_first_seen = getattr(track, 'first_seen', 0.0)
@@ -573,6 +598,8 @@ class DetectionManager:
                         f"[DEDUP_BLOCK_CONTINUOUS] track={track_id} "
                         f"elapsed={elapsed:.1f}s first_seen={track_first_seen:.1f} "
                         f"<= last_saved={info['last_saved']:.1f} — long stop, skip")
+                    if not info.get('saved_has_ocr', True):
+                        self._potential_upgrade_tracks.append(track)
                     return False
                 self.logger.info(
                     f"[DEDUP_REENTRY] track={track_id} "
@@ -600,6 +627,16 @@ class DetectionManager:
             self.logger.warning(f"_should_save_detection: {e}")
             return True
 
+    def _get_best_plate_metrics(self, track) -> tuple:
+        """Return (conf, area) of track's best plate candidate."""
+        if not track.plate_candidates:
+            return 0.0, 0.0
+        best = max(track.plate_candidates, key=lambda p: p.get('score', 0.0))
+        conf = best.get('score', 0.0)
+        x1, y1, x2, y2 = best.get('bbox', [0, 0, 0, 0])
+        area = max(0.0, (x2 - x1) * (y2 - y1))
+        return conf, area
+
     def _mark_track_saved(self, track):
         """Record save; register plate text for Layer-2 dedup."""
         try:
@@ -609,10 +646,15 @@ class DetectionManager:
             if track.ocr_results:
                 plate_text = track.ocr_results[-1].get('text', '')
 
+            saved_conf, saved_area = self._get_best_plate_metrics(track)
             self.recent_tracks[track_id] = {
-                'last_saved': now,
-                'bbox':       list(track.bbox) if isinstance(track.bbox, list) else track.bbox,
-                'plate_text': plate_text,
+                'last_saved':       now,
+                'bbox':             list(track.bbox) if isinstance(track.bbox, list) else track.bbox,
+                'plate_text':       plate_text,
+                'saved_plate_conf': saved_conf,
+                'saved_plate_area': saved_area,
+                'saved_has_ocr':    False,
+                'record_id':        None,   # filled in by process_frame() after DB insert
             }
             self.logger.info(
                 f"[TRACK_SAVED] track={track_id} plate='{plate_text or '?'}' "
@@ -637,6 +679,59 @@ class DetectionManager:
         for k in [k for k, ts in self.recent_plate_texts.items()
                   if now - ts > self.plate_text_dedup_window * 2]:
             del self.recent_plate_texts[k]
+
+    def _filter_upgrade_tracks(self, candidates: list, plate_boxes: list, detect_fid: int) -> list:
+        """
+        From the DEDUP_BLOCK'd candidates, return those whose current-frame plate
+        is substantially better than what was saved:
+          new_area > saved_area × 2.0  AND  new_conf > saved_conf × 1.2
+
+        Qualifying tracks have their ocr_submitted flag reset and their
+        _pending_ocr_updates entry restored so _flush_pending_ocr() will
+        patch the existing DB record when OCR completes.
+        """
+        if not plate_boxes:
+            return []
+        best_pb = max(plate_boxes, key=lambda p: p.get('score', 0.0))
+        new_conf = best_pb.get('score', 0.0)
+        x1, y1, x2, y2 = best_pb.get('bbox', [0, 0, 0, 0])
+        new_area = max(0.0, (x2 - x1) * (y2 - y1))
+
+        result = []
+        for track in candidates:
+            info = self.recent_tracks.get(track.track_id)
+            if not info:
+                continue
+            saved_area = info.get('saved_plate_area', 0.0)
+            saved_conf = info.get('saved_plate_conf', 0.0)
+
+            area_ok = new_area > saved_area * 2.0
+            conf_ok = new_conf > saved_conf * 1.2
+
+            if area_ok and conf_ok:
+                record_id = info.get('record_id')
+                # Restore pending patch entry if OCR result was already consumed
+                if record_id and track.track_id not in self._pending_ocr_updates:
+                    self._pending_ocr_updates[track.track_id] = record_id
+                # Reset submission flag so _submit_ocr_for_tracks re-queues this track
+                track.ocr_submitted = False
+                track.ocr_submitted_lap = 0.0
+                # Update saved metrics to prevent repeated upgrades next frame
+                info['saved_plate_area'] = new_area
+                info['saved_plate_conf'] = new_conf
+                self.logger.info(
+                    f"[DEDUP_UPGRADE] fid={detect_fid} track={track.track_id} "
+                    f"area {saved_area:.0f}→{new_area:.0f} "
+                    f"conf {saved_conf:.3f}→{new_conf:.3f} "
+                    f"record_id={record_id} — re-submit OCR")
+                result.append(track)
+            else:
+                self.logger.debug(
+                    f"[DEDUP_UPGRADE_SKIP] track={track.track_id} "
+                    f"area={new_area:.0f}/{saved_area:.0f} "
+                    f"conf={new_conf:.3f}/{saved_conf:.3f} "
+                    f"area_ok={area_ok} conf_ok={conf_ok}")
+        return result
 
     # ──────────────────────────────────────────────────────────────────
     # Async OCR DB patch
