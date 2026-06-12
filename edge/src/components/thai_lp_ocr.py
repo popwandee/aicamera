@@ -8,22 +8,31 @@ province matching, and plate format validation.
 Uses Tesseract 5 (LSTM) with tha+eng language pack.
 - Lightweight: system binary, no large model downloads
 - Stable on ARM64 (RPi5 / aarch64)
-- Thai consonants + digits + province names recognized via --psm 7 + --psm 8
+- Three-mode OCR pipeline with short-circuit on valid result
 
 Only this file changes between OCR iterations — vehicle/plate detection
 and Hailo inference are untouched.
 """
 
+import os
 import re
 import logging
-import os
-import subprocess
 from typing import Optional
 
 import cv2
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Camera identity — NoIR flag
+# ---------------------------------------------------------------------------
+# aicamera2 (AICAMERA_ID=2) uses IMX708 NoIR (no IR-cut filter).
+# Near-IR bleeds into R channel → BGR2GRAY degrades binarization on white plates.
+# G-channel has least IR contamination → use it for all binarization paths.
+# Determined once at module load from env, not per-crop, because the plate crop
+# is a neutral white rectangle that doesn't trigger the r>b*1.35 heuristic.
+_IS_NOIR_CAMERA: bool = os.environ.get('AICAMERA_ID', '1') == '2'
 
 # ---------------------------------------------------------------------------
 # Province dictionary — all 77 Thai provinces
@@ -52,19 +61,100 @@ THAI_PROVINCES = {
 # Thai plate formats:
 #   Standard:  1-3 Thai consonants + 1-4 digits  + optional province
 #   Mixed:     1 digit + 1-2 Thai consonants + 1-4 digits + optional province
-_PLATE_RE = re.compile(r'(\d?[ก-ฮ]{1,3})\s*(\d{1,4})\s*(.+)?$')
+#
+# [^\dก-ฮ]* between consonants and digits: tolerates stray vowel marks
+# (e.g. "จระ 4173" from Tesseract where ะ is mis-attached to ร).
+# Consonants are ก-ฮ (U+0E01-U+0E2E); vowels/tone marks are outside this range.
+_PLATE_RE = re.compile(r'(\d?[ก-ฮ]{1,3})[^\dก-ฮ]*(\d{1,4})\s*(.+)?$')
 
-# Tesseract config for single-line plate crops
-# --psm 7 = single text line; --oem 3 = LSTM + legacy
-_TESS_CFG_LINE = '--oem 3 --psm 7'
-# --psm 8 = single word (fallback for very small crops)
-_TESS_CFG_WORD = '--oem 3 --psm 8'
 _TESS_LANG = 'tha+eng'
 
 
 # ---------------------------------------------------------------------------
-# Preprocessing
+# Preprocessing helpers
 # ---------------------------------------------------------------------------
+
+def _grey(crop: np.ndarray, noir: bool) -> np.ndarray:
+    """Convert BGR crop to greyscale: G-channel for NoIR, standard luma for colour."""
+    return crop[:, :, 1].copy() if noir else cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+
+
+def _mode_a_gray(crop: np.ndarray, noir: bool) -> np.ndarray:
+    """
+    Mode A — fast greyscale (no binarization).
+    2× LANCZOS4 upscale + channel-aware greyscale.
+    Input crop is already CLAHE-normalised by preprocess_plate_crop().
+    At ~80px input height, 2× → ~160px gives ~100px character height —
+    adequate for Tesseract LSTM PSM 11 (sparse text scan).
+    """
+    h, w = crop.shape[:2]
+    crop_up = cv2.resize(crop, (w * 2, h * 2), interpolation=cv2.INTER_LANCZOS4)
+    return _grey(crop_up, noir)
+
+
+def _mode_b_adaptive(crop: np.ndarray, noir: bool,
+                     scale: float = 3.0, pad: int = 30) -> np.ndarray:
+    """
+    Mode B — adaptive threshold binarization.
+    3× LANCZOS4 upscale + unsharp mask + per-region adaptive Gaussian threshold.
+    3× gives ~240px output height from the typical 80px preprocessed input, so
+    Thai consonant strokes are ~96px tall — reliably resolved by PSM 6.
+    2× (160px) is borderline for "จ"/"ร" on smaller raw crops (< 60px height).
+    Image size at 3×: ~510×240px + padding ≈ 570×300px — ~2 s under 30 fps load.
+    Block size ~10% of width adapts to local contrast without small-block noise.
+    PSM 6 (uniform text block) is the correct mode for binary plate images.
+    """
+    h, w = crop.shape[:2]
+    crop = cv2.resize(crop, (int(w * scale), int(h * scale)),
+                      interpolation=cv2.INTER_LANCZOS4)
+    blurred = cv2.GaussianBlur(crop, (0, 0), sigmaX=1.0)
+    crop = cv2.addWeighted(crop, 1.4, blurred, -0.4, 0)
+
+    gray = _grey(crop, noir)
+    _w = gray.shape[1]
+    block = max(51, (_w // 10) | 1)
+    bw = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                               cv2.THRESH_BINARY, block, 5)
+    if np.mean(bw) < 128:
+        bw = cv2.bitwise_not(bw)
+    return cv2.copyMakeBorder(bw, pad, pad, pad, pad,
+                              cv2.BORDER_CONSTANT, value=255)
+
+
+def _mode_c_otsu(crop: np.ndarray, noir: bool,
+                 scale: float = 2.0, pad: int = 30) -> np.ndarray:
+    """
+    Mode C — Otsu binarization with adaptive fallback.
+    2× LANCZOS4 upscale + unsharp mask + Otsu threshold.
+    CLAHE was already applied by preprocess_plate_crop(), which pre-separates
+    the bimodal histogram that Otsu relies on.
+    Falls back to adaptive when fill_ratio is degenerate (< 0.1 or > 0.9),
+    which happens when dark car-body padding dominates the crop.
+    PSM 6 is used (not PSM 11) — binarized text blocks need uniform-mode scan.
+    """
+    h, w = crop.shape[:2]
+    crop = cv2.resize(crop, (int(w * scale), int(h * scale)),
+                      interpolation=cv2.INTER_LANCZOS4)
+    blurred = cv2.GaussianBlur(crop, (0, 0), sigmaX=1.0)
+    crop = cv2.addWeighted(crop, 1.4, blurred, -0.4, 0)
+
+    gray = _grey(crop, noir)
+    _, bw = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+    fill_ratio = np.mean(bw) / 255.0
+    if fill_ratio < 0.1 or fill_ratio > 0.9:
+        _w = gray.shape[1]
+        block = max(51, (_w // 10) | 1)
+        bw = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                   cv2.THRESH_BINARY, block, 5)
+        logger.debug(f'[TESS_PREP] Otsu degenerate fill={fill_ratio:.2f}'
+                     f' → adaptive block={block} noir={noir}')
+
+    if np.mean(bw) < 128:
+        bw = cv2.bitwise_not(bw)
+    return cv2.copyMakeBorder(bw, pad, pad, pad, pad,
+                              cv2.BORDER_CONSTANT, value=255)
+
 
 def preprocess_plate_crop(crop: np.ndarray) -> np.ndarray:
     """Upscale, deskew, and normalise contrast of a plate crop before OCR."""
@@ -102,65 +192,11 @@ def preprocess_plate_crop(crop: np.ndarray) -> np.ndarray:
 
 
 def _prepare_for_tess(crop: np.ndarray) -> np.ndarray:
-    """
-    Scale to 400px tall, binarise, add white border.
-    Tesseract LSTM needs high-resolution input; border prevents edge clipping.
-    400px gives ~200px character height for typical Thai LP crop (better than 300px/150px).
-    """
-    h, w = crop.shape[:2]
-    target_h = 400
-    if h < target_h:
-        scale = target_h / h
-        crop = cv2.resize(
-            crop, (int(w * scale), target_h), interpolation=cv2.INTER_LANCZOS4)
-        # Unsharp mask — restore edge crispness lost during large upscale
-        blurred = cv2.GaussianBlur(crop, (0, 0), sigmaX=1.0)
-        crop = cv2.addWeighted(crop, 1.4, blurred, -0.4, 0)
-
-    # Grayscale conversion: detect NoIR camera by IR bleed into R channel.
-    # IMX708 NoIR (no IR-cut filter): mean(R) >> mean(B) because the red channel
-    # absorbs near-IR while blue absorbs less.  Standard BGR2GRAY gives R a 30%
-    # weight, inflating brightness and degrading Otsu binarisation on white plates.
-    # Green channel has the least IR contamination — use it for NoIR crops.
-    b_mean = float(crop[:, :, 0].mean())
-    r_mean = float(crop[:, :, 2].mean())
-    if r_mean > b_mean * 1.35:
-        gray = crop[:, :, 1].copy()   # NoIR: G channel only
-        _noir = True
-    else:
-        gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
-        _noir = False
-
-    # Otsu binarisation works well when crop has bimodal histogram (text vs background).
-    _, bw = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-
-    # Detect degenerate Otsu output (near-uniform image — threshold fell into background).
-    # Fall back to adaptive Gaussian threshold.
-    # blockSize must be large (≥10% of width) to avoid block-artifact noise that
-    # Tesseract misreads as characters — especially critical for blurry NoIR crops.
-    fill_ratio = np.mean(bw) / 255.0
-    if fill_ratio < 0.1 or fill_ratio > 0.9:
-        _w = crop.shape[1]
-        block = max(51, (_w // 10) | 1)   # ~10% of width, must be odd, min 51
-        bw = cv2.adaptiveThreshold(
-            gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-            cv2.THRESH_BINARY, blockSize=block, C=5)
-        logger.debug(
-            f'[TESS_PREP] Otsu degenerate fill={fill_ratio:.2f} '
-            f'→ adaptive block={block} noir={_noir}')
-
-    # Ensure text is dark on white background (invert if needed)
-    if np.mean(bw) < 128:
-        bw = cv2.bitwise_not(bw)
-
-    # Add white padding so Tesseract does not clip characters at edges
-    pad = 30
-    bw = cv2.copyMakeBorder(bw, pad, pad, pad, pad,
-                             cv2.BORDER_CONSTANT, value=255)
-    return bw
+    """Backward-compatible alias — Mode C binarization."""
+    return _mode_c_otsu(crop, noir=_IS_NOIR_CAMERA)
 
 
-# Keep old name as alias so external test scripts still work
+# Keep old name so external test scripts still work
 def _binarise_for_tess(crop: np.ndarray) -> np.ndarray:
     return _prepare_for_tess(crop)
 
@@ -209,8 +245,7 @@ def validate_thai_plate(text: str) -> dict:
             province_matched = p
             break
 
-    # Only include province in formatted output if it was confirmed against THAI_PROVINCES.
-    # Unconfirmed text is often OCR noise — don't propagate it into the final plate string.
+    # Only include province in formatted output if confirmed against THAI_PROVINCES.
     formatted = f'{letters} {numbers}'
     if province_matched:
         formatted += f' {province_matched}'
@@ -234,18 +269,27 @@ class ThaiLPROCR:
     """
     Synchronous Thai license plate OCR using Tesseract 5 (tha+eng).
 
-    Loaded once during service startup. No large model downloads required —
-    models are part of the system package tesseract-ocr-tha.
+    Three-mode pipeline with short-circuit on valid result:
+      Mode A  2× greyscale + PSM 11  (fast, no binarization — primary path)
+      Mode B  adaptive BW + PSM 6    (robust for uneven illumination)
+      Mode C  Otsu BW + PSM 6        (fallback, CLAHE already applied upstream)
+
+    Loaded once during service startup. No large model downloads required.
 
     Install on device:
         sudo apt install tesseract-ocr tesseract-ocr-tha tesseract-ocr-eng
         pip install pytesseract
     """
 
-    # Tesseract binary path (overridable for devices where it's not on PATH)
     TESSERACT_CMD = '/usr/bin/tesseract'
+    # 5 s per call: the detection service runs Hailo inference at 30 fps on the
+    # same RPi5 cores, pushing Tesseract subprocess time from ~0.3 s (idle) to
+    # ~2.5 s (loaded).  2 s timed out in field tests; 5 s gives safe headroom.
+    _TIMEOUT = 5
+    _CFG_BASE = '--oem 3'
 
-    def __init__(self, logger: Optional[logging.Logger] = None, log: Optional[logging.Logger] = None):
+    def __init__(self, logger: Optional[logging.Logger] = None,
+                 log: Optional[logging.Logger] = None):
         self._pytesseract = None
         self._ready = False
         self._log = logger or log or logging.getLogger(__name__)
@@ -255,8 +299,6 @@ class ThaiLPROCR:
         try:
             import pytesseract
             pytesseract.pytesseract.tesseract_cmd = self.TESSERACT_CMD
-
-            # Quick sanity check
             version = pytesseract.get_tesseract_version()
             langs = pytesseract.get_languages()
             if 'tha' not in langs:
@@ -265,10 +307,12 @@ class ThaiLPROCR:
                     f'(langs={langs}). Run: sudo apt install tesseract-ocr-tha'
                 )
                 return False
-
             self._pytesseract = pytesseract
             self._ready = True
-            self._log.info(f'ThaiLPROCR: Tesseract {version} ready (langs: tha+eng)')
+            self._log.info(
+                f'ThaiLPROCR: Tesseract {version} ready (langs: tha+eng) '
+                f'noir_camera={_IS_NOIR_CAMERA}'
+            )
             return True
         except ImportError:
             self._log.warning(
@@ -284,75 +328,111 @@ class ThaiLPROCR:
 
     def read_plate(self, crop: np.ndarray) -> dict:
         """
-        Run OCR on a plate crop (after preprocess_plate_crop).
+        Multi-mode OCR on a plate crop (after preprocess_plate_crop).
 
-        Tries two Tesseract PSM modes and picks the result with more content.
+        Runs Mode A first; if a valid Thai plate is found, returns immediately.
+        Falls through to Mode B (adaptive) then Mode C (Otsu) for difficult crops.
+        When no mode yields a valid plate, picks the result with the most Thai
+        consonants as a best-effort partial result.
+
+        Input crop is expected to be ~80-100px tall, CLAHE-normalised, padded.
         Returns dict with 'text', 'confidence', 'validation', 'success'.
         """
         if not self._ready or self._pytesseract is None:
             return {'success': False, 'text': '', 'confidence': 0.0,
                     'error': 'ThaiLPROCR not loaded'}
-        # Hard timeout per Tesseract call.  PSM 11 on a square/large crop
-        # (false positive) can take 4+ seconds and stall the OCR queue.
-        _TESS_TIMEOUT = 2  # seconds per individual image_to_* call
+
+        def _run(img: np.ndarray, psm: int) -> str:
+            cfg = f'{self._CFG_BASE} --psm {psm}'
+            try:
+                return self._pytesseract.image_to_string(
+                    img, lang=_TESS_LANG, config=cfg, timeout=self._TIMEOUT
+                ).strip()
+            except RuntimeError:
+                self._log.warning(f'ThaiLPROCR: PSM {psm} timed out')
+                return ''
+
+        def _thai_count(t: str) -> int:
+            return sum(1 for c in t if 'ก' <= c <= 'ฮ')
+
+        def _clean(t: str) -> str:
+            return ' '.join(t.split())
+
+        def _conf_from_validation(v: dict) -> float:
+            # Analytical confidence: avoids an extra image_to_data Tesseract call.
+            # The detection service runs at 30 fps and keeps the CPU busy; each
+            # additional call costs 2-3 s under load.
+            if v.get('province_confirmed'):
+                return 0.85
+            if v.get('valid'):
+                return 0.65
+            return 0.0
+
+        def _make_result(text: str, v: dict) -> dict:
+            return {
+                'success': True,
+                'text': v.get('formatted', text),
+                'confidence': _conf_from_validation(v),
+                'raw_text': text,
+                'validation': v,
+            }
 
         try:
-            bw = _prepare_for_tess(crop)
+            # ── Mode A: 2× greyscale + PSM 11 ──────────────────────────────
+            # Primary path. No binarization — avoids Otsu/adaptive artefacts.
+            # Works reliably on colour camera crops ≥ 80px input height.
+            # For NoIR camera: G-channel prevents R-channel IR bleed degrading contrast.
+            gray_a = _mode_a_gray(crop, noir=_IS_NOIR_CAMERA)
+            text_a = _clean(_run(gray_a, psm=11))
+            val_a  = validate_thai_plate(text_a)
+            self._log.debug(f'[TESS_A] psm11 grey: {repr(text_a)}')
 
-            # PSM 11 = sparse text (finds text anywhere — best for plates)
-            # PSM 6  = uniform block (fallback for clean single-zone crops)
-            cfg11 = '--oem 3 --psm 11'
-            cfg6  = '--oem 3 --psm 6'
+            if val_a.get('valid'):
+                self._log.debug(f'[TESS_HIT] mode=A result={repr(text_a)}')
+                return _make_result(text_a, val_a)
 
-            try:
-                text11 = self._pytesseract.image_to_string(
-                    bw, lang=_TESS_LANG, config=cfg11, timeout=_TESS_TIMEOUT
-                ).strip()
-            except RuntimeError:
-                self._log.warning('ThaiLPROCR: PSM 11 timed out')
-                text11 = ''
+            # ── Mode B: adaptive threshold + PSM 11 ────────────────────────
+            # More robust for uneven illumination (padded car-body margins,
+            # NoIR colour shift, overcast vs direct sun).
+            # PSM 11 (sparse text) is faster than PSM 6 on binarized images
+            # under 30 fps load, and produces better consonant detection for
+            # Thai plates where the text is not a perfectly uniform block.
+            bw_b   = _mode_b_adaptive(crop, noir=_IS_NOIR_CAMERA)
+            text_b = _clean(_run(bw_b, psm=11))
+            val_b  = validate_thai_plate(text_b)
+            self._log.debug(f'[TESS_B] psm11 adaptive: {repr(text_b)}')
 
-            try:
-                text6 = self._pytesseract.image_to_string(
-                    bw, lang=_TESS_LANG, config=cfg6, timeout=_TESS_TIMEOUT
-                ).strip()
-            except RuntimeError:
-                self._log.warning('ThaiLPROCR: PSM 6 timed out')
-                text6 = ''
+            if val_b.get('valid'):
+                self._log.debug(f'[TESS_HIT] mode=B result={repr(text_b)}')
+                return _make_result(text_b, val_b)
 
-            # Prefer the result that has more Thai consonants (key signal for plates)
-            def thai_count(t): return sum(1 for c in t if 'ก' <= c <= 'ฮ')
-            raw_text = text11 if thai_count(text11) >= thai_count(text6) else text6
+            # ── Mode C: Otsu binarize + PSM 6 ──────────────────────────────
+            # Last resort. CLAHE was applied upstream → Otsu histogram is
+            # pre-separated. Falls back to adaptive inside if fill_ratio degenerates.
+            bw_c   = _mode_c_otsu(crop, noir=_IS_NOIR_CAMERA)
+            text_c = _clean(_run(bw_c, psm=6))
+            val_c  = validate_thai_plate(text_c)
+            self._log.debug(f'[TESS_C] psm6 otsu: {repr(text_c)}')
 
-            if not raw_text:
+            if val_c.get('valid'):
+                self._log.debug(f'[TESS_HIT] mode=C result={repr(text_c)}')
+                return _make_result(text_c, val_c)
+
+            # ── No valid plate — best-effort fallback ───────────────────────
+            all_texts = [text_a, text_b, text_c]
+            best = max(all_texts, key=lambda t: (_thai_count(t), len(t)))
+            if not best:
                 return {'success': False, 'text': '', 'confidence': 0.0,
                         'error': 'No text detected'}
 
-            # Collapse multi-line output to a single string (PSM 11 may return newlines)
-            raw_text = ' '.join(raw_text.split())
+            val = validate_thai_plate(best)
+            self._log.debug(
+                f'[TESS_FALLBACK] no valid plate; best={repr(best)} '
+                f'modes=[{repr(text_a)}, {repr(text_b)}, {repr(text_c)}]'
+            )
+            return _make_result(best, val)
 
-            # Estimate confidence via image_to_data
-            try:
-                data = self._pytesseract.image_to_data(
-                    bw, lang=_TESS_LANG, config=cfg11,
-                    output_type=self._pytesseract.Output.DICT,
-                    timeout=_TESS_TIMEOUT,
-                )
-                confs = [c for c in data['conf'] if isinstance(c, (int, float)) and c >= 0]
-                avg_conf = float(np.mean(confs)) / 100.0 if confs else 0.5
-            except RuntimeError:
-                self._log.warning('ThaiLPROCR: image_to_data timed out, using 0.5 conf')
-                avg_conf = 0.5
-
-            validation = validate_thai_plate(raw_text)
-
-            return {
-                'success': True,
-                'text': validation.get('formatted', raw_text),
-                'confidence': avg_conf,
-                'raw_text': raw_text,
-                'validation': validation,
-            }
         except Exception as e:
             self._log.warning(f'ThaiLPROCR: read_plate error: {e}')
             return {'success': False, 'text': '', 'confidence': 0.0, 'error': str(e)}
+
