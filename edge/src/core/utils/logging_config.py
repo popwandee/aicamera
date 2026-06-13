@@ -97,6 +97,11 @@ def setup_logging(
             msg = str(record.getMessage())
             return not any(s in msg for s in self.SUPPRESS_SUBSTRINGS)
 
+    # Filter for communication log: pass all records through (passthrough)
+    class StartStopInfoFilter(logging.Filter):
+        def filter(self, record: logging.LogRecord) -> bool:
+            return True
+
     # Add file handler with daily rotation at 00:01
     try:
         file_handler = TimedRotatingFileHandler(

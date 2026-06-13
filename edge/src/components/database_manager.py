@@ -164,7 +164,8 @@ class DatabaseManager:
                 )
             """)
             
-            self.connection.commit()
+            if self.connection.in_transaction:
+                self.connection.commit()
             self.logger.info("Database tables created successfully")
             
         except Exception as e:
@@ -193,7 +194,8 @@ class DatabaseManager:
                 if col not in existing:
                     cursor.execute(f'ALTER TABLE {table} ADD COLUMN {col} {typedef}')
                     self.logger.info(f"Schema migration: added {table}.{col}")
-            self.connection.commit()
+            if self.connection.in_transaction:
+                self.connection.commit()
         except Exception as e:
             self.logger.error(f"Schema migration error: {e}")
 
@@ -262,7 +264,8 @@ class DatabaseManager:
             ))
             
             self.logger.debug(f"🔧 [DATABASE_MANAGER] insert_detection_result: executing INSERT statement")
-            self.connection.commit()
+            if self.connection.in_transaction:
+                self.connection.commit()
             record_id = cursor.lastrowid
             
             self.logger.debug(f"🔧 [DATABASE_MANAGER] insert_detection_result: detection result inserted with ID: {record_id}")
@@ -712,7 +715,8 @@ class DatabaseManager:
             cursor.execute("DELETE FROM detection_results WHERE id = ?", (result_id,))
             deleted = cursor.rowcount > 0
             if deleted:
-                self.connection.commit()
+                if self.connection.in_transaction:
+                    self.connection.commit()
                 self.logger.info(f"Deleted detection result with ID {result_id}")
             else:
                 self.logger.warning(f"No detection result found to delete with ID {result_id}")
@@ -838,7 +842,8 @@ class DatabaseManager:
                 VALUES (?, ?)
             """, (event_type, event_data_json))
             
-            self.connection.commit()
+            if self.connection.in_transaction:
+                self.connection.commit()
             self.logger.debug(f"System event logged: {event_type}")
             
         except Exception as e:
@@ -869,7 +874,8 @@ class DatabaseManager:
                 WHERE timestamp < datetime('now', '-{} days')
             """.format(days_to_keep))
             
-            self.connection.commit()
+            if self.connection.in_transaction:
+                self.connection.commit()
             self.logger.info(f"Cleaned up old records older than {days_to_keep} days")
             
         except Exception as e:
@@ -939,7 +945,8 @@ class DatabaseManager:
                 VALUES (?, ?, ?, ?, ?)
             """, (timestamp, component, status, message, details))
             
-            self.connection.commit()
+            if self.connection.in_transaction:
+                self.connection.commit()
             record_id = cursor.lastrowid
             
             self.logger.debug(f"Health check result logged: {component} - {status}")
@@ -1113,7 +1120,8 @@ class DatabaseManager:
                 WHERE id = ?
             """, (server_response, record_id))
             
-            self.connection.commit()
+            if self.connection.in_transaction:
+                self.connection.commit()
             self.logger.debug(f"Detection result {record_id} marked as sent")
             return True
             
@@ -1143,7 +1151,8 @@ class DatabaseManager:
                 WHERE id = ?
             """, (server_response, record_id))
             
-            self.connection.commit()
+            if self.connection.in_transaction:
+                self.connection.commit()
             self.logger.debug(f"Health check {record_id} marked as sent")
             return True
             
@@ -1186,7 +1195,8 @@ class DatabaseManager:
             """, (timestamp, action, status, message, data_type, record_count, server_response, aicamera_id, checkpoint_id))
 
             
-            self.connection.commit()
+            if self.connection.in_transaction:
+                self.connection.commit()
             record_id = cursor.lastrowid
             
             self.logger.debug(f"WebSocket action logged: {action} - {status}")
