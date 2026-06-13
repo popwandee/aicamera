@@ -107,3 +107,7 @@ TEST_AND_DEBUG_PLAN.md
 
 # Debug/context docs (local only)
 docs/project/
+
+# Scripts and guides contain hardcoded credentials (IPs, passwords, usernames)
+scripts/*.sh
+scripts/*.md
