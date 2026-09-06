@@ -21,6 +21,7 @@ import json
 import base64
 import threading
 import time
+import uuid
 import logging
 import requests
 import socketio
@@ -552,6 +553,10 @@ class WebSocketSender:
             
             # Send data via Socket.IO based on data type
             if data.get('type') == 'detection_result':
+                # Shared correlation ID so the server can link this frame's
+                # detection_result and image messages by exact match instead
+                # of guessing from camera_id + a timestamp window.
+                event_id = str(uuid.uuid4())
                 message_data = {
                     'content': {
                         'type': 'detection_result',
@@ -565,13 +570,19 @@ class WebSocketSender:
                         'plate_detections': data.get('plate_detections'),
                         'processing_time_ms': data.get('processing_time_ms'),
                         'created_at': data.get('created_at'),
+                        'event_id': event_id,
                     },
                     'camera_id': self.aicamera_id,
                 }
                 self.sio.emit('message', message_data)
                 if data.get('original_image'):
                     fn = f"detection_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
-                    image_data = {'data': data['original_image'], 'filename': fn, 'camera_id': self.aicamera_id}
+                    image_data = {
+                        'data': data['original_image'],
+                        'filename': fn,
+                        'camera_id': self.aicamera_id,
+                        'event_id': event_id,
+                    }
                     self.sio.emit('image', image_data)
             elif data.get('type') == 'test':
                 self.sio.emit('ping', data)
@@ -920,6 +931,10 @@ class WebSocketSender:
                 return self._send_data_rest(data)
             if not self.sio or not self.sio.connected:
                 return False
+            # Shared correlation ID so the server can link this frame's
+            # detection_result and image messages by exact match instead of
+            # guessing from camera_id + a timestamp window.
+            event_id = str(uuid.uuid4())
             message_data = {
                 'content': {
                     'type': 'detection_result',
@@ -933,13 +948,19 @@ class WebSocketSender:
                     'plate_detections': data.get('plate_detections'),
                     'processing_time_ms': data.get('processing_time_ms'),
                     'created_at': data.get('created_at'),
+                    'event_id': event_id,
                 },
                 'camera_id': self.aicamera_id,
             }
             self.sio.emit('message', message_data)
             if data.get('original_image'):
                 fn = f"detection_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
-                image_payload = {'data': data['original_image'], 'filename': fn, 'camera_id': self.aicamera_id}
+                image_payload = {
+                    'data': data['original_image'],
+                    'filename': fn,
+                    'camera_id': self.aicamera_id,
+                    'event_id': event_id,
+                }
                 self.sio.emit('image', image_payload)
             return True
         except Exception as e:
