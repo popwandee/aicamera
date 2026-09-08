@@ -53,6 +53,7 @@ from edge.src.components.async_ocr_loader import AsyncOCRLoader
 from edge.src.components.parallel_ocr_processor import ParallelOCRProcessor
 from edge.src.components.thai_lp_ocr import ThaiLPROCR, preprocess_plate_crop, validate_thai_plate
 from edge.src.components.ocr_queue_worker import OcrQueueWorker, OcrTask
+from edge.src.components.dual_branch_degirum_ocr import DualBranchDegirumOCR
 
 logger = get_logger(__name__)
 
@@ -164,6 +165,9 @@ class DetectionProcessor:
         
         # ThaiLPROCR (Tesseract) instance — secondary OCR engine
         self.thai_lp_ocr = None
+
+        # DualBranchDegirumOCR (Hailo-8, CTC+province) — runs alongside Tesseract
+        self.dual_branch_ocr = None
 
         # Parallel OCR processor for simultaneous Hailo + ThaiLPROCR
         self.logger.info("🔍 [DETECTION_PROC] Initializing parallel OCR processor...")
@@ -344,6 +348,26 @@ class DetectionProcessor:
                 self.logger.warning(f"🔧 [DETECTION_PROC] Failed to load ThaiLPROCR: {e}")
                 self.thai_lp_ocr = None
 
+            # Load DualBranchDegirumOCR — Hailo-8 CTC+province model, runs
+            # alongside Tesseract in the async OCR worker (loaded via degirum,
+            # same device handle as vehicle/LP detection — raw hailo_platform
+            # cannot coexist with degirum in one process, see the module
+            # docstring in dual_branch_degirum_ocr.py). Tesseract stays the
+            # fallback if this fails to load or returns no text.
+            self.logger.info("🔧 [DETECTION_PROC] Loading DualBranchDegirumOCR...")
+            try:
+                if self.dual_branch_ocr is None:
+                    self.dual_branch_ocr = DualBranchDegirumOCR(logger=self.logger)
+                if not self.dual_branch_ocr.is_ready():
+                    if self.dual_branch_ocr.load():
+                        self.logger.info("🔧 [DETECTION_PROC] ✅ DualBranchDegirumOCR loaded successfully")
+                    else:
+                        self.logger.warning("🔧 [DETECTION_PROC] DualBranchDegirumOCR load failed — Tesseract only")
+                        self.dual_branch_ocr = None
+            except Exception as e:
+                self.logger.warning(f"🔧 [DETECTION_PROC] Failed to load DualBranchDegirumOCR: {e}")
+                self.dual_branch_ocr = None
+
             # Initialize parallel OCR processor (Hailo + ThaiLPROCR)
             self.logger.info("🔧 [DETECTION_PROC] Initializing parallel OCR processor...")
             try:
@@ -364,6 +388,7 @@ class DetectionProcessor:
                 try:
                     self.ocr_queue_worker = OcrQueueWorker(
                         thai_lp_ocr=self.thai_lp_ocr,
+                        dual_branch_ocr=self.dual_branch_ocr,
                         ocr_queue_maxsize=10,
                         result_queue_maxsize=50,
                         num_workers=1,
@@ -492,6 +517,16 @@ class DetectionProcessor:
                     self.logger.warning(f"Error shutting down OCR queue worker: {e}")
                 finally:
                     self.ocr_queue_worker = None
+
+            # Step 0b: Clean up DualBranchDegirumOCR if present
+            if hasattr(self, 'dual_branch_ocr') and self.dual_branch_ocr:
+                try:
+                    self.dual_branch_ocr.cleanup()
+                    self.logger.debug("DualBranchDegirumOCR cleaned up")
+                except Exception as e:
+                    self.logger.warning(f"Error cleaning up DualBranchDegirumOCR: {e}")
+                finally:
+                    self.dual_branch_ocr = None
 
             # Step 1: Clean up parallel OCR processor if present
             if hasattr(self, 'parallel_ocr_processor') and self.parallel_ocr_processor:

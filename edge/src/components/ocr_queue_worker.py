@@ -50,9 +50,9 @@ class OcrTask:
 class OcrResult:
     """OCR result returned to the main thread."""
     track_id: int
-    text: str
+    text: str                       # combined display text, e.g. "กข1234 ชลบุรี (กข1234)"
     confidence: float
-    method: str                     # "tesseract", "hailo", "fallback"
+    method: str                     # "tesseract", "dualbranch", "dualbranch+tesseract"
     valid_thai: bool
     bbox: List[float]
     det_confidence: float
@@ -60,6 +60,14 @@ class OcrResult:
     camera_id: str
     completed_at: float = field(default_factory=time.time)
     error: Optional[str] = None
+    # Individual engine results, kept alongside the combined `text` so both
+    # readings stay inspectable (logs, future analysis) instead of only
+    # surviving as a formatted substring.
+    hef_text: str = ''
+    hef_confidence: float = 0.0
+    hef_province: str = ''
+    tesseract_text: str = ''
+    tesseract_confidence: float = 0.0
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -80,6 +88,11 @@ class OcrQueueWorker:
     ----------
     thai_lp_ocr
         ThaiLPROCR instance (must already be loaded before passing here).
+    dual_branch_ocr
+        Optional DualBranchDegirumOCR instance (Hailo-8, ~5-10ms/plate after
+        warmup). Runs alongside Tesseract every task; results are combined
+        into OcrResult.text as "<hef> (<tesseract>)". None disables it and
+        behavior is unchanged (Tesseract-only, as before).
     ocr_queue_maxsize
         Max pending tasks.  put_nowait() drops new tasks when full.
     result_queue_maxsize
@@ -93,12 +106,14 @@ class OcrQueueWorker:
     def __init__(
         self,
         thai_lp_ocr,
+        dual_branch_ocr=None,
         ocr_queue_maxsize: int = 10,
         result_queue_maxsize: int = 50,
         num_workers: int = 1,
         logger: Optional[logging.Logger] = None,
     ):
         self.thai_lp_ocr = thai_lp_ocr
+        self.dual_branch_ocr = dual_branch_ocr
         self.logger = logger or logging.getLogger(__name__)
         self.num_workers = max(1, num_workers)
 
@@ -261,6 +276,21 @@ class OcrQueueWorker:
                 validate_thai_plate,
             )
 
+            # DualBranchDegirumOCR first — Hailo-8 inference is ~5-10ms after
+            # warmup, negligible next to Tesseract's multi-second run below.
+            hef_text, hef_conf, hef_province, hef_ms = '', 0.0, '', 0.0
+            if self.dual_branch_ocr is not None and self.dual_branch_ocr.is_ready():
+                t_hef = time.perf_counter()
+                try:
+                    hef_result = self.dual_branch_ocr.read_plate(task.plate_crop.copy())
+                except Exception as e:
+                    hef_result = {'success': False, 'error': str(e)}
+                hef_ms = (time.perf_counter() - t_hef) * 1000
+                if hef_result.get('success'):
+                    hef_text     = hef_result.get('chars', '') or hef_result.get('text', '')
+                    hef_conf     = hef_result.get('confidence', 0.0)
+                    hef_province = hef_result.get('province', '')
+
             t_pre = time.perf_counter()
             preprocessed = preprocess_plate_crop(task.plate_crop.copy())
             pre_ms = (time.perf_counter() - t_pre) * 1000
@@ -269,30 +299,54 @@ class OcrQueueWorker:
             thai_result = self.thai_lp_ocr.read_plate(preprocessed)
             tess_ms = (time.perf_counter() - t_tess) * 1000
 
-            text = thai_result.get('text', '') if thai_result else ''
-            confidence = thai_result.get('confidence', 0.0) if thai_result else 0.0
+            tess_text = thai_result.get('text', '') if thai_result else ''
+            tess_conf = thai_result.get('confidence', 0.0) if thai_result else 0.0
             valid = False
-            if text:
-                validation = validate_thai_plate(text)
+            if tess_text:
+                validation = validate_thai_plate(tess_text)
                 valid = validation.get('valid', False)
+
+            # Combined display text: "<hef chars+province> (<tesseract text>)".
+            # Falls back to whichever engine actually produced something so a
+            # missing/failed engine never leaves stray empty parens.
+            hef_display = f"{hef_text} {hef_province}".strip() if hef_text else ''
+            if hef_display and tess_text:
+                text = f"{hef_display} ({tess_text})"
+                method = 'dualbranch+tesseract'
+            elif hef_display:
+                text = hef_display
+                method = 'dualbranch'
+            else:
+                text = tess_text
+                method = 'tesseract'
+            # Overall confidence favors the Hailo reading when both are present
+            # (purpose-built model vs. general-purpose OCR on a small crop).
+            confidence = hef_conf if hef_display else tess_conf
 
             total_ms = (time.perf_counter() - t0) * 1000
             self.logger.info(
                 f"[OCR_RESULT] track={task.track_id} "
-                f"text='{text}' valid={valid} conf={confidence:.3f} "
-                f"preprocess={pre_ms:.0f}ms tesseract={tess_ms:.0f}ms "
+                f"text='{text}' method={method} valid={valid} conf={confidence:.3f} "
+                f"hef='{hef_display}' hef_conf={hef_conf:.3f} hef={hef_ms:.0f}ms "
+                f"tesseract='{tess_text}' tess_conf={tess_conf:.3f} "
+                f"preprocess={pre_ms:.0f}ms tesseract_ms={tess_ms:.0f}ms "
                 f"total={total_ms:.0f}ms queue_wait={queue_wait_ms:.0f}ms"
             )
             return OcrResult(
                 track_id=task.track_id,
                 text=text,
                 confidence=confidence,
-                method='tesseract',
+                method=method,
                 valid_thai=valid,
                 bbox=task.bbox,
                 det_confidence=task.det_confidence,
                 frame_timestamp=task.frame_timestamp,
                 camera_id=task.camera_id,
+                hef_text=hef_text,
+                hef_confidence=hef_conf,
+                hef_province=hef_province,
+                tesseract_text=tess_text,
+                tesseract_confidence=tess_conf,
             )
 
         except Exception as e:
