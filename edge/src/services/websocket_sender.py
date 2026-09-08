@@ -70,11 +70,24 @@ class WebSocketSender:
         self.sio = None
         self.connected = False
         self.server_url = WEBSOCKET_SERVER_URL
-        
+
         # Threading
         self.detection_thread = None
         self.running = False
         self.stop_event = threading.Event()
+
+        # Ack tracking for 'message' (detection_result) sends. emit() only
+        # confirms the packet was queued locally, not that the server
+        # actually received/processed it -- a connection can look alive
+        # (sio.connected stays True, health_status keeps flowing) while
+        # 'message' events silently vanish, e.g. after the transport gets
+        # forcibly reset by an oversized packet elsewhere on the same
+        # socket. Waiting for the server's message_saved/message_error ack
+        # before declaring success lets us detect that and force a real
+        # reconnect instead of marking rows sent that never arrived.
+        self._message_ack_event = threading.Event()
+        self._message_ack_success = None
+        self._message_ack_timeout = 8.0
         
         # Status tracking
         self.last_detection_check = None
@@ -380,6 +393,8 @@ class WebSocketSender:
             except Exception as e:
                 self.logger.debug(f"mark_detection from message_saved: {e}")
         self.logger.debug("message_saved received")
+        self._message_ack_success = True
+        self._message_ack_event.set()
 
     def _on_image_saved(self, data):
         """Handle image_saved response from server (ws-service)."""
@@ -388,10 +403,29 @@ class WebSocketSender:
     def _on_message_error(self, data):
         """Handle message_error from server; log and allow retry."""
         self.logger.error(f"Server message_error: {data}")
+        self._message_ack_success = False
+        self._message_ack_event.set()
 
     def _on_image_error(self, data):
         """Handle image_error from server; log and allow retry."""
         self.logger.error(f"Server image_error: {data}")
+
+    def _force_reconnect(self):
+        """Mark the connection broken so the next send cycle reconnects.
+
+        Called when a 'message' emit gets no ack even though sio.connected
+        still reports True -- the transport has gone silently one-way dead
+        (observed after an oversized packet elsewhere on the same socket
+        forces a mid-stream reset). Deliberately doesn't reconnect inline
+        here; the existing self.connect() gate in _send_detection_data()
+        picks this up on the next call.
+        """
+        self.connected = False
+        if self.sio:
+            try:
+                self.sio.disconnect()
+            except Exception as e:
+                self.logger.debug(f"Error disconnecting stale socket: {e}")
 
     def _send_pending_data(self):
         """
@@ -952,7 +986,26 @@ class WebSocketSender:
                 },
                 'camera_id': self.aicamera_id,
             }
+            self._message_ack_event.clear()
+            self._message_ack_success = None
             self.sio.emit('message', message_data)
+
+            # emit() only confirms the packet was handed to the local
+            # transport, not that the server received/processed it -- wait
+            # for the server's ack so a connection that *looks* alive but
+            # has gone silent (see class docstring note near
+            # _message_ack_event) doesn't get treated as a successful send.
+            acked = self._message_ack_event.wait(self._message_ack_timeout)
+            if not acked:
+                self.logger.warning(
+                    f"No message_saved/message_error ack within {self._message_ack_timeout}s "
+                    "-- connection looks alive but isn't delivering; forcing reconnect"
+                )
+                self._force_reconnect()
+                return False
+            if self._message_ack_success is False:
+                return False
+
             if data.get('original_image'):
                 fn = f"detection_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
                 image_payload = {
